@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:ca6ed511-c687-5cbe-9ece-14b54da5d641",
+  "serialNumber": "urn:uuid:2179637f-793a-570d-a0bd-e11dbc7b6dc4",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -623,7 +623,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "build/make_uwp*.bat, build/make_win32_luajit.bat, build/make_win64_luajit.bat"
+          "value": "build/make_uwp*.bat"
         },
         {
           "name": "xlua-ng:latest",
@@ -2887,7 +2887,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (14 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/docs.yml, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (16 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -2929,7 +2929,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/meta.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (42 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/docs.yml, .github/workflows/meta.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (43 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3055,7 +3055,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (82 uses)"
+          "value": ".github/workflows/analysis.yml, .github/workflows/build.yml, .github/workflows/codeql.yml, .github/workflows/native-build.yml, .github/workflows/publish.yml, .github/workflows/unity-matrix.yml, .github/workflows/windows-host.yml (83 uses)"
         },
         {
           "name": "xlua-ng:latest",
@@ -3228,48 +3228,6 @@
         {
           "name": "xlua-ng:latest",
           "value": "v4.39.0 (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "current"
-        }
-      ]
-    },
-    {
-      "type": "application",
-      "bom-ref": "ci/ilammy/msvc-dev-cmd@v1.13.0_(0b201ec)",
-      "name": "ilammy/msvc-dev-cmd",
-      "version": "v1.13.0",
-      "purl": "pkg:githubactions/ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/ilammy/msvc-dev-cmd"
-        },
-        {
-          "type": "vcs",
-          "url": "https://github.com/ilammy/msvc-dev-cmd"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "ci"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/publish.yml (4 uses)"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "v1.13.0 (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",

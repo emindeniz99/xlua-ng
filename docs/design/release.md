@@ -147,9 +147,6 @@ r30, Xcode 27.1, on a Mac):
   generator, which `windows-2022` does not have; the scripts go on after the
   failure and the run of 2026-10-18 (`build.yml` 39168098003) had no WSA
   DLLs. The package leaves UWP out until the scripts use Visual Studio 2022.
-- **LuaJIT on Windows:** the same run's `plugin_luajit_window` and
-  `plugin_luajit_window32` artifacts held no DLL, so `luajit_<tag>.tgz` has
-  no Windows x64 or x86 LuaJIT.
 - **OpenHarmony in the package:** `Assets/Plugins` has no import settings
   for it; the plugins are in the `lua5*_<tag>.tgz` archives.
 - **Lua 5.4, 5.3 and LuaJIT in the package:** the package has Lua 5.5.1
@@ -168,6 +165,25 @@ r30, Xcode 27.1, on a Mac):
   bridge gets it nowhere. This follows open question 16 of
   [core-luascript.md](core-luascript.md) (`XLUA_LUASCRIPT=ON` by default,
   about 7 KB native).
+
+## Open for the owner
+
+- **LuaJIT on Windows builds (since 2026-10-28).** Before,
+  `make_win64_luajit.bat` and `make_win32_luajit.bat` asked for Visual
+  Studio 2019 and went on after the failure, so the `plugin_luajit_window`
+  and `plugin_luajit_window32` artifacts held no DLL (`build.yml` runs
+  39168098003 and 40668980945), and this list left Windows LuaJIT out of
+  `luajit_<tag>.tgz`. The scripts now use the newest Visual Studio and stop at a
+  failure, and `build.yml` run
+  [40671930012](https://github.com/emindeniz99/xlua-ng/actions/runs/40671930012)
+  built both DLLs and passed `check_exports.py` on both and
+  `native_regression.py` on x64 ([build/README.md](../../build/README.md#windows-libraries)).
+  `publish.yml` runs the same scripts and its `assemble` job takes every
+  `plugin_luajit_*` artifact, so the next run puts Windows x64 and x86
+  LuaJIT into `luajit_<tag>.tgz`. Whether the first release ships them is
+  for the owner to decide; leaving them out means excluding the two
+  artifacts in `assemble`. Not checked: a Unity player or Editor loading
+  them, and `publish.yml` itself (not run).
 
 ## Decisions taken here
 

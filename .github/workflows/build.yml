@@ -3,13 +3,22 @@ name: build
 on:
   push:
     # The build scripts and what the jobs run besides them: the NDK and OpenHarmony SDK
-    # installers and the checks of the Android, Apple and OpenHarmony libraries.
+    # installers, the x86 Python finder and the checks of the Android, Apple, OpenHarmony and Windows libraries
+    # (the native regressions with the modules and cases they read).
     paths:
       - build/**
       - .github/scripts/install-android-ndk.sh
       - .github/scripts/install-ohos-sdk.sh
+      - .github/scripts/find-python-x86.sh
       - Test/Native/check_android_elf.py
       - Test/Native/check_apple_minos.py
+      - Test/Native/check_exports.py
+      - Test/Native/native_regression.py
+      - Test/Native/profiler_smoke.py
+      - Test/Native/core_regression.py
+      - Test/Native/core_sandbox_cases.txt
+      - Test/Native/stop_latency.py
+      - Test/Native/bytecode_only.py
       - Test/Native/managed_imports.py
       - Test/Native/ohos_check.sh
       - Test/Native/ohos_x86_64_entry.c
@@ -247,40 +256,83 @@ jobs:
       - name: Install MSVC
         uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
       - name: Build
+        # The scripts stop with exit code 1 at the first failed step and skip pause when CI
+        # is set. make_win64_luajit.bat opens its own x64 developer prompt (vswhere).
+        shell: cmd # zizmor: ignore[misfeature] the build scripts are .bat files
+        run: |
+          call build\make_win_lua55.bat || exit /b 1
+          call build\make_win_lua54.bat || exit /b 1
+          call build\make_win32_lua53.bat || exit /b 1
+          call build\make_win64_lua53.bat || exit /b 1
+          call build\make_win64_luajit.bat || exit /b 1
+      - name: Build UWP (needs Visual Studio 2019)
+        # make_uwp*.bat ask for the Visual Studio 2019 generator, which windows-2022 lacks, and
+        # go on after a failed step: they produce no WSA libraries here (docs/design/release.md).
         run: |
           cd build
-          .\make_win_lua55.bat
           .\make_uwp_lua55.bat
-          .\make_win_lua54.bat
           .\make_uwp_lua54.bat
-          .\make_win32_lua53.bat
-          .\make_win64_lua53.bat
           .\make_uwp.bat
-      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
-      - name: Build Luajit
+      - name: Check that every library was built
+        shell: bash
         run: |
-          cd build
-          .\make_win64_luajit.bat
+          set -euo pipefail
+          ls -l build/plugin_lua55/Plugins/x86_64/xlua.dll build/plugin_lua55/Plugins/x86/xlua.dll \
+            build/plugin_lua54/Plugins/x86_64/xlua.dll build/plugin_lua54/Plugins/x86/xlua.dll \
+            build/plugin_lua53/Plugins/x86_64/xlua.dll build/plugin_lua53/Plugins/x86/xlua.dll \
+            build/plugin_luajit/Plugins/x86_64/xlua.dll
       - name: Upload55
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua55/**/*
           name: plugin_lua55_window
+          if-no-files-found: error
       - name: Upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua54/**/*
           name: plugin_lua54_window
+          if-no-files-found: error
       - name: Upload53
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_lua53/**/*
           name: plugin_lua53_window
+          if-no-files-found: error
       - name: UploadJit
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_luajit/**/*
           name: plugin_luajit_window
+          if-no-files-found: error
+      - name: Check the x64 exports and run the native regressions
+        # As in windows-host.yml: the stop-latency checks allow 250 ms on hosted runners and
+        # retry a failed one once.
+        timeout-minutes: 15
+        shell: bash
+        env:
+          XLUA_STOP_SLACK_MS: '250'
+          XLUA_RETRY_STOP_LATENCY: '1'
+          PYTHONUTF8: '1'
+        run: |
+          set -euo pipefail
+          for lua in lua55 lua54 lua53 luajit; do
+            plugin="build/plugin_$lua/Plugins/x86_64/xlua.dll"
+            echo "::group::$plugin"
+            python Test/Native/check_exports.py "$plugin"
+            if [[ "$lua" != luajit ]]; then python Test/Native/profiler_smoke.py "$plugin"; fi
+            python Test/Native/native_regression.py "$plugin"
+            echo "::endgroup::"
+          done
+      - name: Check the x86 exports
+        # ctypes loads an x86 DLL only from a 32-bit Python; the runner's tool cache has one.
+        shell: bash
+        run: |
+          set -euo pipefail
+          py="$(bash .github/scripts/find-python-x86.sh)"
+          for lua in lua55 lua54 lua53; do
+            "$py" Test/Native/check_exports.py "build/plugin_$lua/Plugins/x86/xlua.dll"
+          done
 
   windows-luajit-32:
     runs-on: windows-2022
@@ -291,18 +343,27 @@ jobs:
           persist-credentials: false
       - name: Install MSVC
         uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
-      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
-        with:
-          arch: x86
-      - name: Build Luajit
-        run: |
-          cd build
-          .\make_win32_luajit.bat
+      - name: Build LuaJIT
+        # The script opens its own x86 developer prompt (vswhere) and stops with exit code 1
+        # at the first failed step.
+        shell: cmd # zizmor: ignore[misfeature] the build scripts are .bat files
+        run: call build\make_win32_luajit.bat || exit /b 1
+      - name: Check that the library was built
+        shell: bash
+        run: ls -l build/plugin_luajit/Plugins/x86/xlua.dll
       - name: UploadJit
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ./build/plugin_luajit/**/*
           name: plugin_luajit_window32
+          if-no-files-found: error
+      - name: Check the exports
+        # ctypes loads an x86 DLL only from a 32-bit Python; the runner's tool cache has one.
+        shell: bash
+        run: |
+          set -euo pipefail
+          py="$(bash .github/scripts/find-python-x86.sh)"
+          "$py" Test/Native/check_exports.py build/plugin_luajit/Plugins/x86/xlua.dll
 
   windows-arm64:
     # Native Windows on Arm. The scripts also cross-compile on windows-2022 (x64).

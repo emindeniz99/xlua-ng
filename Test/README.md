@@ -29,7 +29,14 @@ and maps it onto luaunit: `ASSERT_EQ` is `assertEquals`, `ASSERT_TRUE` is
 catches the error with `pcall`. Each mode prints a line such as
 `[luaunit coroutine] Ran N tests in 0.2 seconds, N successes, 0 failures`,
 and a failure in either mode raises a Lua error, which `LuaEnv.DoString`
-turns into a C# exception.
+turns into a C# exception. Outside Unity, Lua's `print` writes to C's
+`stdout` and C# (`LuaTestCommon.Log`) to `Console`, two buffers on one file.
+PUC Lua flushes after each `print` and LuaJIT does not, so
+`luaunit_compat.lua` flushes through `io.stdout`; a library without `io`
+(the minimal preset) has nothing to flush with, and there `print` goes
+through `LuaTestCommon.Log`. Before that, LuaJIT's lines left in blocks
+that end anywhere, and a C# line could land inside one, also inside the
+summary line, which the scripts then missed (native-build run 40672755047).
 
 With Mono 6.14.1 and `mcs` installed (`brew install mono` on macOS and Linux),
 first build a host-native plugin, then run:
@@ -497,7 +504,12 @@ runtime and stays cached, so both cases expect no rescans everywhere again,
 and `CaseEnvScanReused` also makes a dynamic assembly with a
 `[CSharpCallLua]` interface, which must cause no scan and not be found
 (without the change the .NET Framework would scan again, as `CaseEnvScanReused`
-did in run 40642149114; not rerun). Not run on
+did in run 40642149114; not rerun). On .NET (`coverage_cs_dotnet.py`) the
+case failed in the coroutine pass of run 40672755047 with two scans: the
+name of its dynamic assembly used `Process.GetCurrentProcess().Id`, which
+loaded `System.Diagnostics.Process` (Mono has it in `System.dll`), and the
+first env's scan of that assembly loaded four more, so the second env
+scanned too. The name is now a counter. Not run on
 Windows: the source generator passes, .NET (Core), Unity.
 
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
@@ -1663,6 +1675,13 @@ driver ended (and lists every call). The seeds are 16 fixed random inputs
 of 1 KB, which the script writes, and `Test/Fuzz/corpus/bridge` (the
 reduced input of crash-inventory item 27: on legacy Lua 5.3.6 it replaces the
 metatable of an all-weak `_G` between GC steps).
+It runs for 60 seconds in every native-build (`sanitizers` job, legacy,
+Lua 5.5.1), and for 30 minutes every Monday in `analysis.yml`'s `fuzz-bridge`
+job (owner decision 2026-10-28) on legacy 5.5.1, legacy LuaJIT, minimal 5.4.9
+and core 5.5.1. The weekly job keeps the corpus it grows in the Actions cache
+(one entry per configuration), so each week starts from the last; a crash
+uploads its reproducer and `fuzz.log` as an artifact for 30 days. Add a minimised
+reproducer of every fixed crash to `native_regression.py` or the seed corpus.
 On 2026-10-28 (Linux arm64 container, Clang 21.1.8) the target ran for about
 2 hours 40 minutes of CPU in fork mode: legacy 15 minutes on each runtime,
 minimal 10, core 15 on 5.4.9 and 5.5.1, plus re-runs after the fixes. It

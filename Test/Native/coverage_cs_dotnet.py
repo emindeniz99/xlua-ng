@@ -150,7 +150,13 @@ def run(cmd, cwd=None, log=None, check=True):
             stdout.close()
     if check and code:
         if log:
-            print(Path(log).read_text(errors="replace")[-4000:])
+            text = Path(log).read_text(errors="replace")
+            # The tail shows the last mode only: first each failed case with
+            # the start of its message, wherever it is in the log.
+            failed = re.findall(r"^    \S+ \.\.\. (?:FAIL|ERROR)\n(?:.*\n){0,4}", text, re.M)
+            if failed:
+                print("".join(failed))
+            print(text[-4000:])
         raise SystemExit("exit code %d: %s" % (code, " ".join(cmd)))
     return code
 
