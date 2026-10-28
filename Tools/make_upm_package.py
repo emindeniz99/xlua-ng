@@ -150,7 +150,8 @@ class Package:
         dest.mkdir(parents=True, exist_ok=True)
         self.folder_meta(dest, Path(str(src) + ".meta"))
         for item in sorted(src.iterdir()):
-            if item.name.endswith(".meta") or item.name in (".DS_Store",) or item.name in skip:
+            # Names Unity does not import (starting with "." or ending with "~") have no .meta.
+            if item.name.endswith((".meta", "~")) or item.name.startswith(".") or item.name in skip:
                 continue
             if item.is_dir():
                 self.copy_tree(item, dest / item.name)
