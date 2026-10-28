@@ -40,16 +40,20 @@ jobs:
       matrix:
         include:
           # C/C++ is traced through a manual libxlua build. The vendored Lua,
-          # LuaJIT headers and LuaSocket are compiled too, so alerts in those
-          # directories are upstream code: record them, do not patch them.
+          # LuaJIT headers and LuaSocket are compiled too; their results are
+          # dropped before the upload (codeql-drop-vendored.py) but stay in the
+          # artifact. They are upstream code: record them, do not patch them.
           - language: c-cpp
             build-mode: manual
-            # Trail of Bits' C/C++ pack (its default code-scanning suite), pinned to a
-            # published version; see "CodeQL" in .github/CI.md for why and which queries.
-            packs: trailofbits/cpp-queries@0.3.0
+            # Trail of Bits' security queries for C/C++ (not its crypto suite: no
+            # OpenSSL here), pinned to a published version; see "CodeQL" in
+            # .github/CI.md. The digest is checked in the step before init.
+            packs: trailofbits/cpp-queries@0.3.0:codeql-suites/tob-cpp-security.qls
+            pack-digest: sha256:126366bdcadbc91f0d17ce837267c734dce39af1b8f7ab233f293cbe6e4d56e5
           - language: csharp
             build-mode: none
             packs: ''
+            pack-digest: ''
     defaults:
       run:
         shell: bash
@@ -57,6 +61,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Check the query pack's registry digest
+        if: matrix.pack-digest != ''
+        # The CodeQL CLI pins packs by version only, and a registry tag can be
+        # pushed again. Fail if trailofbits/cpp-queries@0.3.0 is no longer the
+        # manifest recorded above (GHCR, anonymous pull token).
+        env:
+          WANT: ${{ matrix.pack-digest }}
+        run: |
+          set -euo pipefail
+          token=$(curl -fsS 'https://ghcr.io/token?scope=repository:trailofbits/cpp-queries:pull' |
+            python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])')
+          got=$(curl -fsSI -H "Authorization: Bearer $token" \
+            -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+            https://ghcr.io/v2/trailofbits/cpp-queries/manifests/0.3.0 |
+            tr -d '\r' | awk -F': ' 'tolower($1) == "docker-content-digest" {print $2}')
+          echo "trailofbits/cpp-queries@0.3.0: $got"
+          [ "$got" = "$WANT" ] || { echo "::error::expected $WANT"; exit 1; }
       - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           languages: ${{ matrix.language }}
@@ -77,9 +98,18 @@ jobs:
       - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           category: /language:${{ matrix.language }}
-          # Manual runs upload only when asked; the SARIF is also kept as an artifact.
-          upload: ${{ (github.event_name != 'workflow_dispatch' || inputs.upload) && 'always' || 'never' }}
+          # The upload step below sends the results without vendored code; the
+          # unfiltered SARIF is kept as an artifact.
+          upload: never
           output: ${{ runner.temp }}/codeql-sarif
+      - name: Drop results in vendored code
+        run: python3 .github/scripts/codeql-drop-vendored.py "$RUNNER_TEMP/codeql-sarif" "$RUNNER_TEMP/codeql-upload"
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        # Manual runs upload only when asked.
+        if: github.event_name != 'workflow_dispatch' || inputs.upload
+        with:
+          sarif_file: ${{ runner.temp }}/codeql-upload
+          category: /language:${{ matrix.language }}
       - name: Summarise the results
         if: always()
         run: |
