@@ -1759,8 +1759,18 @@ Without the asmdefs it compiles into Assembly-CSharp with the rest.
     object is a table value)", the text a call gives for an error object
     without a usable `__tostring`, with the coroutine's traceback and the
     error object as `ErrorValue`. A memory error or a stop inside that
-    `__tostring` throws as it does in a call. Calls (`Load`, `Call`) are
-    unchanged.
+    `__tostring` throws as it does in a call. Calls (`Load`, `Call`) do the
+    same since the next entry.
+  - A call (`Load`, `Call`, `LuaFunctionRef.Call`) that fails with an error
+    object whose `__tostring` raises (owner decision Q54, 2026-10-28) threw
+    `LuaRuntimeException` for what `__tostring` raised instead: for a table,
+    "(error object is a table value)" with that table as `ErrorValue`; for a
+    string, that message ("chunk:1: again"), also as `ErrorValue`, with the
+    traceback of `__tostring`. It now keeps the error object itself as `ErrorValue`, with
+    "(error object is a table value)" and the traceback of where it was
+    raised, as a coroutine does. A memory error or a stop inside that
+    `__tostring` throws as before. **native:** `xlua_core_call` gives the
+    same through `error`, `traceback` and `error_ref`.
   - **native:** `xlua_core_call`, `xlua_core_handle`, `xlua_core_register`,
     `xlua_core_set_require` and `xlua_core_unref` pushed a value before they
     checked the stack, so a C host whose stack was exactly full failed Lua's

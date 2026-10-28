@@ -264,9 +264,26 @@ function badtostring(at) if at > 0 then coroutine.yield(1) end error(setmetatabl
                     Equal(9L, t.GetLong("code"), "and the same ErrorValue");
                 }
             }
-            var pe = Throws<LuaRuntimeException>(() => lua.Load("error(setmetatable({}, {__tostring = function() error({}) end}))", "plain"),
-                                                 "__tostring raises in a plain call");
-            if (pe != null) Equal("(error object is a table value)", pe.Message, "the plain call's text");
+            // A plain call the same (owner decision Q54, 2026-10-28; until then ErrorValue was
+            // what __tostring raised: the table here, nothing for a string).
+            foreach (string raised in new[] { "{}", "'again'" })
+            {
+                var pe = Throws<LuaRuntimeException>(() => lua.Load("error(setmetatable({code = 7}, {__tostring = function() error(" + raised + ") end}))", "plain"),
+                                                     "__tostring raises " + raised + " in a plain call");
+                if (pe != null)
+                {
+                    Equal("(error object is a table value)", pe.Message, "the plain call's text");
+                    Contains(pe.LuaStackTrace, "in main chunk", "the plain call's traceback");
+                    Equal(LuaType.Table, pe.ErrorValue.Type, "ErrorValue of a plain call is the error object");
+                    if (pe.ErrorValue.Type == LuaType.Table)
+                    {
+                        using (LuaTableRef t = pe.ErrorValue.AsTable())
+                        {
+                            Equal(7L, t.GetLong("code"), "ErrorValue of a plain call is the error object");
+                        }
+                    }
+                }
+            }
             lua.Register("hostfail", (ref LuaCall c) => { throw new FormatException("bad host"); });
             lua.Load("function hostjob() coroutine.yield(1) hostfail() end", "h");
             using (LuaCoroutine co = lua.Start("hostjob"))

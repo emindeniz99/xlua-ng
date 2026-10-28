@@ -886,17 +886,47 @@ LUA_API int xlua_core_register(lua_State *L, int32_t env, const char *name, int3
 	return status;
 }
 
+/* luaL_callmeta(error object at 1, "__tostring") for describe_error, which
+ * calls it protected. */
+static int tostring_meta(lua_State *L) {
+	return luaL_callmeta(L, 1, "__tostring");
+}
+
 /* The error value at the top of L: the message (or a description of a
  * non-string error) replaces it, as lua.c's msghandler makes it, and the
  * traceback of thread T from 'level' goes into the registry (trace_key), so
- * that C# gets the two apart (LuaException.LuaStackTrace). A non-string
- * error's __tostring gives the message when 'meta' is set. The limit is raised
- * by the error reserve meanwhile; if this fails, the entry restores it. */
-static int describe_error(lua_State *L, lua_State *T, int level, int meta) {
+ * that C# gets the two apart (LuaException.LuaStackTrace). The limit is raised
+ * by the error reserve meanwhile; if this fails, the entry restores it.
+ * A non-string error's __tostring gives the message, in a protected call:
+ * when it raises, the error is described as one whose __tostring gives no
+ * string, and it stays the error value (ErrorValue), in a plain call (where
+ * this is the message handler, which an error would run again for the new
+ * object) as in a coroutine (owner decision of 2026-10-28, Q54). A memory
+ * error in __tostring is raised again, and a stop gives the stop's message:
+ * both are the call's, and neither keeps the error value. */
+static int describe_error(lua_State *L, lua_State *T, int level) {
 	xlua_core_t *xc = xlua_core_of(L);
 	size_t reserve = xc->reserve;
 	int msg = lua_gettop(L), err = msg, is_string = lua_tostring(L, err) != NULL;
 	xc->reserve = XLUA_CORE_ERROR_RESERVE;
+	if (!is_string) {  /* is error object not a string? */
+		int st;
+		lua_pushcfunction(L, tostring_meta);
+		lua_pushvalue(L, err);
+		st = lua_pcall(L, 1, 1, 0);
+		if (st == LUA_ERRMEM) {
+			lua_error(L);  /* Lua's memory error message: a memory error again */
+		}
+		if (st != LUA_OK && xc->stop != 0) {  /* the stop's message, whatever __tostring raised after it */
+			xlua_core_fail_stopped(L, xc->stop, err);
+			is_string = 1;
+		}
+		else if (st != LUA_OK || lua_type(L, -1) != LUA_TSTRING) {
+			lua_pop(L, 1);
+			lua_pushfstring(L, "(error object is a %s value)", luaL_typename(L, err));
+		}
+		msg = lua_gettop(L);
+	}
 	if (is_string) {
 		lua_pushboolean(L, 0);
 	}
@@ -904,12 +934,6 @@ static int describe_error(lua_State *L, lua_State *T, int level, int meta) {
 		lua_pushvalue(L, err);
 	}
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &errv_key);  /* the error value itself (ErrorValue); an existing key */
-	if (!is_string) {  /* is error object not a string? */
-		if (!meta || !luaL_callmeta(L, err, "__tostring") || lua_type(L, -1) != LUA_TSTRING) {
-			lua_pushfstring(L, "(error object is a %s value)", luaL_typename(L, err));
-		}
-		msg = lua_gettop(L);
-	}
 	luaL_traceback(L, T, NULL, level);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &trace_key);  /* an existing key: no allocation */
 	lua_settop(L, msg);
@@ -920,7 +944,7 @@ static int describe_error(lua_State *L, lua_State *T, int level, int meta) {
 /* The message handler of xlua_core_call. */
 static int call_msgh(lua_State *L) {
 	lua_settop(L, 1);
-	return describe_error(L, L, 1, 1);
+	return describe_error(L, L, 1);
 }
 
 /* describe_error for the error of coroutine co (at 2) at 1, protected by
@@ -928,7 +952,7 @@ static int call_msgh(lua_State *L) {
 static int co_describe(lua_State *L) {
 	lua_State *co = lua_tothread(L, 2);
 	lua_settop(L, 1);
-	return describe_error(L, co, 0, 1);
+	return describe_error(L, co, 0);
 }
 
 typedef struct call_args {
@@ -1065,11 +1089,9 @@ static int co_body(lua_State *L, call_args *a, lua_State *co) {
 	lua_xmove(L, co, 1);
 	if (a->status == LUA_ERRRUN) {
 		/* Protected: no message handler runs here, as one does around a plain
-		 * call, and an error object's __tostring may raise. When it does, the
-		 * error is described as one whose __tostring gives no string, and it
-		 * stays the error value (ErrorValue). A memory error or a stop in
-		 * __tostring is the call's, as in a plain call. Every way out leaves
-		 * a string message (xlua_core_call relies on it). */
+		 * call, and describe_error raises a memory error (also one in an error
+		 * object's __tostring), which is the call's, as in a plain call. Every
+		 * way out leaves a string message (xlua_core_call relies on it). */
 		size_t reserve = xc->reserve;
 		int described;
 		lua_pushcfunction(L, co_describe);
@@ -1077,21 +1099,11 @@ static int co_body(lua_State *L, call_args *a, lua_State *co) {
 		lua_pushvalue(L, 5);
 		described = lua_pcall(L, 2, 1, 0);
 		xc->reserve = reserve;
-		if (described == LUA_OK) {
-			lua_replace(L, -2);
-		}
-		else if (described != LUA_ERRRUN) {  /* LUA_ERRMEM, with Lua's message */
+		if (described != LUA_OK) {  /* LUA_ERRMEM, with Lua's message */
 			a->status = described;
 			return 1;
 		}
-		else if (xc->stop != 0) {  /* the stop's message, whatever __tostring raised after it */
-			a->status = xlua_core_fail_stopped(L, xc->stop, lua_gettop(L) - 1);
-			return 1;
-		}
-		else {
-			lua_pop(L, 1);
-			describe_error(L, co, 0, 0);
-		}
+		lua_replace(L, -2);
 	}
 	return call_error(L, a);
 }
