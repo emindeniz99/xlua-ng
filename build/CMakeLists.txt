@@ -66,7 +66,9 @@ if (MSVC)
     if (XLUA_HAS_LINK_BREPRO)
         add_link_options (/Brepro)
     endif ()
-    check_c_compiler_flag ("/pathmap:C:\\a=b" XLUA_HAS_PATHMAP)
+    # A forward slash: check_c_compiler_flag evaluates the flag again as CMake
+    # code, where "C:\a" is an invalid escape that stops configure.
+    check_c_compiler_flag ("/pathmap:C:/a=b" XLUA_HAS_PATHMAP)
     if (XLUA_HAS_PATHMAP)
         file (TO_NATIVE_PATH "${CMAKE_CURRENT_SOURCE_DIR}" xlua_native_source_dir)
         file (TO_NATIVE_PATH "${CMAKE_CURRENT_BINARY_DIR}" xlua_native_binary_dir)
