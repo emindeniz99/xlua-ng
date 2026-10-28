@@ -343,7 +343,10 @@ checkouts each:
 Apple's linker writes each object file's modification time into the OSO
 entries of a library linked with debug information; `ZERO_AR_DATE=1` in the
 environment makes it write 0. The release scripts build Apple plugins without
-debug information, so they do not need it. LuaJIT's `libluajit.a` comes from
+debug information, so they do not need it. **Owner decision (2026-10-28):**
+`ZERO_AR_DATE` stays documentation only. No script or CMake option sets it;
+whoever needs identical Apple builds with debug information sets
+`ZERO_AR_DATE=1` in the environment. LuaJIT's `libluajit.a` comes from
 its own Makefile, which compiles without `-g` and with relative paths, so the
 LuaJIT plugin was the same without any change there.
 
