@@ -213,6 +213,85 @@ Compatibility questions the search found, not changed:
      differs: generated code throws `InvalidCastException` from the cast,
      emitted code the same from `unbox`, and reflection `ArgumentException`
      from `MethodBase.Invoke`.
+
+   **Decided 2026-10-28 (owner, Q34, Q35, Q36).** Implemented [C]:
+   - **Q34, enums: an enum argument given nil raises the struct error in every
+     mode.** The record above was wrong in one point: emitted and reflection
+     wrappers did not pass 0 for nil but threw
+     `InvalidCastException: invalid value for enum E` from the enum caster
+     (`ObjectCasters.genCaster`) [C] (`CaseParityEnumArgs` on main). Now every
+     mode raises `c# exception:System.InvalidCastException: E expected, got
+     nil` (`no value`, `boolean`, `table`, or the class of a C# object of
+     another class), as for structs: `ObjectCasters.IsStrictArg` (a strict
+     struct or an enum) selects `GetStructArg` in emitted code and in
+     generated code without a reader (`Wrappers.IsStrictArg`), the new
+     `ObjectCasters.genEnumArgCaster` serves reflection parameters, fields and
+     properties (a number, a value name or the enum's own userdata go to the
+     caster as before; anything else raises `StructExpected`), a missing
+     argument of a reflection overload raises as nil does
+     (`OverloadMethodWrap.Call`), and the generated reader of a
+     `[LuaCallCSharp]` enum raises `StructExpected` in its last branch for an
+     argument that is no number or string, and for another type's userdata.
+     Unchanged: a number and a value name convert, `Nullable<E>` takes nil, an
+     omitted optional enum parameter gets its default, and an enum read back
+     from Lua where Lua has no value raises `invalid value for enum E` in
+     every mode, as before (the same everywhere, so outside Q35).
+   - **Q35, values C# reads back: `default(S)` where Lua has no value.**
+     `ObjectTranslator.Get<T>` gives `default(T)` where `GetObject` returns
+     null (unboxing null threw `NullReferenceException`): delegate and
+     interface results of generated bridges without a reader,
+     `GenericDelegateBridge`, `LuaFunction.Func`, `DelegateBridge`. The
+     generated readers of `[GCOptimize]` structs take `bool result = false`:
+     with `true` a struct gives `default(S)` for nil or nothing, and the
+     bridges' result reads and the registration (`b.Struct`, `b.Caster`, the
+     get functions of `Get<T>` and the casters of `GetObject`) pass `true`;
+     arguments, `self` and array elements do not. Since a `[GCOptimize]`
+     table type's caster now gives `default(S)` for nil,
+     `ObjectCasters.genStructArgCaster` refuses nil and nothing before it
+     calls the caster, and `ObjectTranslator.GetStructArg<T>` refuses them
+     before a get function. Emitted bridges already gave the zero value.
+     **Not changed: `LuaTable.Get<S>` and `GetInPath<S>`** raise
+     `InvalidCastException: can not assign nil to S` for a missing key before
+     any conversion, for every value type, `int` included
+     (`LuaTable.cs:57`, `:152`, upstream), and the same in every mode, so the
+     premise "the same as `Get<int>` returning 0" does not hold there; making
+     only structs give `default` would separate them from `int`. Left as it is
+     and reported to the owner. A value of another kind read back (a number
+     for a struct result) still differs: generated `[GCOptimize]` readers
+     raise `S expected, got number`, the other paths give `default(S)`; not
+     decided, reported.
+   - **Q36, a C# object of another class for a struct parameter:
+     `InvalidCastException` with the Q22 text.** `ObjectCasters.StructExpected`
+     names the class of a C# object (`S expected, got Coverage.Parity`),
+     `ObjectTranslator.getObject` raises it for an argument of a strict struct
+     or enum type given a C# object of another class (emitted `GetStructArg`,
+     reflection fields and properties), reflection parameters reach it through
+     the caster as before, and the generated readers raise it instead of
+     `Exception("invalid userdata for S")` (packed) or the cast's exception
+     (read field by field). Enums the same (Q34).
+   - **Cost:** none on the paths that succeed, except one `lua_type` per
+     reflection struct argument (`genStructArgCaster`), which the reflection
+     path pays next to `MethodBase.Invoke`; generated and emitted arguments
+     and results are unchanged where the value is right. No benchmark was run.
+   - **Tests** (`luaCallCsCoverage.lua`): `CaseParityEnumArgs` (Q34, on
+     `Parity.Kind`/`OptKind`/`NulKind`/`KindField` with the `[LuaCallCSharp]`
+     enum `ParityKind`, the same on `ParityReflected` with the unconfigured
+     `ParityReflectedKind`, and `Day(System.DayOfWeek)`),
+     `CaseParityStructResults` (Q35: `ParityResults.Func` through
+     `LuaFunction.Func` and `ParityResults.Call` through five `[CSharpCallLua]`
+     delegates, for `ParityStruct`, `ParityReflectedStruct`, the packed
+     `MultiListedVec`, the table-read `MultiListedPair` and `ParityKind`; and
+     `ParityResults.Get`, which records that `LuaTable.Get` raises for every
+     value type), `CaseParityStructOtherObject` (Q36, also `MultiListedB.SumVec`
+     and `Swap`). Before the change all three failed in the first pass
+     (reflection and CodeEmit, Lua 5.5.1): "invalid value for enum
+     Coverage.ParityKind", "Specified cast is not valid." and
+     `NullReferenceException` from `LuaFunction.Func` [C]. Generator test
+     `EnumArgumentsAndStructResults` (new); `StructArgumentsRaiseForNil` and
+     `StructsFollowTheLegacyModel` now expect `GetStructArg` for an enum
+     argument without a reader and `result: true` in the registration. The
+     new fixtures' entries were copied into
+     `Test/Native/expected-surface/suite.json` from the generator's manifest.
 3. **`xlua.private_accessible` and readonly fields.** It still writes
    non-public readonly fields (the reflection wrappers' non-public pass);
    public readonly fields are no longer writable in any mode. Keep, or make

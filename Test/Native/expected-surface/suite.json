@@ -1201,6 +1201,28 @@
       "Coverage.Parity::Pick(Coverage.ParityStruct)",
       "Coverage.Parity::Pick(Coverage.Parity)"
      ]
+    },
+    {
+     "name": "Kind",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Kind(Coverage.ParityKind)"
+     ]
+    },
+    {
+     "name": "OptKind",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::OptKind(System.Int32,Coverage.ParityKind)",
+      "Coverage.Parity::OptKind(System.Int32,Coverage.ParityKind) -1"
+     ]
+    },
+    {
+     "name": "NulKind",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::NulKind(System.Nullable`1[Coverage.ParityKind])"
+     ]
     }
    ],
    "getters": [
@@ -1217,7 +1239,8 @@
     "StaticReadOnly static readonly",
     "Transform",
     "Value",
-    "Inner"
+    "Inner",
+    "KindField"
    ],
    "setters": [
     "Any",
@@ -1228,7 +1251,8 @@
     "Transform",
     "Value",
     "WriteOnlyProp",
-    "Inner"
+    "Inner",
+    "KindField"
    ],
    "operators": [
     {
@@ -1299,6 +1323,16 @@
    "newindexers": [],
    "events": [],
    "lazy": []
+  },
+  {
+   "type": "Coverage.ParityKind",
+   "kind": "enum",
+   "fields": [
+    "A",
+    "B"
+   ],
+   "fieldCount": 2,
+   "registerEnumType": false
   },
   {
    "type": "Coverage.ParityListedGetter",
@@ -1378,6 +1412,41 @@
    "indexers": [
     "Coverage.ParityPrivateSetIndexer::get_Item(System.Int32)"
    ],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.ParityResults",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Call",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityResults::Call(Coverage.ParityStructResult,Coverage.ParityReflectedStructResult,Coverage.ParityVecResult,Coverage.ParityPairResult,Coverage.ParityKindResult)"
+     ]
+    },
+    {
+     "name": "Func",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityResults::Func(XLua.LuaFunction)"
+     ]
+    },
+    {
+     "name": "Get",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityResults::Get(XLua.LuaTable,System.String)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
    "newindexers": [],
    "events": [],
    "lazy": []
@@ -6008,6 +6077,15 @@
    "groups": []
   },
   {
+   "type": "Coverage.ParityKind",
+   "kind": "enum",
+   "pushed": true,
+   "flag": 0,
+   "size": 4,
+   "fields": [],
+   "groups": []
+  },
+  {
    "type": "FirstPushEnum",
    "kind": "enum",
    "pushed": true,
@@ -6298,6 +6376,41 @@
   "Upstream.StrictPacked root"
  ],
  "delegateBridges": [
+  {
+   "key": "Coverage.MultiListedPair()",
+   "delegates": [
+    "Coverage.ParityPairResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "Coverage.MultiListedVec()",
+   "delegates": [
+    "Coverage.ParityVecResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "Coverage.ParityKind()",
+   "delegates": [
+    "Coverage.ParityKindResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "Coverage.ParityReflectedStruct()",
+   "delegates": [
+    "Coverage.ParityReflectedStructResult"
+   ],
+   "hotfix": 0
+  },
+  {
+   "key": "Coverage.ParityStruct()",
+   "delegates": [
+    "Coverage.ParityStructResult"
+   ],
+   "hotfix": 0
+  },
   {
    "key": "IntegerSlotEnum()",
    "delegates": [

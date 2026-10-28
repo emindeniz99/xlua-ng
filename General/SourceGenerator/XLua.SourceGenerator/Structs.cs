@@ -428,11 +428,18 @@ namespace XLua.SourceGenerator
             w.Close();
 
             w.Line();
-            w.Open("internal static void Get_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out " + cs + " val)");
+            // result: a value C# reads back from Lua (a bridge's result, a get
+            // function of ObjectTranslator.Get<T>), where a struct gives
+            // default(T) for nil or nothing (owner decision Q35 of 2026-10-28);
+            // an argument raises (Q22, Q34).
+            w.Open("internal static void Get_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out " + cs + " val, bool result = false)");
             w.Line(LuaTypes + " type = " + LuaAPI + ".lua_type(L, index);");
             w.Open("if (type == " + LuaTypes + ".LUA_TUSERDATA)");
             w.Open("if (" + LuaAPI + ".xlua_gettypeid(L, index) != " + Api + ".TypeId(translator, L, " + slot + "))");
-            w.Line("throw new global::System.Exception(\"invalid userdata for " + Display(s.Type) + "\");");
+            // Another type's userdata, such as a C# object of another class,
+            // raises as in the other binding modes (owner decision Q36); it
+            // threw Exception("invalid userdata for T").
+            w.Line("throw " + Api + ".StructExpected(L, index, typeof(" + cs + "));");
             w.Close();
             w.Line("global::System.IntPtr buff = " + LuaAPI + ".lua_touserdata(L, index);");
             if (s.IsEnum)
@@ -457,13 +464,25 @@ namespace XLua.SourceGenerator
             w.Open("else");
             if (s.IsEnum)
             {
+                // An argument that is no number or value name raises, as in the
+                // other binding modes (owner decision Q34; it threw
+                // NullReferenceException or "invalid value for enum T"); a
+                // result goes through the enum's caster as before.
+                w.Open("if (!result && type != " + LuaTypes + ".LUA_TNUMBER && type != " + LuaTypes + ".LUA_TSTRING)");
+                w.Line("throw " + Api + ".StructExpected(L, index, typeof(" + cs + "));");
+                w.Close();
                 w.Line("val = (" + cs + ")" + Api + ".GetCaster(translator, typeof(" + cs + "))(L, index, null);");
             }
             else
             {
                 // nil, a number, a string or nothing raises, as in the other
                 // binding modes (ObjectCasters.StructExpected); it threw
-                // NullReferenceException.
+                // NullReferenceException. A result where Lua has no value is
+                // default(T) (Q35).
+                w.Open("if (result && (type == " + LuaTypes + ".LUA_TNIL || type == " + LuaTypes + ".LUA_TNONE))");
+                w.Line("val = default(" + cs + ");");
+                w.Line("return;");
+                w.Close();
                 w.Line("object obj = " + Api + ".GetCaster(translator, typeof(" + cs + "))(L, index, null);");
                 w.Line("if (obj == null) throw " + Api + ".StructExpected(L, index, typeof(" + cs + "));");
                 w.Line("val = (" + cs + ")obj;");
@@ -503,10 +522,22 @@ namespace XLua.SourceGenerator
         {
             string cs = Names.Cs(s.Type);
             w.Line();
-            w.Open("internal static void Get_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out " + cs + " val)");
+            // result: as for the packed readers above.
+            w.Open("internal static void Get_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out " + cs + " val, bool result = false)");
             w.Line(LuaTypes + " type = " + LuaAPI + ".lua_type(L, index);");
             w.Open("if (type == " + LuaTypes + ".LUA_TUSERDATA)");
-            w.Line("val = (" + cs + ")" + Api + ".FastGetCSObj(translator, L, index);");
+            if (s.Type.IsValueType)
+            {
+                // A C# object of another class raises (owner decision Q36); the
+                // cast threw the runtime's InvalidCastException.
+                w.Line("object obj = " + Api + ".FastGetCSObj(translator, L, index);");
+                w.Line("if (!(obj is " + cs + ")) throw " + Api + ".StructExpected(L, index, typeof(" + cs + "));");
+                w.Line("val = (" + cs + ")obj;");
+            }
+            else
+            {
+                w.Line("val = (" + cs + ")" + Api + ".FastGetCSObj(translator, L, index);");
+            }
             w.Close();
             w.Open("else if (type == " + LuaTypes + ".LUA_TTABLE)");
             w.Line("val = new " + cs + "();");
@@ -529,6 +560,13 @@ namespace XLua.SourceGenerator
             {
                 w.Open("else if (type == " + LuaTypes + ".LUA_TNIL || type == " + LuaTypes + ".LUA_TNONE)");
                 w.Line("val = null;");
+                w.Close();
+            }
+            if (s.Type.IsValueType)
+            {
+                // A result where Lua has no value is default(T) (Q35).
+                w.Open("else if (result && (type == " + LuaTypes + ".LUA_TNIL || type == " + LuaTypes + ".LUA_TNONE))");
+                w.Line("val = default(" + cs + ");");
                 w.Close();
             }
             w.Open("else");
@@ -746,7 +784,10 @@ namespace XLua.SourceGenerator
             foreach (var s in set.Values)
             {
                 string cs = Names.Cs(s.Type);
-                sb.Append("            b.Struct<").Append(cs).Append(">(Structs.Push_").Append(s.Id).Append(", Structs.Get_").Append(s.Id)
+                // ObjectTranslator.Get<T> reads results with it (result: true, Q35).
+                sb.Append("            b.Struct<").Append(cs).Append(">(Structs.Push_").Append(s.Id)
+                  .Append(", (global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out ").Append(cs)
+                  .Append(" val) => Structs.Get_").Append(s.Id).Append("(translator, L, index, out val, true)")
                   .Append(", Structs.Update_").Append(s.Id).Append(");\n");
                 sb.Append("            b.ArrayAccessor<").Append(cs).Append(">((translator, L, array, index) => Structs.Push_").Append(s.Id)
                   .Append("(translator, L, array[index]),\n                (translator, L, array, array_idx, obj_idx) => Structs.Get_").Append(s.Id)
@@ -755,7 +796,10 @@ namespace XLua.SourceGenerator
             foreach (var s in set.Tables)
             {
                 string cs = Names.Cs(s.Type);
-                sb.Append("            b.Caster<").Append(cs).Append(">(Structs.Get_").Append(s.Id).Append(");\n");
+                // The caster of GetObject, which reads results too (Q35);
+                // arguments are checked before it (ObjectCasters.GetArgCaster).
+                sb.Append("            b.Caster<").Append(cs).Append(">((global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out ")
+                  .Append(cs).Append(" val) => Structs.Get_").Append(s.Id).Append("(translator, L, index, out val, true));\n");
                 sb.Append("            b.ArrayAccessor<").Append(cs).Append(">(null, (translator, L, array, array_idx, obj_idx) => Structs.Get_").Append(s.Id)
                   .Append("(translator, L, obj_idx, out array[array_idx]));\n");
             }

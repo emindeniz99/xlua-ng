@@ -778,7 +778,8 @@ namespace XLua
             if (!refusingArgCasters.TryGetValue(type, out oc))
             {
                 // null: the type takes tables as before (GetCaster).
-                oc = RefusesTables(type) ? genRefusingCaster(type, true) : IsStrictStruct(type) ? genStructArgCaster(type) : null;
+                oc = RefusesTables(type) ? genRefusingCaster(type, true) : IsStrictStruct(type) ? genStructArgCaster(type)
+                    : type.IsEnum() ? genEnumArgCaster(type) : null;
                 refusingArgCasters.Add(type, oc);
             }
             return oc ?? GetCaster(type);
@@ -798,6 +799,16 @@ namespace XLua
                 && Nullable.GetUnderlyingType(type) == null;
         }
 
+        // A strict struct or an enum (not Nullable<E>): an argument of such a
+        // type given a value that is not one raises StructExpected in every
+        // binding mode. Enums since owner decision Q34 of 2026-10-28: generated
+        // code threw NullReferenceException or "invalid value for enum E" for
+        // nil, the emitted and reflection wrappers the latter.
+        public static bool IsStrictArg(Type type)
+        {
+            return IsStrictStruct(type) || type.IsEnum();
+        }
+
         // The error of a value that is no struct of the type: an
         // InvalidCastException, as for a UnityEngine.Object type given a table
         // in a value C# reads, which every wrapper reports as
@@ -815,24 +826,60 @@ namespace XLua
                 case LuaTypes.LUA_TTABLE: got = "table"; break;
                 case LuaTypes.LUA_TFUNCTION: got = "function"; break;
                 case LuaTypes.LUA_TTHREAD: got = "thread"; break;
-                default: got = "userdata"; break;
+                default:
+                    // A C# object names its class (owner decision Q36).
+                    ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+                    object obj = translator == null ? null : translator.SafeGetCSObj(L, idx);
+                    got = obj == null ? "userdata" : obj.GetType().ToString();
+                    break;
             }
             return new InvalidCastException(type + " expected, got " + got);
         }
 
         // GetCaster's caster of a strict struct, which returns null for a value
-        // that is not one: StructExpected instead.
+        // that is not one: StructExpected instead. nil and nothing are refused
+        // before the caster, since a GCOptimize type's caster (its generated
+        // reader) gives default(T) for them, as a result C# reads back from Lua
+        // should (owner decision Q35 of 2026-10-28).
         ObjectCast genStructArgCaster(Type type)
         {
             ObjectCast caster = GetCaster(type);
             return (RealStatePtr L, int idx, object target) =>
             {
-                object obj = caster(L, idx, target);
+                LuaTypes lua_type = LuaAPI.lua_type(L, idx);
+                object obj = lua_type == LuaTypes.LUA_TNIL || lua_type == LuaTypes.LUA_TNONE ? null : caster(L, idx, target);
                 if (obj == null)
                 {
                     throw StructExpected(L, idx, type);
                 }
                 return obj;
+            };
+        }
+
+        // GetCaster's caster of an enum for an argument (owner decision Q34): a
+        // number, a value name or the enum's own userdata as before; nil,
+        // nothing, a boolean, a table, a function or a C# object of another
+        // class raise StructExpected (the caster threw "invalid value for enum
+        // E", which results C# reads back from Lua keep).
+        ObjectCast genEnumArgCaster(Type type)
+        {
+            ObjectCast caster = GetCaster(type);
+            return (RealStatePtr L, int idx, object target) =>
+            {
+                switch (LuaAPI.lua_type(L, idx))
+                {
+                    case LuaTypes.LUA_TNUMBER:
+                    case LuaTypes.LUA_TSTRING:
+                        return caster(L, idx, target);
+                    case LuaTypes.LUA_TUSERDATA:
+                        object obj = translator.SafeGetCSObj(L, idx);
+                        if (obj == null || type.IsInstanceOfType(obj))
+                        {
+                            return caster(L, idx, target);
+                        }
+                        break;
+                }
+                throw StructExpected(L, idx, type);
             };
         }
 

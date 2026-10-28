@@ -1144,14 +1144,17 @@ namespace Lib
             Assert.True(player.Contains("Structs.Get_" + t), "Player reads " + t + " through Structs");
         Assert.True(player.Contains("Structs.Push_Game_V3_") && player.Contains("Structs.Update_Game_Mixed_"), "V3 is pushed and Mixed updated without boxing");
         Assert.True(player.Contains("Structs.Get_Game_Named_") && player.Contains("translator.Push(L, gen_ret)"), "Named is read from a table and pushed boxed");
-        Assert.True(player.Contains("translator.Get(L, 6, out _f)"), "a GCOptimize enum outside LuaCallCSharp goes through Get<T>");
+        Assert.True(player.Contains("BindingApi.GetStructArg(translator, L, 6, out _f)"),
+            "a GCOptimize enum outside LuaCallCSharp has no generated reader: GetStructArg, which raises for nil (Q34)");
         Assert.True(run.Source(Emitter.BridgesFile).Contains("Structs.Push_Game_V3_"), "delegate bridges push without boxing too");
         var packing = run.Source(Emitter.PackFile);
         Assert.True(packing.Contains("xlua_pack_float6(buff, offset, field.a, field.b, field.c, field.d, field.e, field.f)")
             && packing.Contains("xlua_pack_float(buff, offset + 24, field.g)"), "float groups");
         Assert.True(packing.Contains("field.@class"), "keyword field names are escaped");
         var bindings = run.Source(Emitter.BindingsFile);
-        Assert.True(bindings.Contains("b.Struct<global::Game.V3>(Structs.Push_Game_V3_") && bindings.Contains("b.Caster<global::Game.Settings>(Structs.Get_Game_Settings_"),
+        // The registered readers read results (result: true, owner decision Q35).
+        Assert.True(bindings.Contains("b.Struct<global::Game.V3>(Structs.Push_Game_V3_") && bindings.Contains("b.Caster<global::Game.Settings>(")
+            && bindings.Contains("=> Structs.Get_Game_Settings_") && bindings.Contains("(translator, L, index, out val, true)"),
             "registration");
 
         var context = new AssemblyLoadContext("structs", isCollectible: true);
@@ -1889,9 +1892,11 @@ namespace Game
 
     // A struct parameter or field that Lua sets is read with
     // BindingApi.GetStructArg, which raises for nil or a number as the emitted
-    // and reflection wrappers do (owner decision of 2026-10-28); Nullable<T>,
-    // enums, decimal and the results C# reads keep translator.Get. The packed
-    // GCOptimize reader raises BindingApi.StructExpected in its last branch.
+    // and reflection wrappers do (owner decision of 2026-10-28); so is an enum
+    // parameter without a generated reader since owner decision Q34.
+    // Nullable<T>, decimal and the results C# reads keep translator.Get. The
+    // packed GCOptimize reader raises BindingApi.StructExpected in its last
+    // branch.
     public static void StructArgumentsRaiseForNil()
     {
         var run = Harness.Generate("Game", Usings + @"
@@ -1914,9 +1919,51 @@ namespace Game
         Assert.Compiles(run);
         string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
         int strict = all.Split(new[] { "BindingApi.GetStructArg(translator, L, " }, StringSplitOptions.None).Length - 1;
-        Assert.Equal(2, strict, "GetStructArg for Read(p) and the Field setter:\n" + all);
+        Assert.Equal(3, strict, "GetStructArg for Read(p), the Field setter and Day(d):\n" + all);
         Assert.True(all.Contains("BindingApi.StructExpected(L, index, typeof("), "the packed HitInfo reader raises StructExpected");
         Assert.True(all.Contains("Structs.Get_"), "Hit(h) keeps the generated HitInfo reader");
+    }
+
+    // Owner decisions Q34 to Q36 of 2026-10-28. The generated reader of a
+    // [LuaCallCSharp] enum raises StructExpected for an argument that is no
+    // number or value name; the readers take `result` and give default(T) for
+    // a struct result where Lua has no value: the bridges and the registration
+    // (ObjectTranslator.Get<T>, GetObject's caster) pass true, arguments do not;
+    // another type's userdata raises StructExpected instead of "invalid
+    // userdata for T", and the table reader checks the C# object's type.
+    public static void EnumArgumentsAndStructResults()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+namespace Game
+{
+    [LuaCallCSharp] public enum Mode { A, B }
+    [LuaCallCSharp] public class User
+    {
+        public static int Pick(Mode m) { return 0; }
+        public static int Hit(HitInfo h) { return 0; }
+        public static int Named(Labeled l) { return 0; }
+    }
+    [CSharpCallLua] public delegate HitInfo MakeHit();
+    [CSharpCallLua] public delegate Labeled MakeLabeled();
+    [CSharpCallLua] public delegate Mode MakeMode();
+    [GCOptimize] public struct HitInfo { public float x, y; }
+    [GCOptimize] public struct Labeled { public int X; public string Name; }
+}");
+        Assert.Diagnostics(run, "XLSG010:Warning");
+        Assert.Compiles(run);
+        string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
+        int expected = all.Split(new[] { "throw global::XLua.Binding.BindingApi.StructExpected(L, index, typeof(" }, StringSplitOptions.None).Length - 1;
+        Assert.True(expected >= 5, "StructExpected for another type's userdata (Mode, HitInfo), the last branches and the table reader's type check:\n" + all);
+        int readers = all.Split(new[] { ", bool result = false)" }, StringSplitOptions.None).Length - 1;
+        Assert.Equal(3, readers, "Mode, HitInfo and Labeled readers take result:\n" + all);
+        int results = all.Split(new[] { ", true);" }, StringSplitOptions.None).Length - 1;
+        Assert.True(results >= 3, "the three bridges read their results with result: true:\n" + all);
+        Assert.True(all.Contains("(translator, L, index, out val, true)"), "the registration reads results:\n" + all);
+        Assert.True(all.Contains("if (!result && type != "), "the Mode reader raises for an argument that is no number or name");
+        Assert.True(all.Contains("if (result && (type == "), "a struct result where Lua has no value is default(T)");
+        Assert.True(all.Contains(" is global::Game.Labeled)) throw ") || all.Contains(" is Game.Labeled)) throw "),
+            "the Labeled table reader checks the C# object's type:\n" + all);
+        Assert.True(!all.Contains("BindingApi.GetStructArg("), "the three argument types have generated readers");
     }
 
     // The assembly-level configuration of NameTableSource with several types per

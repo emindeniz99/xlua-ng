@@ -645,11 +645,19 @@ namespace XLua.SourceGenerator
             return t.IsValueType && !MemberContext.IsPrimitive(t);
         }
 
-        // ObjectCasters.IsStrictStruct: a struct that Lua must pass as one. An
-        // argument of such a type without a generated reader is read with
-        // BindingApi.GetStructArg, which raises for nil or a number as the
-        // emitted and reflection wrappers do (the generated readers of
-        // GCOptimize types raise the same, Structs.cs).
+        // ObjectCasters.IsStrictArg: a struct or enum that Lua must pass as one.
+        // An argument of such a type without a generated reader is read with
+        // BindingApi.GetStructArg, which raises for nil (and, for a struct, a
+        // number) as the emitted and reflection wrappers do (the generated
+        // readers of GCOptimize types and [LuaCallCSharp] enums raise the same,
+        // Structs.cs). Enums since owner decision Q34 of 2026-10-28.
+        internal static bool IsStrictArg(ITypeSymbol t)
+        {
+            return IsStrictStruct(t) || (t.TypeKind == TypeKind.Enum && t.IsValueType);
+        }
+
+        // ObjectCasters.IsStrictStruct: a struct other than a primitive, an
+        // enum, decimal or Nullable<T>.
         internal static bool IsStrictStruct(ITypeSymbol t)
         {
             return t.IsValueType && !MemberContext.IsPrimitive(t) && t.TypeKind != TypeKind.Enum
@@ -817,10 +825,10 @@ namespace XLua.SourceGenerator
                 return statement + caster + "(L, " + i + ")";
             if (name == "System.Object")
                 return statement + "translator.GetObject(L, " + i + ", typeof(object))";
-            if (isStruct && !luaResult && IsStrictStruct(Effective(t, c)) && StructsOf(c).GetterOf(Effective(t, c)) == null)
+            if (isStruct && !luaResult && IsStrictArg(Effective(t, c)) && StructsOf(c).GetterOf(Effective(t, c)) == null)
                 return statement + "global::XLua.Binding.BindingApi.GetStructArg(translator, L, " + i + ", out " + variable + ")";
             if (isStruct)
-                return statement + StructGet(Effective(t, c), i, variable, c);
+                return statement + StructGet(Effective(t, c), i, variable, c, luaResult);
             if (!luaResult && RefusesTables(Effective(t, c)))
                 return statement + "(" + Cs(t, c) + ")translator.GetUnityObjectArg(L, " + i + ", typeof(" + Cs(t, c) + "))";
             return statement + "(" + Cs(t, c) + ")translator.GetObject(L, " + i + ", typeof(" + Cs(t, c) + "))";
@@ -841,10 +849,13 @@ namespace XLua.SourceGenerator
 
         // TemplateCommon StructGetName: the generated reader of a GCOptimize
         // type or [LuaCallCSharp] enum (Structs.cs), else ObjectTranslator.Get<T>.
-        static string StructGet(ITypeSymbol t, string idx, string variable, Compilation c)
+        // luaResult: a value C# reads back from Lua, for which the reader gives
+        // default(T) where Lua has no value instead of raising (owner decision
+        // Q35 of 2026-10-28).
+        static string StructGet(ITypeSymbol t, string idx, string variable, Compilation c, bool luaResult = false)
         {
             var s = StructsOf(c).GetterOf(t);
-            return s != null ? "Structs.Get_" + s.Id + "(translator, L, " + idx + ", out " + variable + ")"
+            return s != null ? "Structs.Get_" + s.Id + "(translator, L, " + idx + ", out " + variable + (luaResult ? ", true)" : ")")
                 : "translator.Get(L, " + idx + ", out " + variable + ")";
         }
 

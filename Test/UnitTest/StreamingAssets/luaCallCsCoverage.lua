@@ -1190,3 +1190,88 @@ function CMyTestCaseLuaCallCSCoverage.CaseParityStructArgs(self)
     ASSERT_EQ(firstLine(errorOf(B.Swap, nil)), "c# exception:System.InvalidCastException: Coverage.MultiListedPair expected, got nil")
     ASSERT_EQ(B.SumVec({ x = 1, y = 2 }), 3)
 end
+
+-- An enum parameter or field given nil, nothing, a boolean or a table raises
+-- "c# exception:System.InvalidCastException: E expected, got nil" in every
+-- binding mode, as a struct does (owner decision Q34 of 2026-10-28). A
+-- mistyped value name (CS.E.Mistyped) is nil. Before, generated code threw
+-- NullReferenceException or "invalid value for enum E", and emitted and
+-- reflection wrappers passed 0 or threw "invalid value for enum E". A number
+-- and a value name still convert, a Nullable<E> still takes nil, and an
+-- omitted optional parameter still gets its default.
+function CMyTestCaseLuaCallCSCoverage.CaseParityEnumArgs(self)
+    for _, name in ipairs(parityTypes) do
+        local T = CS.Coverage[name]
+        local K = CS.Coverage[name .. "Kind"]
+        local text = "System.InvalidCastException: Coverage." .. name .. "Kind expected, got "
+        local o = T(4)
+        ASSERT_EQ(firstLine(errorOf(o.Kind, o, nil)), "c# exception:" .. text .. "nil")
+        ASSERT_EQ(firstLine(errorOf(o.Kind, o)), "c# exception:" .. text .. "no value")
+        ASSERT_EQ(firstLine(errorOf(o.Kind, o, true)), "c# exception:" .. text .. "boolean")
+        ASSERT_EQ(firstLine(errorOf(o.Kind, o, {})), "c# exception:" .. text .. "table")
+        ASSERT_EQ(firstLine(errorOf(o.Kind, o, K.Mistyped)), "c# exception:" .. text .. "nil")
+        -- A C# object of another class (owner decision Q36).
+        ASSERT_EQ(firstLine(errorOf(o.Kind, o, o)), "c# exception:" .. text .. "Coverage." .. name)
+        ASSERT_EQ(o:Kind(K.B), "B")
+        ASSERT_EQ(o:Kind(1), "A")
+        ASSERT_EQ(o:Kind("B"), "B")
+        ASSERT_EQ(o:OptKind(1), "1:B")
+        ASSERT_EQ(o:OptKind(1, K.A), "1:A")
+        ASSERT_EQ(o:NulKind(nil), "null")
+        ASSERT_EQ(o:NulKind(), "null")
+        ASSERT_EQ(o:NulKind(K.B), "has B")
+        o.KindField = K.B
+        ASSERT_EQ(o:Kind(o.KindField), "B")
+        expectErrorText(text .. "nil", function() o.KindField = nil end)
+        ASSERT_EQ(o:Kind(o.KindField), "B")
+        -- An enum that no list configures.
+        ASSERT_EQ(firstLine(errorOf(o.Day, o, nil)), "c# exception:System.InvalidCastException: System.DayOfWeek expected, got nil")
+    end
+end
+
+-- A struct or enum that C# reads back from Lua where Lua has no value (a
+-- delegate or LuaFunction.Func that returns nil or nothing) is default(T) in
+-- every binding mode, as an int result gives 0 (owner decision Q35 of
+-- 2026-10-28). Before, emitted bridges gave the zero value, generated code
+-- and LuaFunction.Func threw NullReferenceException, or InvalidCastException
+-- for the GCOptimize types MultiListedVec (packed) and MultiListedPair (read
+-- field by field). LuaTable.Get<T> of a missing key raises "can not assign
+-- nil to T" for every value type, int included, in every mode, before any
+-- conversion; that is unchanged. An enum result where Lua has no value keeps
+-- raising "invalid value for enum E" (InvalidCastException), which every mode
+-- did already. Arguments still raise (CaseParityStructArgs, CaseParityEnumArgs).
+function CMyTestCaseLuaCallCSCoverage.CaseParityStructResults(self)
+    local R = CS.Coverage.ParityResults
+    ASSERT_EQ(R.Get({}, "none"), "InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException")
+    local function nothing() end
+    local function none() return nil end
+    ASSERT_EQ(R.Func(nothing), "0,0,0,0,InvalidCastException,0")
+    ASSERT_EQ(R.Func(none), "0,0,0,0,InvalidCastException,0")
+    ASSERT_EQ(R.Call(nothing, nothing, nothing, nothing, nothing), "0,0,0,0,InvalidCastException")
+    ASSERT_EQ(R.Call(none, none, none, none, none), "0,0,0,0,InvalidCastException")
+    ASSERT_EQ(R.Call(function() return CS.Coverage.ParityStruct(3) end, function() return CS.Coverage.ParityReflectedStruct(4) end,
+        function() return { x = 5, y = 1 } end, function() return { a = 6, b = 1 } end, function() return CS.Coverage.ParityKind.B end),
+        "3,4,5,6,2")
+end
+
+-- A C# object of another class passed for a struct parameter or field raises
+-- "c# exception:System.InvalidCastException: S expected, got C" in every
+-- binding mode (owner decision Q36 of 2026-10-28). Before, generated and
+-- emitted code threw the runtime's InvalidCastException from the cast or
+-- unbox, reflection ArgumentException from MethodBase.Invoke, and the
+-- generated readers of GCOptimize types "invalid userdata for S".
+function CMyTestCaseLuaCallCSCoverage.CaseParityStructOtherObject(self)
+    for _, name in ipairs(parityTypes) do
+        local T = CS.Coverage[name]
+        local S = CS.Coverage[name .. "Struct"]
+        local o = T(4)
+        local text = "System.InvalidCastException: Coverage." .. name .. "Struct expected, got Coverage." .. name
+        ASSERT_EQ(firstLine(errorOf(S.Read, o)), "c# exception:" .. text)
+        expectErrorText(text, function() o.Inner = o end)
+        ASSERT_EQ(S.Read(S(6)), 6)
+    end
+    local B = CS.Coverage.MultiListedB
+    local a = CS.Coverage.MultiListedA(1)
+    ASSERT_EQ(firstLine(errorOf(B.SumVec, a)), "c# exception:System.InvalidCastException: Coverage.MultiListedVec expected, got Coverage.MultiListedA")
+    ASSERT_EQ(firstLine(errorOf(B.Swap, a)), "c# exception:System.InvalidCastException: Coverage.MultiListedPair expected, got Coverage.MultiListedA")
+end
