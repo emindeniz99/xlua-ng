@@ -5,7 +5,7 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, csharp_functions, setfenv, uint_conversion,
+struct_accessors, struct_clone, struct_bounds, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
@@ -723,6 +723,98 @@ for _, bad in ipairs({untagged, plainmeta, object, lud, {}, 1}) do
 end
 assert(not pcall(xlua.structclone))
 tagged, untagged, plainmeta, object, lud = nil
+""")
+    lib.lua_settop(state, 0)
+
+
+def check_struct_bounds(state):
+    """The struct helpers check the userdata's length before they trust its header
+    (docs/research/crash-inventory.md, item 10; owner decision of 2026-10-28): the
+    accessors of xlua.genaccessor, xlua.structclone and xlua_tostructbuffer, which
+    C# reads a struct argument through before the pack and unpack helpers. A
+    userdata shorter than the header (LuaJIT's newproxy() is 0 bytes) or one whose
+    header claims more bytes than its block holds was read, and by the setters and
+    pack helpers written, past its end. Before the fix the accessor below read and
+    wrote bytes 16 to 19 of a 12-byte block and structclone copied 16 bytes out of it."""
+    lib.xlua_tostructbuffer.argtypes = [P, C.c_int, C.c_int]
+    lib.xlua_tostructbuffer.restype = P
+    lib.xlua_unpack_int32_t.argtypes = [P, C.c_int, C.POINTER(C.c_int)]
+    lib.xlua_pack_int32_t.argtypes = [P, C.c_int, C.c_int]
+    meta = tagged_meta(state, 5)
+    real = lib.xlua_pushstruct(state, 16, meta)
+    C.memset(real + 8, 0, 16)
+    assert lib.xlua_tostructbuffer(state, -1, 5) == real and lib.xlua_tostructbuffer(state, -1, 6) is None
+    lib.lua_setglobal(state, b"real")
+    # A 12-byte block (header and 4 bytes) whose header says 16 bytes follow.
+    liar = push_userdata(state, 12)
+    C.c_int.from_address(liar).value = -1
+    C.c_uint.from_address(liar + 4).value = 16
+    C.memset(liar + 8, 0, 4)
+    lib.xlua_rawgeti(state, REGISTRY, meta)
+    lib.lua_setmetatable(state, -2)
+    assert lib.xlua_tostructbuffer(state, -1, 5) is None
+    lib.lua_setglobal(state, b"liar")
+    # Blocks shorter than the header, every byte 0xff (fake_id -1, len 2^32 - 1).
+    for size in range(8):
+        tiny = push_userdata(state, size)
+        if size:
+            C.memset(tiny, 0xff, size)
+        lib.xlua_rawgeti(state, REGISTRY, meta)
+        lib.lua_setmetatable(state, -2)
+        assert lib.xlua_tostructbuffer(state, -1, 5) is None, size
+        lib.lua_setglobal(state, ("tiny%d" % size).encode())
+    # The header fits the block exactly; the header of a C# object does not start with -1.
+    exact = push_userdata(state, 8)
+    C.c_int.from_address(exact).value = -1
+    C.c_uint.from_address(exact + 4).value = 0
+    assert lib.xlua_tostructbuffer(state, -1, -1) == exact  # no metatable: type id -1
+    C.c_int.from_address(exact).value = 3
+    assert lib.xlua_tostructbuffer(state, -1, -1) is None
+    lib.lua_pushlightuserdata(state, real)
+    assert lib.xlua_tostructbuffer(state, -1, -1) is None
+    lib.lua_pushnumber(state, 1.0)
+    assert lib.xlua_tostructbuffer(state, -1, -1) is None
+    assert lib.lua_type(state, -1) == 3  # LuaJIT's lua_objlen would turn a number into a string
+    lib.lua_settop(state, 0)
+    # What C# does with a refused userdata: the helpers return false for NULL.
+    field = C.c_int(7)
+    assert lib.xlua_unpack_int32_t(None, 0, C.byref(field)) == 0 and field.value == 7
+    assert lib.xlua_pack_int32_t(None, 0, 1) == 0
+    run(state, """
+local function refused(f, ...)
+    local ok, err = pcall(f, ...)
+    assert(not ok and tostring(err):find("invalid c# struct!", 1, true), tostring(err))
+end
+-- On LuaJIT the 64-bit fields read back as int64/uint64 userdata.
+local function is(v, n) return v == n or tostring(v):match("^" .. n .. "U?$") ~= nil end
+for t, w in pairs({[0] = 1, 1, 2, 2, 4, 4, 8, 8, 4, 8}) do
+    local get, set = xlua.genaccessor(0, t)
+    set(real, 1)
+    assert(is(get(real), 1))
+    for size = 0, 7 do
+        refused(get, _G["tiny" .. size])
+        refused(set, _G["tiny" .. size], 1)
+    end
+    -- In the liar's 4 bytes of data a field is read and written; past them it is refused.
+    if w <= 4 then
+        set(liar, 2)
+        assert(is(get(liar), 2))
+    else
+        refused(get, liar)
+        refused(set, liar, 2)
+    end
+    get, set = xlua.genaccessor(4, t)
+    refused(get, liar)
+    refused(set, liar, 2)
+end
+local getreal = xlua.genaccessor(12, 4)
+assert(getreal(real) == 0)
+refused(xlua.structclone, liar)
+refused(xlua.structclone, tiny0)
+refused(xlua.structclone, tiny7)
+assert(xlua.structclone(real) ~= nil)
+real, liar = nil
+for size = 0, 7 do _G["tiny" .. size] = nil end
 """)
     lib.lua_settop(state, 0)
 
@@ -3133,7 +3225,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "csharp_functions", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "struct_bounds", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",

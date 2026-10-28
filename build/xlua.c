@@ -16,6 +16,7 @@
 #include "lauxlib.h"
 #endif
 
+#include <stddef.h>
 #include <string.h>
 #include <stdint.h>
 #include "i64lib.h"
@@ -62,7 +63,7 @@ LUA_API int xlua_get_registry_index(void) {
 }
 
 LUA_API int xlua_get_lib_version(void) {
-	return 110;
+	return 111;
 }
 
 #if LUA_VERSION_NUM >= 505
@@ -1239,13 +1240,41 @@ LUA_API int xlua_gettypeid(lua_State *L, int idx) {
 	return type_id;
 }
 
+/* The struct at idx, or NULL unless it is a full userdata whose block holds
+ * the 8-byte header, a header (fake_id -1), and the len bytes the header
+ * announces. A light userdata has length 0. */
+static CSharpStruct *struct_block(lua_State *L, int idx) {
+	CSharpStruct *css = (CSharpStruct *)lua_touserdata(L, idx);
+	size_t size = css == NULL ? 0 : userdata_size(L, idx);
+	if (size < offsetof(CSharpStruct, data) || css->fake_id != -1 || css->len > size - offsetof(CSharpStruct, data)) {
+		return NULL;
+	}
+	return css;
+}
+
+/* The struct userdata at idx for the pack and unpack helpers below, or NULL
+ * unless it is a full userdata whose metatable has type_id at [1] (as
+ * xlua_gettypeid reads it) and whose block holds the 8-byte header and the
+ * len bytes the header announces. C# reads and updates a struct argument
+ * through this. It used to call xlua_gettypeid and then lua_touserdata, which
+ * trusted the header of any userdata: one given a struct's metatable with
+ * debug.setmetatable (LuaJIT's 0-byte newproxy(), a small userdata of a C
+ * module) was read and written past its block. The helpers take no lua_State,
+ * so the length is checked here, once per struct, and one call replaces the
+ * two (docs/research/crash-inventory.md, item 10). */
+LUA_API void *xlua_tostructbuffer(lua_State *L, int idx, int type_id) {
+	/* xlua_gettypeid also refuses what is not a full userdata */
+	return xlua_gettypeid(L, idx) == type_id ? struct_block(L, idx) : NULL;
+}
+
 /* Every struct access rejects offset < 0 first: offset + sizeof(x) is computed
  * as size_t, so offsets from -sizeof(x) to -1 used to wrap to a small value,
- * pass the length check and overwrite the fake_id/len header. */
+ * pass the length check and overwrite the fake_id/len header. They take NULL
+ * (xlua_tostructbuffer's refusal) and return 0 for it. */
 #define PACK_UNPACK_OF(type) \
 LUALIB_API int xlua_pack_##type(void *p, int offset, type field) {\
 	CSharpStruct *css = (CSharpStruct *)p;\
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(field)) {\
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(field)) {\
 		return 0;\
 	} else {\
 		memcpy((&(css->data[0]) + offset), &field, sizeof(field));\
@@ -1255,7 +1284,7 @@ LUALIB_API int xlua_pack_##type(void *p, int offset, type field) {\
 \
 LUALIB_API int xlua_unpack_##type(void *p, int offset, type *pfield) { /* NOLINT(bugprone-macro-parentheses): type is a type name */ \
 	CSharpStruct *css = (CSharpStruct *)p;\
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(*pfield)) {\
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(*pfield)) {\
 		return 0;\
 	} else {\
 		memcpy(pfield, (&(css->data[0]) + offset), sizeof(*pfield));\
@@ -1277,7 +1306,7 @@ PACK_UNPACK_OF(double)
  * 32-bit ARM. */
 LUALIB_API int xlua_pack_float2(void *p, int offset, float f1, float f2) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 2) {
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 2) {
 		return 0;
 	} else {
 		float pos[2];
@@ -1290,7 +1319,7 @@ LUALIB_API int xlua_pack_float2(void *p, int offset, float f1, float f2) {
 
 LUALIB_API int xlua_unpack_float2(void *p, int offset, float *f1, float *f2) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 2) {
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 2) {
 		return 0;
 	} else {
 		float pos[2];
@@ -1303,7 +1332,7 @@ LUALIB_API int xlua_unpack_float2(void *p, int offset, float *f1, float *f2) {
 
 LUALIB_API int xlua_pack_float3(void *p, int offset, float f1, float f2, float f3) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 3) {
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 3) {
 		return 0;
 	} else {
 		float pos[3];
@@ -1317,7 +1346,7 @@ LUALIB_API int xlua_pack_float3(void *p, int offset, float f1, float f2, float f
 
 LUALIB_API int xlua_unpack_float3(void *p, int offset, float *f1, float *f2, float *f3) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 3) {
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 3) {
 		return 0;
 	} else {
 		float pos[3];
@@ -1331,7 +1360,7 @@ LUALIB_API int xlua_unpack_float3(void *p, int offset, float *f1, float *f2, flo
 
 LUALIB_API int xlua_pack_float4(void *p, int offset, float f1, float f2, float f3, float f4) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 4) {
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 4) {
 		return 0;
 	} else {
 		float pos[4];
@@ -1346,7 +1375,7 @@ LUALIB_API int xlua_pack_float4(void *p, int offset, float f1, float f2, float f
 
 LUALIB_API int xlua_unpack_float4(void *p, int offset, float *f1, float *f2, float *f3, float *f4) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 4) {
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 4) {
 		return 0;
 	} else {
 		float pos[4];
@@ -1361,7 +1390,7 @@ LUALIB_API int xlua_unpack_float4(void *p, int offset, float *f1, float *f2, flo
 
 LUALIB_API int xlua_pack_float5(void *p, int offset, float f1, float f2, float f3, float f4, float f5) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 5) {
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 5) {
 		return 0;
 	} else {
 		float pos[5];
@@ -1377,7 +1406,7 @@ LUALIB_API int xlua_pack_float5(void *p, int offset, float f1, float f2, float f
 
 LUALIB_API int xlua_unpack_float5(void *p, int offset, float *f1, float *f2, float *f3, float *f4, float *f5) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 5) {
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 5) {
 		return 0;
 	} else {
 		float pos[5];
@@ -1393,7 +1422,7 @@ LUALIB_API int xlua_unpack_float5(void *p, int offset, float *f1, float *f2, flo
 
 LUALIB_API int xlua_pack_float6(void *p, int offset, float f1, float f2, float f3, float f4, float f5, float f6) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 6) {
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 6) {
 		return 0;
 	} else {
 		float pos[6];
@@ -1410,7 +1439,7 @@ LUALIB_API int xlua_pack_float6(void *p, int offset, float f1, float f2, float f
 
 LUALIB_API int xlua_unpack_float6(void *p, int offset, float *f1, float *f2, float *f3, float *f4, float *f5, float *f6) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 6) {
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(float) * 6) {
 		return 0;
 	} else {
 		float pos[6];
@@ -1427,7 +1456,7 @@ LUALIB_API int xlua_unpack_float6(void *p, int offset, float *f1, float *f2, flo
 
 LUALIB_API int xlua_pack_decimal(void *p, int offset, const int * decimal) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(int) * 4) {
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(int) * 4) {
 		return 0;
 	} else {
 		memcpy(&(css->data[0]) + offset, decimal, sizeof(int) * 4);
@@ -1445,7 +1474,7 @@ typedef struct tagDEC {
 
 LUALIB_API int xlua_unpack_decimal(void *p, int offset, uint8_t *scale, uint8_t *sign, int *hi32, uint64_t *lo64) {
 	CSharpStruct *css = (CSharpStruct *)p;
-	if (offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(int) * 4) {
+	if (css == NULL || offset < 0 || css->fake_id != -1 || css->len < offset + sizeof(int) * 4) {
 		return 0;
 	} else {
 		DECIMAL dec;
@@ -1503,14 +1532,21 @@ static void check_field_int64(lua_State *L) {
 
 /* The field an accessor reads or writes: the data of the struct userdata at
  * argument 1 at the offset in upvalue 1, or NULL when argument 1 is not a
- * struct (header fake_id -1), the offset is negative or the field does not
- * fit in len, or, for the checked accessors (the C# bridge checks),
- * the metatable lacks the bridge tag. One function for all accessors: the
- * checks inlined into each cost about 2.8 KB of code. */
+ * struct (header fake_id -1), the offset is negative, the field does not
+ * fit in len or in the userdata's block, or, for the checked accessors (the
+ * C# bridge checks), the metatable lacks the bridge tag. The block check comes
+ * before the header is read: any full userdata reaches an accessor, and one
+ * shorter than the header and field (LuaJIT's 0-byte newproxy()) used to be
+ * read past its end, and written when the bytes there looked like a header
+ * (docs/research/crash-inventory.md, item 10). It also refuses a light
+ * userdata, whose length is 0. One function for all accessors: the checks
+ * inlined into each cost about 2.8 KB of code. */
 static char *accessor_field(lua_State *L, size_t width, int checked) {
 	CSharpStruct *css = (CSharpStruct *)lua_touserdata(L, 1);
 	int offset = xlua_tointeger(L, lua_upvalueindex(1));
-	if (css == NULL || lua_type(L, 1) != LUA_TUSERDATA || offset < 0 || css->fake_id != -1 || css->len < offset + width
+	if (css == NULL || offset < 0
+			|| userdata_size(L, 1) < offsetof(CSharpStruct, data) + (size_t)offset + width
+			|| css->fake_id != -1 || css->len < offset + width
 			|| (checked && !is_cs_data(L, 1))) {
 		return NULL;
 	}
@@ -1679,9 +1715,11 @@ LUA_API int xlua_check_struct_accessors(lua_State *L) {
 }
 
 LUA_API int css_clone(lua_State *L) {
-	CSharpStruct *from = (CSharpStruct *)lua_touserdata(L, 1);
+	/* A tagged userdata need not be a struct: a C# object's is 4 bytes, and
+	 * debug.setmetatable gives a struct's metatable to any userdata. */
+	CSharpStruct *from = is_cs_data(L, 1) ? struct_block(L, 1) : NULL;
 	CSharpStruct *to = NULL;
-	if (!is_cs_data(L, 1) || from->fake_id != -1) {
+	if (from == NULL) {
 		return luaL_error(L, "invalid c# struct!");
 	}
 	

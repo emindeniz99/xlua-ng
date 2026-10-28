@@ -431,10 +431,7 @@ namespace XLua.SourceGenerator
             w.Open("internal static void Get_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out " + cs + " val)");
             w.Line(LuaTypes + " type = " + LuaAPI + ".lua_type(L, index);");
             w.Open("if (type == " + LuaTypes + ".LUA_TUSERDATA)");
-            w.Open("if (" + LuaAPI + ".xlua_gettypeid(L, index) != " + Api + ".TypeId(translator, L, " + slot + "))");
-            w.Line("throw new global::System.Exception(\"invalid userdata for " + Display(s.Type) + "\");");
-            w.Close();
-            w.Line("global::System.IntPtr buff = " + LuaAPI + ".lua_touserdata(L, index);");
+            StructBuffer(w, s, slot);
             if (s.IsEnum)
             {
                 w.Line("int e;");
@@ -482,10 +479,7 @@ namespace XLua.SourceGenerator
             else
             {
                 w.Open("if (" + LuaAPI + ".lua_type(L, index) == " + LuaTypes + ".LUA_TUSERDATA)");
-                w.Open("if (" + LuaAPI + ".xlua_gettypeid(L, index) != " + Api + ".TypeId(translator, L, " + slot + "))");
-                w.Line("throw new global::System.Exception(\"invalid userdata for " + Display(s.Type) + "\");");
-                w.Close();
-                w.Line("global::System.IntPtr buff = " + LuaAPI + ".lua_touserdata(L, index);");
+                StructBuffer(w, s, slot);
                 w.Open("if (!" + pack + ".Pack(buff, 0, " + value + "))");
                 w.Line("throw new global::System.Exception(\"pack fail for " + Display(s.Type) + " ,value=\" + val);");
                 w.Close();
@@ -494,6 +488,23 @@ namespace XLua.SourceGenerator
             w.Open("else");
             w.Line("throw new global::System.Exception(\"try to update a data with lua type:\" + " + LuaAPI + ".lua_type(L, index));");
             w.Close();
+            w.Close();
+        }
+
+        // buff: the struct userdata at index, checked in one native call
+        // (xlua_tostructbuffer): the type id of its metatable, and that its block
+        // holds the header and the bytes the header announces. Zero for a
+        // userdata of another type, which raises here, or for one that only has
+        // this type's metatable, for which Pack and UnPack return false (the
+        // "pack fail" and "unpack fail" errors). It was xlua_gettypeid and then
+        // lua_touserdata, which trusted the header of any userdata
+        // (docs/research/crash-inventory.md, item 10).
+        static void StructBuffer(Writer w, StructType s, string slot)
+        {
+            w.Line("int type_id = " + Api + ".TypeId(translator, L, " + slot + ");");
+            w.Line("global::System.IntPtr buff = " + LuaAPI + ".xlua_tostructbuffer(L, index, type_id);");
+            w.Open("if (buff == global::System.IntPtr.Zero && " + LuaAPI + ".xlua_gettypeid(L, index) != type_id)");
+            w.Line("throw new global::System.Exception(\"invalid userdata for " + Display(s.Type) + "\");");
             w.Close();
         }
 

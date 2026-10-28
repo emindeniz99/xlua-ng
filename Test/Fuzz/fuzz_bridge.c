@@ -389,6 +389,7 @@ LUA_API int xlua_tryget_cachedud(lua_State *L, int key, int cache_ref);
 LUA_API int xlua_tryget_cachedud_checked(lua_State *L, int key, int cache_ref);
 LUA_API void xlua_pushcsobj(lua_State *L, int key, int meta_ref, int need_cache, int cache_ref);
 LUA_API int xlua_gettypeid(lua_State *L, int idx);
+LUA_API void *xlua_tostructbuffer(lua_State *L, int idx, int type_id);
 LUA_API void *xlua_newstruct(lua_State *L, int size, int meta_ref);
 LUA_API void xlua_pushcstable(lua_State *L, unsigned int size, int meta_ref);
 LUA_API int xlua_is_eq_str(lua_State *L, int idx, const char *str, int str_len);
@@ -986,7 +987,8 @@ static int x_gc(lua_State *L) {
 }
 
 /* X.unpack(v, kind, offset) and X.pack(v, kind, offset, x): CopyByValue as
- * generated code calls it: only on a userdata whose type id is the struct's. */
+ * generated code calls it, on what xlua_tostructbuffer returns for the
+ * struct's type id (NULL, which the helpers refuse, for anything else). */
 static int x_copy(lua_State *L) {
     int pack = (int)lua_tointeger(L, lua_upvalueindex(1));
     int kind = (int)((unsigned)lua_tointeger(L, 2) % 9), offset = arg_int(L, 3), ok = 0;
@@ -998,13 +1000,9 @@ static int x_copy(lua_State *L) {
     if (lua_type(L, 1) != LUA_TUSERDATA) {
         return 0;
     }
-    ENTER("xlua_gettypeid");
-    if (xlua_gettypeid(L, 1) != STRUCT_TYPEID) {
-        LEAVE();
-        return 0;
-    }
+    ENTER("xlua_tostructbuffer");
+    p = xlua_tostructbuffer(L, 1, STRUCT_TYPEID);
     LEAVE();
-    p = lua_touserdata(L, 1);
     if (pack) {
         int dec[4] = {(int)x, 0, 0, 0};
         switch (kind) {
