@@ -20,8 +20,14 @@ to-be-closed values. It also checks:
   Development Build and the Editor keeps `template` and `perf.profiler`, as
   documented.
 
+- the `debug` library: under `XLUA_REDUCED_DEBUG` (part of the minimal
+  preset) a release player's env has only `debug.traceback` and
+  `debug.getinfo`; the Editor, a Development Build and a player without the
+  define have the whole library. `debug.traceback` must work as an error
+  handler either way. The pass line says `debug reduced` or `debug full`.
+
 The pass line lists what was found, for example `delegates generic,
-template off, xlua.util off, perf.profiler off, SignatureLoader off`.
+template off, xlua.util off, perf.profiler off, SignatureLoader off, debug reduced`.
 It is a smoke test, not the complete unit suite or a support matrix.
 
 Run `prepare.py --help` for the required rebuilt plugin paths. Use an empty
@@ -234,6 +240,41 @@ rebuilt sources. An Android ARM64 IL2CPP APK (Unity 6000.3.21f1, plugin
 built with NDK r30) ran on an Android 16 (API 36) emulator with 16 KB pages.
 A Unity 6000.6.4f1 WebGL player ran in headless Chrome 155. Unity compiled
 `xlua_webgl.cpp` with its Emscripten 4.0.20.
+
+### 2026-10-28: the minimal preset's reduced debug library and main after M11
+
+Main at `b3adc8e8` with the `debug` check above: after the minimal preset
+lost its reflection fallback, overload selection by best fit, the bridge
+checks by build type and the #999 `ObjectDisposedException`, with the native
+bridge version 110. Unity 6000.3.21f1, Android ARM64 IL2CPP, Minimal
+stripping, Lua 5.5.1 plugins built from the tree with
+`build/make_android_lua55.sh` (NDK r30) with and without
+`XLUA_VARIANT=minimal XLUA_PRESET=minimal`, each define list applied by
+`SmokeBuild.ApplyDefines` in a launch of its own, the `xlua16k` AVD (Android
+16, API 36, 16 KB pages) headless, `adb install --no-streaming`. The minimal
+project has both libraries (`--android-plugin ... --android-minimal-plugin
+...`) and no generator, so its players need `XLUA_REFLECTION` for the
+smoke's unbound `SmokeApi`. Every player printed `XLUA_NG_SMOKE_PASS`:
+
+| Project | Build | `XLUA_SMOKE_DEFINES` | APK | Pass line (features) |
+| --- | --- | --- | ---: | --- |
+| minimal | release | `XLUA_PRESET_MINIMAL;XLUA_REFLECTION` | 12,775,174 | template, xlua.util, perf.profiler, SignatureLoader off, **debug reduced**, io off, LuaSocket off |
+| minimal | Development | the same | 18,494,767 | the same with perf.profiler on and **debug full** |
+| `--source-gen` | release | none (`XLUA_SMOKE_NONE`) | 13,828,394 | all on, debug full, io on, LuaSocket on, `Func<int, int> by signature`, `source generator (7 generated types, bridge XLua.Generated.Assembly_CSharp_b37fdd7b.Bridges.__Gen_Delegate_Imp0)` |
+| `--source-gen` | release | `GEN_CODE_MINIMIZE` | 13,829,970 | the same with `GCM, 4 methods of W_SgApi_0217fb75` |
+
+Both minimal builds logged `XLua plugin variants:
+Assets/Plugins/Android/libs/arm64-v8a/libxlua.so ->
+Assets/Plugins/Android/xlua-variants/minimal/libs/arm64-v8a/libxlua.so`.
+So `XLUA_REDUCED_DEBUG` takes effect in a release player and not in a
+Development one, as `LuaEnv.DefaultLibraries` says, and the error handler
+keeps its traceback. `size_report.py --configs minimal` measured the preset
+again ([build/SIZE.md](../../build/SIZE.md#reflection-off-in-the-minimal-preset)).
+
+Not run: a minimal player without `XLUA_REFLECTION` (the smoke calls
+`SmokeApi`, which nothing binds, and `SgSmoke.cs` checks members that reach
+C# through reflection on purpose), Development and High stripping players
+with the generator, other Unity versions, iOS, WebGL and a phone.
 
 ### 2026-10-18: without the legacy generator (milestone M11)
 
