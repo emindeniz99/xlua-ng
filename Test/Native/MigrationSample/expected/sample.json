@@ -19059,6 +19059,13 @@
    "hotfix": 0
   },
   {
+   "key": "System.Object(System.Int32,XLua.ObjectTranslator,System.IntPtr,System.Int32,System.Object,System.Int32)",
+   "delegates": [
+    "XLua.Binding.StructOps"
+   ],
+   "hotfix": 0
+  },
+  {
    "key": "System.Object(System.IntPtr,System.Int32,System.Object)",
    "delegates": [
     "XLua.ObjectCast"

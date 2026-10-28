@@ -23,6 +23,11 @@ Each item says what is left and where the runs that passed are recorded.
   strict minimal preset and the minimal preset with `XLUA_REFLECTION`, on
   6000.6 with `--csharp12` and `--langversion latest` (2026-10-28,
   [Test/README.md](Test/README.md#after-m11-on-every-local-editor-2026-10-28)).
+  After the day's merges, main at `a2f8ad12` passed again on 6000.3.21f1
+  (`sourcegen`, `reflection`, strict minimal, `--hotfix`, and
+  `hotfix_player.py`), 2021.3.45f2 and 6000.6.6f1 (`sourcegen`), with the
+  host, container and player checks of the
+  [verification round](Test/README.md#verification-round-of-2026-10-28).
   Left: `compile_time.py`; the device examples (`Test/Examples`);
   `--build-target WebGL` (no local WebGL module for 6000.3 or 6000.6); the
   Linux and Windows editors. On macOS arm64, 2021.3 and 2022.3 need Rosetta 2,
@@ -54,14 +59,19 @@ Each item says what is left and where the runs that passed are recorded.
   High stripping, the GCM mode, from the UPM package, and after M11), and a
   minimal Development player passed on the moto g play 2024
   ([Test/MobileSmoke/README.md](Test/MobileSmoke/README.md#recorded-validation);
-  sizes in [build/SIZE.md](build/SIZE.md)). Left: a release player on a
-  phone, players from other Unity versions, an iPhone (a Development player
-  passed in the iOS Simulator), WebGL, and the GCM mode on iOS, WebGL and a
-  phone. The strict minimal preset (no reflection fallback, the generator
+  sizes in [build/SIZE.md](build/SIZE.md)). Left: players from other Unity
+  versions, an iPhone (a Development player passed in the iOS Simulator),
+  WebGL, and the GCM mode on iOS and WebGL (a release player with the
+  generator in GCM mode, the strict minimal one below, passed on the phone
+  on 2026-10-28). The strict minimal preset (no reflection fallback, the generator
   binding everything the smoke uses) passed in a release and a Development
   player on the emulator on 2026-10-28
   ([Test/MobileSmoke/README.md](Test/MobileSmoke/README.md#2026-10-28-strict-minimal-players));
-  left for it: High stripping, iOS, WebGL and a phone.
+  its release player passed again on the emulator and, as the first release
+  player of the preset on a phone, on the moto g play 2024 in the
+  verification round of the same day
+  ([Test/MobileSmoke/README.md](Test/MobileSmoke/README.md#2026-10-28-the-final-verification-round));
+  left for it: High stripping, iOS and WebGL.
 - **UPM package** (`Tools/make_upm_package.py`, source generator M6): the
   editor suite, hotfix players, the IL2CPP smoke and a Development WebGL
   player in headless Chrome pass from it
