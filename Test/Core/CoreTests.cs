@@ -582,6 +582,28 @@ n = 5
         }
     }
 
+    // The first limit of a script without AllowInterrupt creates the stop messages
+    // (xlua_core_set_limits). With the memory limit used up the allocation is refused,
+    // which until 2026-10-28 raised outside a protected call: Lua panicked and the
+    // process aborted.
+    public static void TestFirstLimitWithoutMemory()
+    {
+        using (var lua = new LuaScript(new LuaOptions { MemoryLimit = 4 << 20, AllowInterrupt = false }))
+        {
+            lua.MemoryLimit = 1;
+            Throws<LuaMemoryLimitException>(() => lua.InstructionLimit = 1000, "the first limit with no memory left");
+            Equal(0L, lua.InstructionLimit, "the limit stays as it was");
+            lua.MemoryLimit = 4 << 20;
+            lua.InstructionLimit = 1000;
+            Equal(1000L, lua.InstructionLimit, "a later call with room sets it");
+            lua.MemoryLimit = 1;
+            lua.InstructionLimit = 2000;  // the messages exist: nothing to allocate
+            Equal(2000L, lua.InstructionLimit, "later limits need no memory");
+            lua.MemoryLimit = 4 << 20;
+            Throws<LuaInstructionLimitException>(() => lua.Load("while true do end", "loop"), "the limit applies");
+        }
+    }
+
     // ---- threads ----
 
     public static void TestThreadCheck()

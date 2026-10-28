@@ -1156,6 +1156,7 @@ static void hook(lua_State *L, lua_Debug *ar)
  * set by debug.sethook, also one that replaced the profiler's, is left alone. */
 void xlua_profiler_return(lua_State *L) {
 	lua_Debug ar;
+	int status;
 
 	if (lua_gethook(L) != hook) {
 		return;
@@ -1175,10 +1176,16 @@ void xlua_profiler_return(lua_State *L) {
 	lua_pushfstring(L, "[?%s]", ar.name);
 	lua_pushliteral(L, "[C#]");
 
-	/* LuaJIT has no core limits (XLUA_CORE_LIMITS), so the profiler owns the hook. */
+	/* LuaJIT has no core limits (XLUA_CORE_LIMITS), so the profiler owns the
+	 * hook. It is off while the profiler function runs and set again before
+	 * an error of that function goes on: a lua_call left it off, and the
+	 * profiler stopped for good after one error. */
 	lua_sethook(L, 0, 0, 0);
-	lua_call(L, 3, 0);
+	status = lua_pcall(L, 3, 0, 0);
 	lua_sethook(L, hook, LUA_MASKCALL | LUA_MASKRET, 0);
+	if (status != 0) {
+		lua_error(L);
+	}
 }
 #endif
 
