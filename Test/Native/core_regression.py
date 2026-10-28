@@ -39,7 +39,8 @@ Checks:
   not core's own, and a coroutine resumed without the switch.
 - core_sandbox_edges: the edges of xlua_core_sandbox.c and xlua_core_buffer.c
   that the checks above leave untaken: handles out of range, full stacks of a
-  coroutine and of its caller, a coroutine error whose __tostring fails, the
+  coroutine and of its caller, the exports on an exactly full stack, a
+  coroutine error whose __tostring fails, the
   edge cases of the handle operations, a name registered twice; with the C API
   exported, userdata that are no buffers and (Lua 5.5) a 2 GB string; with
   xlua_core_limits.c's test points, a stop after call_body's last check.
@@ -1128,8 +1129,9 @@ def check_core_sandbox_edges(lib):
     whose resume finds its own stack or the caller's full, a coroutine error
     whose __tostring raises a table, the edge cases of the handle operations
     (an iterator at math.maxinteger, a huge iterator handle or array size,
-    REF of every kind of value, a key handle as a key, EQUAL of a free slot,
-    xlua_core_handle on a full stack), a dotted name registered twice, and a
+    REF of every kind of value, a key handle as a key, EQUAL of a free slot),
+    xlua_core_call, _handle, _register, _set_require and _unref on an exactly
+    full stack (none may push before it checks), a dotted name registered twice, and a
     state without the sandbox. With the Lua C API exported (XLUA_EXPORTS=all)
     also full userdata that are no buffers and, on Lua 5.5, a 2 GB external
     string; with xlua_core_limits.c's test points (-DXLUA_LIMITS_TEST_POINTS),
@@ -1169,9 +1171,16 @@ def check_core_sandbox_edges(lib):
                     else:
                         hi = mid - 1
                 assert lib.lua_checkstack(f.L, lo) == 1 and lib.lua_checkstack(f.L, lo + 1) == 0
-                # All but one slot: the export's check of the state pushes one value first.
-                lib.lua_settop(f.L, top + lo - 1)
-                seen["full"] = handle_op(lib, L, H_NEWTABLE)[0]
+                # Exactly full: one more push trips Lua's API check (XLUA_APICHECK), so every
+                # export must find out that the stack has no room before it pushes anything.
+                # Until 2026-10-28 the exports' check that the state is a sandbox pushed one
+                # value first. unref cannot release a handle without a slot: it keeps it.
+                lib.lua_settop(f.L, top + lo)
+                call = call_global(lib, L, "id")
+                seen["full"] = (handle_op(lib, L, H_NEWTABLE)[0], call[0], call[3],
+                                lib.xlua_core_register(L, 0, b"edges.g", 7, 5, C.byref(C.c_int32())),
+                                lib.xlua_core_set_require(L, 1), lib.xlua_core_unref(L, seen["table"]),
+                                lib.lua_gettop(f.L) == top + lo)
                 lib.lua_settop(f.L, top)
         except Exception as e:  # noqa: BLE001 (reported by main)
             CALLBACK_ERRORS.append(repr(e))
@@ -1195,6 +1204,7 @@ def check_core_sandbox_edges(lib):
         s, n, r, _ = call_global(lib, L, "make")
         assert s == OK and n == 3 and (r[0].type, r[1].type, r[2].type) == (T_TABLE, T_FUNC, T_THREAD), s
         table, func, thread = r[0].u.i, r[1].u.i, r[2].u.i
+        seen["table"] = table
 
         # Handles as arguments: a function handle (case XLUA_T_FUNC of xlua_core_push_value),
         # handles beyond 32 bits, INT32_MIN, and a negative handle whose slot is no iterator.
@@ -1315,10 +1325,11 @@ def check_core_sandbox_edges(lib):
         assert lib.xlua_core_unref(L, env.value) == 1
 
         if raw:
-            # xlua_core_handle from a host function whose thread's stack is full.
+            # The exports from a host function whose thread's stack is exactly full.
             assert lib.xlua_core_register(L, 0, b"fill", 4, 2, C.byref(old)) == OK
             assert run(lib, L, "fill()") == (OK, "nil")
-            assert seen.pop("full") == ERRMEM
+            assert seen.pop("full") == (ERRMEM, ERRSTACK, "stack overflow", ERRMEM, ERRMEM, 0, True)
+            assert run(lib, L, "return edges and edges.g") == (OK, "nil"), "the refused registration left nothing"
             check_core_foreign_userdata(lib, L, version, with_buffer)
         for h in (table, func, thread):
             assert lib.xlua_core_unref(L, h) == 1
