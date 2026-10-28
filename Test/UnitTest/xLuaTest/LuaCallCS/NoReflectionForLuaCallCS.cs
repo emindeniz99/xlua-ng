@@ -73,6 +73,116 @@ namespace NoReflection
         public int Own = 8;
     }
 
+    // Table conversions (CaseNoReflectionTableConversion). Without [GCOptimize]
+    // the source generator writes no table converter, so only reflection fills
+    // these from a Lua table.
+    public class TableClass
+    {
+        public int A;
+        public int B;
+    }
+
+    public struct TableStruct
+    {
+        public int A;
+        public int B;
+    }
+
+    // [GCOptimize] class: the generator's table reader (ObjectTranslator.RegisterCaster).
+    [GCOptimize]
+    public class ConvertedClass
+    {
+        public int A;
+        public int B;
+    }
+
+    // [GCOptimize] packable struct: the generator's reader, which takes tables
+    // too (RegisterPushAndGetAndUpdate). [LuaCallCSharp] binds it, so that the
+    // passes without reflection do not warn XLSG014.
+    [GCOptimize]
+    [LuaCallCSharp]
+    public struct ConvertedStruct
+    {
+        public int A;
+        public int B;
+    }
+
+    [LuaCallCSharp]
+    public static class TableApi
+    {
+        public static TableClass MakeClass()
+        {
+            return new TableClass { A = 1, B = 2 };
+        }
+
+        public static int SumClass(TableClass c)
+        {
+            return c.A + c.B;
+        }
+
+        public static int SumStruct(TableStruct s)
+        {
+            return s.A + s.B;
+        }
+
+        public static int SumClasses(List<TableClass> list)
+        {
+            int sum = 0;
+            foreach (var c in list) sum += c.A + c.B;
+            return sum;
+        }
+
+        public static int GetClass(LuaTable t)
+        {
+            TableClass c = t.Get<TableClass>("v");
+            return c.A + c.B;
+        }
+
+        public static int CastClass(LuaTable t)
+        {
+            TableClass c = t.Cast<TableClass>();
+            return c.A + c.B;
+        }
+
+        // A delegate result (LuaFunction.Func, as the delegate bridges read one).
+        public static int ClassResult(LuaFunction f)
+        {
+            TableClass c = f.Func<int, TableClass>(0);
+            return c.A + c.B;
+        }
+
+        public static int SumConvertedClass(ConvertedClass c)
+        {
+            return c.A + c.B;
+        }
+
+        public static int SumConvertedStruct(ConvertedStruct s)
+        {
+            return s.A + s.B;
+        }
+
+        // Cast goes through ObjectTranslator.GetObject and the casters, not
+        // through the typed readers that the generated wrappers call.
+        public static int CastConvertedClass(LuaTable t)
+        {
+            ConvertedClass c = t.Cast<ConvertedClass>();
+            return c.A + c.B;
+        }
+
+        public static int CastConvertedStruct(LuaTable t)
+        {
+            ConvertedStruct s = t.Cast<ConvertedStruct>();
+            return s.A + s.B;
+        }
+
+        public static int SumConvertedStructs(List<ConvertedStruct> list)
+        {
+            int sum = 0;
+            foreach (var s in list) sum += s.A + s.B;
+            return sum;
+        }
+    }
+
     [LuaCallCSharp]
     public static class Api
     {

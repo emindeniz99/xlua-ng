@@ -29,7 +29,14 @@ and maps it onto luaunit: `ASSERT_EQ` is `assertEquals`, `ASSERT_TRUE` is
 catches the error with `pcall`. Each mode prints a line such as
 `[luaunit coroutine] Ran N tests in 0.2 seconds, N successes, 0 failures`,
 and a failure in either mode raises a Lua error, which `LuaEnv.DoString`
-turns into a C# exception.
+turns into a C# exception. Outside Unity, Lua's `print` writes to C's
+`stdout` and C# (`LuaTestCommon.Log`) to `Console`, two buffers on one file.
+PUC Lua flushes after each `print` and LuaJIT does not, so
+`luaunit_compat.lua` flushes through `io.stdout`; a library without `io`
+(the minimal preset) has nothing to flush with, and there `print` goes
+through `LuaTestCommon.Log`. Before that, LuaJIT's lines left in blocks
+that end anywhere, and a C# line could land inside one, also inside the
+summary line, which the scripts then missed (native-build run 40672755047).
 
 With Mono 6.14.1 and `mcs` installed (`brew install mono` on macOS and Linux),
 first build a host-native plugin, then run:
@@ -221,16 +228,19 @@ their own; `--define XLUA_REFLECTION` turns it back on for every pass, and
 `--define XLUA_NO_REFLECTION` alone (without the preset) works the same way.
 Without reflection the cases listed in
 `StreamingAssets/needs_reflection.lua`, which use the suite's reflection
-fixtures (`*Reflect`, `NoGen*`) and .NET types it does not configure, must fail
-with the error of a type without bindings (`has no generated bindings`) or of a
+fixtures (`*Reflect`, `NoGen*`) and .NET types it does not configure, or
+convert Lua tables to classes and structs without `[GCOptimize]`, must fail
+with the error of a type without bindings (`has no generated bindings`), of a
+table conversion without a generated converter (`has no generated table
+converter`, since 2026-10-28) or of a
 missing bridge (`This type must add to CSharpCallLua`); `luaunit_compat.lua`
 counts that as a pass, and a listed case that passes, or fails another way,
 fails, as does an entry that names no case of the run. An entry `"private_accessible"` or `"util"` applies only where the build
 has `xlua.private_accessible` or `xlua.util`. `RAISE_NO_BINDINGS(pcall(...))`
 raises such an error again in a case that catches it. `CaseNoReflection*`
 (fixtures in `xLuaTest/LuaCallCS/NoReflectionForLuaCallCS.cs`) check the error
-texts, base classes with bindings, enums, `pairs`, bridges and
-`xlua.private_accessible` in both states. With a preset define `run_managed.py` also
+texts, base classes with bindings, enums, `pairs`, bridges,
+`xlua.private_accessible` and table conversions in both states. With a preset define `run_managed.py` also
 sets the `XLUA_EXPECT_*` variables of the preset's library
 (`Tools/presets.py --expect-env`), unless they are set already, so run it
 against a library built with `XLUA_PRESET=minimal`. `--define XLUA_UTIL` next
@@ -508,7 +518,12 @@ runtime and stays cached, so both cases expect no rescans everywhere again,
 and `CaseEnvScanReused` also makes a dynamic assembly with a
 `[CSharpCallLua]` interface, which must cause no scan and not be found
 (without the change the .NET Framework would scan again, as `CaseEnvScanReused`
-did in run 40642149114; not rerun). Not run on
+did in run 40642149114; not rerun). On .NET (`coverage_cs_dotnet.py`) the
+case failed in the coroutine pass of run 40672755047 with two scans: the
+name of its dynamic assembly used `Process.GetCurrentProcess().Id`, which
+loaded `System.Diagnostics.Process` (Mono has it in `System.dll`), and the
+first env's scan of that assembly loaded four more, so the second env
+scanned too. The name is now a counter. Not run on
 Windows: the source generator passes, .NET (Core), Unity.
 
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and

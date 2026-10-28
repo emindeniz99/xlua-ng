@@ -1978,6 +1978,16 @@ namespace XLua
             if (update != null) custom_update_funcs.Add(type, update);
         }
 
+#if XLUA_NO_REFLECTION
+        // The generated reader of a packable [GCOptimize] struct
+        // (RegisterPushAndGetAndUpdate), which takes a Lua table too: the table
+        // conversion of ObjectCasters uses it under XLUA_NO_REFLECTION.
+        internal bool TryGetGeneratedReader(Type type, out GetCSObject get)
+        {
+            return custom_get_funcs.TryGetValue(type, out get);
+        }
+#endif
+
         public bool HasCustomOp(Type type)
         {
             return custom_push_funcs.ContainsKey(type);
@@ -2100,6 +2110,22 @@ namespace XLua
                     update(L, idx, (T)obj);
                 }
             );
+        }
+
+        // RegisterPushAndGetAndUpdate without generic code, for generated code
+        // (XLua.Binding.AssemblyBindings.Struct(Type, Type, StructOps)): push
+        // is an Action<RealStatePtr, T> and get a Func<RealStatePtr, int, T>
+        // of the type, and the other three take the value boxed.
+        internal void RegisterStruct(Type type, Delegate push, Delegate get, PushCSObject pushObject, GetCSObject getObject, UpdateCSObject updateObject)
+        {
+            Delegate org;
+            if (tryGetPushFuncByType(type, out org) || tryGetGetFuncByType(type, out org))
+            {
+                throw new InvalidOperationException("push or get of " + type + " has register!");
+            }
+            push_func_with_type.Add(type, push);
+            get_func_with_type.Add(type, get);
+            registerCustomOp(type, pushObject, getObject, updateObject);
         }
 
         public void RegisterChecker<T>(CheckFunc<T> check)

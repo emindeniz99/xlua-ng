@@ -503,9 +503,9 @@ that names the type and how to bind it. What each path does now:
 | A delegate of a type without a bridge of its own: a registered bridge with the same parameters, `DelegateBridge`'s `Action` and its generic `Action`/`Func` bridges (`MakeGenericMethod`) | Kept | Precompiled bridges, the same in players |
 | Calling a C# delegate from Lua, `CS.D(f)` | Kept (`MethodWrapsCache.GetDelegateWrap`, `DelegateCtor`) | Decision 11 of the source generator: Lua keeps calling C# delegates through reflection |
 | `xlua.private_accessible` (minimal has it only with `HOTFIX_ENABLE`) | Kept. On a type without bindings it now makes the public members and the constructors reachable by reflection too, not only the private ones | An explicit request for reflection on one type; hotfix patches read `self`'s members |
-| `xlua.get_generic_method`, `xlua.access`, `xlua.tofunction` | Kept | Explicit reflection APIs that Lua names. Owner question 3 |
-| A Lua table converted to a class or struct that has no generated converter (`ObjectCasters`) | Kept | A conversion to a parameter type that a bound signature names, not a member Lua reaches. Owner question 4 |
-| `[ReflectionUse]` | Only its link.xml entries: it does not open reflection for its type | A per-type opt-in keeps the reflection wrapper code in every minimal player. Owner question 2 |
+| `xlua.get_generic_method`, `xlua.access`, `xlua.tofunction` | Kept | Explicit reflection APIs that Lua names. Owner question 3, decided 2026-10-28: kept |
+| A Lua table converted to a class or struct that has no generated converter (`ObjectCasters`) | Raises `cannot convert a table to T: T has no generated table converter, and this build does not fill C# objects from tables through reflection (XLUA_NO_REFLECTION, part of XLUA_PRESET_MINIMAL). Mark it [GCOptimize], or add [assembly: XLua.GCOptimize(typeof(T))] for a type you cannot change, so that the source generator writes one; or pass a T object instead of a table, or define XLUA_REFLECTION` (since 2026-10-28) | A hidden reflection fallback, like a member's. Owner question 4, decided 2026-10-28 |
+| `[ReflectionUse]` | Only its link.xml entries: it does not open reflection for its type | A per-type opt-in keeps the reflection wrapper code in every minimal player. Owner question 2, decided 2026-10-28: kept so |
 | The reflection wrapper code (`ReflectionWrap`, `makeReflectionWrap`, `ReflectionMembers`, `MakePrivateAccessible`, the indexer and enum helpers) | Not compiled, unless `xlua.private_accessible` exists (without `XLUA_RESTRICT_PRIVATE_ACCESS`, or with `HOTFIX_ENABLE`) | Size, below |
 | The development player warning without registrations (source-generator.md, section 5.3) | Says that Lua then reaches no C# type's members | |
 
@@ -563,8 +563,9 @@ Tests:
   only use to report results got `[LuaCallCSharp]` (the suite's surface grew by
   them, `expected-surface/suite.json`), and the harness reads `os.getenv` and
   writes its result files through `LuaTestCommon`. `CaseNoReflectionUnboundType`,
-  `...BoundBase`, `...Enum`, `...Pairs`, `...Bridges` and
-  `...PrivateAccessible` (fixtures in `NoReflectionForLuaCallCS.cs`) check both
+  `...BoundBase`, `...Enum`, `...Pairs`, `...Bridges`,
+  `...PrivateAccessible` and, since 2026-10-28, `...ObjectAndType` and
+  `...TableConversion` (fixtures in `NoReflectionForLuaCallCS.cs`) check both
   states; `CasePresetImpliesItsDefines` checks the define and its opt-in.
 - **Unity editor suite:** `XluaSmokeTests.UnboundTypesFollowTheReflectionDefine`;
   `XluaGeneratedCodeTests.CodeEmitIsCompiledIntoTheEditor` expects no CodeEmit
@@ -588,12 +589,63 @@ Tests:
    attribute already means "Lua reaches this type through reflection" and gets
    link.xml entries. Allowing it would keep the reflection wrapper code
    (about 43 KB of APK, below) in every minimal player that uses it. Add it?
+   **Decided 2026-10-28 (owner, Q29): no.** In the minimal preset
+   `[ReflectionUse]` stays a link.xml-only attribute: it keeps its type from
+   being stripped and does not open reflection for it. `XLUA_REFLECTION`, for
+   the whole project, is the opt-in. No code change; Configure_EN.md
+   ("XLua.ReflectionUse"), the FAQ ("What does T has no generated bindings
+   mean?", "Can I use reflection on iOS?") and MIGRATING.md say so.
 3. **Explicit reflection APIs** (`xlua.get_generic_method`, `xlua.tofunction`,
    `xlua.access`, `xlua.private_accessible` with `HOTFIX_ENABLE`): kept, since a
    script names them. Restrict them to bound types in minimal, or leave them to
    the type allowlist?
+   **Decided 2026-10-28 (owner, Q30): they stay available in minimal.** A
+   script that uses them asks for reflection explicitly. No code change.
 4. **Table conversions by reflection** for types without a generated converter:
    kept. Require `[GCOptimize]` (or a generated converter) in minimal?
+   **Decided 2026-10-28 (owner, Q31): required in strict minimal, and
+   implemented.** Under `XLUA_NO_REFLECTION` a Lua table converts to a class
+   or struct only through a generated converter; without one the conversion
+   raises the error of the table row above (an `InvalidCastException`, which
+   a wrapper reports as `c# exception:System.InvalidCastException: ...`;
+   `Utils.NoTableConverterMessage`). For a type that is not public it says
+   so, since the generator configures only public types. What writes a
+   converter: the source generator writes one for a `[GCOptimize]` type and
+   for nothing else. `[LuaCallCSharp]` writes none, so the error does not
+   offer it. A `[GCOptimize]` class with a public parameterless constructor,
+   or a struct that is not packable, gets a table reader (`Structs.Get_*`,
+   registered with `AssemblyBindings.Caster`, which replaces the
+   `ObjectCasters` caster); a packable `[GCOptimize]` struct gets a reader
+   that takes tables too (`AssemblyBindings.Struct`), which
+   `ObjectCasters` now calls (`ObjectTranslator.TryGetGeneratedReader`), where it
+   filled the fields by reflection before. Every path reaches one place,
+   `ObjectCasters.genCaster`'s class and struct branch
+   (`genGeneratedTableCaster`): parameters, fields and properties Lua sets
+   (generated wrappers read through `translator.Get<T>`, `GetObject` or
+   `GetStructArg`, all of which end in `ObjectCasters.GetCaster` or
+   `GetArgCaster`), delegate and interface results (`translator.Get`),
+   `LuaTable.Get<T>` and `Cast<T>`, `LuaFunction.Func` and `Cast<T>`, and the
+   elements of arrays, `List<T>` and `Dictionary<K, V>`. The conversion of a
+   table to an array, a `List<T>` or a `Dictionary<K, V>` itself is not a
+   field fill and is kept; their elements follow the rule. A C# object of the
+   type, and values that are not tables, convert as before; the overload
+   check still accepts a table for such a parameter, so the call reaches the
+   clear error instead of "invalid arguments". The field-filling code is not
+   compiled under `XLUA_NO_REFLECTION`. Legacy, and minimal with
+   `XLUA_REFLECTION`, are unchanged. Tests: `CaseNoReflectionTableConversion`
+   (fixtures `TableApi`, `TableClass`, `TableStruct`, `ConvertedClass`,
+   `ConvertedStruct` in `NoReflectionForLuaCallCS.cs`) checks the error for a
+   parameter of a class and of a struct, `LuaTable.Get`, `Cast`, a function
+   result and list elements, that `[GCOptimize]` classes and structs convert
+   through their generated converters (also through `Cast` and as list
+   elements), and with reflection that everything converts as before. The
+   suite cases that converted tables to unconfigured types went into
+   `needs_reflection.lua` (twelve: `CMyTestCaseCSCallLua`'s
+   `testGetTableToClass_*`, `testGetFuncToDelegate_Step_2_*` and
+   `testLuaTableGetSetKeyValue_class`, and `CaseInterfaceBridgeOutRef` and
+   `CaseLuaTableApi` of the coverage suite, all with `Coverage.Point` or the
+   `tableValue*Class` fixtures), and `luaunit_compat.lua` accepts the new
+   error, `has no generated table converter`, there.
    **Related, decided 2026-10-28 (owner): warn about `[GCOptimize]` structs
    without bindings.** In strict minimal a `[GCOptimize]` struct gets its
    pusher and reader but no wrapper, so reading its fields failed only at run

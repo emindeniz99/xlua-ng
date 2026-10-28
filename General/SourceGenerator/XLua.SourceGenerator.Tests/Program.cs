@@ -490,7 +490,7 @@ public struct Pair { public int a, b; }");
     {
         const string stub = @"
 namespace XLua { public class LuaCallCSharpAttribute : System.Attribute { } }
-namespace XLua.Binding { public static class BindingApi { public const int Version = 2; } }";
+namespace XLua.Binding { public static class BindingApi { public const int Version = 1; } }";
         var xlua = Harness.Compile("XLua", new[] { stub }, new MetadataReference[0]);
         var input = Harness.Compile("Game", new[] { "[XLua.LuaCallCSharp] public class Player { }" },
             new[] { MetadataReference.CreateFromImage(Harness.Emit(xlua)) });
@@ -508,7 +508,7 @@ namespace XLua.Binding { public static class BindingApi { public const int Versi
     {
         const string stub = @"
 namespace XLua { public class LuaCallCSharpAttribute : System.Attribute { } }
-namespace XLua.Binding { public static class BindingApi { public const int Version = 1; } }";
+namespace XLua.Binding { public static class BindingApi { public const int Version = 2; } }";
         var xlua = Harness.Compile("XLua", new[] { stub }, new MetadataReference[0]);
         var input = Harness.Compile("Game", new[] { "[XLua.LuaCallCSharp] public class Player { public int Hp; }" },
             new[] { MetadataReference.CreateFromImage(Harness.Emit(xlua)) });
@@ -1152,10 +1152,13 @@ namespace Lib
             && packing.Contains("xlua_pack_float(buff, offset + 24, field.g)"), "float groups");
         Assert.True(packing.Contains("field.@class"), "keyword field names are escaped");
         var bindings = run.Source(Emitter.BindingsFile);
+        Assert.True(bindings.Contains("b.Struct(typeof(global::Game.V3), typeof(global::Game.V3[]), Structs.Ops_Game_V3_")
+            && bindings.Contains("b.Caster(typeof(global::Game.Settings), typeof(global::Game.Settings[]), Structs.Ops_Game_Settings_"), "registration");
+        Assert.True(!bindings.Contains("b.Struct<") && !bindings.Contains("b.Caster<") && !bindings.Contains("b.ArrayAccessor<"),
+            "no generic registration, which IL2CPP compiles once per value type");
         // The registered readers read results (result: true, owner decision Q35).
-        Assert.True(bindings.Contains("b.Struct<global::Game.V3>(Structs.Push_Game_V3_") && bindings.Contains("b.Caster<global::Game.Settings>(")
-            && bindings.Contains("=> Structs.Get_Game_Settings_") && bindings.Contains("(translator, L, index, out val, true)"),
-            "registration");
+        var structSource = run.Source(Emitter.StructsFile);
+        Assert.True(structSource.Contains("out val, true);"), "Value_ and StructOp.Get read results:\n" + structSource);
 
         var context = new AssemblyLoadContext("structs", isCollectible: true);
         try
@@ -1953,12 +1956,12 @@ namespace Game
         Assert.Compiles(run);
         string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
         int expected = all.Split(new[] { "throw global::XLua.Binding.BindingApi.StructExpected(L, index, typeof(" }, StringSplitOptions.None).Length - 1;
-        Assert.True(expected >= 5, "StructExpected for another type's userdata (Mode, HitInfo), the last branches and the table reader's type check:\n" + all);
+        Assert.True(expected >= 4, "StructExpected in the last branches and the table reader's type check (another type's packed userdata: BindingApi.StructBuffer):\n" + all);
         int readers = all.Split(new[] { ", bool result = false)" }, StringSplitOptions.None).Length - 1;
         Assert.Equal(3, readers, "Mode, HitInfo and Labeled readers take result:\n" + all);
         int results = all.Split(new[] { ", true);" }, StringSplitOptions.None).Length - 1;
         Assert.True(results >= 3, "the three bridges read their results with result: true:\n" + all);
-        Assert.True(all.Contains("(translator, L, index, out val, true)"), "the registration reads results:\n" + all);
+        Assert.True(all.Contains("(translator, L, index, out val, true);"), "Value_ and StructOp.Get, which the registration uses, read results:\n" + all);
         Assert.True(all.Contains("if (!result && type != "), "the Mode reader raises for an argument that is no number or name");
         Assert.True(all.Contains("if (result && (type == "), "a struct result where Lua has no value is default(T)");
         Assert.True(all.Contains(" is global::Game.Labeled)) throw ") || all.Contains(" is Game.Labeled)) throw "),

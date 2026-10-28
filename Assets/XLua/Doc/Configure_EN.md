@@ -68,7 +68,9 @@ When adding this configuration to a C# type, the source generator lists the type
 
 For extension methods, you must add LuaCallCSharp or ReflectionUse to make them accessible.
 
-It is recommended that all types to be accessed in Lua have the LuaCallCSharp or ReflectionUse tag, to insure their proper operation on all platforms. In the minimal preset only LuaCallCSharp makes a type reachable; ReflectionUse then only keeps it from being stripped, for `xlua.private_accessible` and the other reflection APIs.
+It is recommended that all types to be accessed in Lua have the LuaCallCSharp or ReflectionUse tag, to insure their proper operation on all platforms.
+
+In the [minimal preset](#presets), ReflectionUse only writes `link.xml` entries. It does not let Lua reach its type through reflection: using a member of a ReflectionUse type without LuaCallCSharp still raises `has no generated bindings`. The entries keep the type for the reflection APIs that a script calls by name, which the preset keeps: `xlua.get_generic_method` and `xlua.tofunction`, and with `HOTFIX_ENABLE` `xlua.private_accessible` and `xlua.access`. To reach types without bindings through reflection in the minimal preset, define `XLUA_REFLECTION`, which turns the reflection fallback back on for the whole project; there is no per-type switch.
 
 ### XLua.DoNotGen
 
@@ -89,6 +91,8 @@ This allows you to adapt a Lua function to a C# delegate (one scenario is variou
 A C# pure value type (Note: It refers to a struct that contains only the value type, and it can nest other structs that contain only the value type) or a C# enumerated value has this configuration. xLua generates gc-optimized code for this type. The result is that the value type is passed between Lua and C# with no (C#)gc alloc generated, and that no gc is generated during array access to this type. For various GC-free scenarios, refer to the 05\_NoGc example.
 
 For non-enum complex types with a parameterless constructor, the generator also emits conversion code from a Lua table to the type and to a one-dimensional array of that type. This will optimize the performance of this conversion, including fewer gc allocs.
+
+In the [minimal preset](#presets) this generated conversion is the only one: a Lua table passed where C# expects a class or struct (a parameter, `LuaTable.Get<T>`, `LuaTable.Cast<T>`, a delegate's result, the elements of a list) converts only if the type has `GCOptimize`, a class with a public parameterless constructor or a struct. Otherwise the conversion raises `cannot convert a table to T: T has no generated table converter ...`. `LuaCallCSharp` does not write a table conversion. Pass a C# object instead of a table, add `GCOptimize` (`[assembly: XLua.GCOptimize(typeof(T))]` for a type you cannot change), or define `XLUA_REFLECTION`.
 
 ### XLua.AdditionalProperties
 
@@ -176,8 +180,9 @@ To use **minimal**:
 1. Add `XLUA_PRESET_MINIMAL` to **Player Settings > Other Settings > Scripting
    Define Symbols** for every platform you build. Add `XLUA_UTIL` as well if
    your Lua code uses `require "xlua.util"`, and `XLUA_REFLECTION` if it uses
-   C# types that have no generated bindings (or the project has no source
-   generator).
+   C# types that have no generated bindings, or passes Lua tables where C#
+   expects classes or structs without `GCOptimize` (or the project has no
+   source generator).
 2. Build the minimal native plugin next to the default one, for example
    `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_android_lua55.sh` and
    `XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_ios_lua55.sh`. Copy the
