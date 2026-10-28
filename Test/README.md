@@ -4044,6 +4044,16 @@ and plugin deltas between two Android projects with the symbol split of
 `size_breakdown.py`, and `--generics` and `--linq` report generic code and
 System.Linq in one project.
 
+`vs_bench.py` compares xlua-ng with PuerTS's Lua backend and zlua in Android
+IL2CPP players: `size_report.py --configs vsbench` builds the xlua-ng players
+(`+vsbench`: plain, GCM, strict minimal and the empty project), `vs_bench.py
+build` the PuerTS and zlua players from their release archives in projects
+outside the repository, `device phone|emu` runs all five in rotating order
+and `report` writes the tables
+([benchmark-vs-puerts-zlua.md](../docs/research/benchmark-vs-puerts-zlua.md)).
+The workload is `VsBench/VsBench.cs`, a subset of zlua-benchmark's case list,
+with one adapter per library.
+
 `alloc_probe.py` measures managed allocations and time of `new LuaEnv()` and
 of the first and later access to C# types in reflection mode
 (`AllocProbe.cs`): `editor` in a macOS Editor project, from the checkout or

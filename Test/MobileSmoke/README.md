@@ -161,7 +161,10 @@ above are unchanged (see "Player size" in `Test/README.md`).
 `+pbench` size variants (`PlayerBench.cs`, Lua -> C# call cost in the
 player, `XLUA_PBENCH` lines in the log) get one package per binding mode, so
 their APKs can be installed side by side and launched in turn
-([descriptor-wrappers.md](../../docs/research/descriptor-wrappers.md#call-cost-on-the-phone-and-the-emulator-2026-10-28)).
+([descriptor-wrappers.md](../../docs/research/descriptor-wrappers.md#call-cost-on-the-phone-and-the-emulator-2026-10-28)),
+and the `+vsbench` variants (`VsBench/VsBench.cs`, the cross-library bench of
+`vs_bench.py`) get `org.xluang.vs.plain`, `.gcm` or `.minimal`
+([benchmark-vs-puerts-zlua.md](../../docs/research/benchmark-vs-puerts-zlua.md)).
 
 Set `XLUA_SMOKE_OUTPUT_ROOT` to the external build output directory. If unset,
 the harness uses a `builds` directory alongside the prepared project. For
