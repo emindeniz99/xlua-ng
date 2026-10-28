@@ -770,6 +770,36 @@ is stripped anyway), WebGL, a project with many GCOptimize types or
 run-time cost (one more delegate call on the boxed push, get and update of
 a struct; none on the array accessors and the typed paths).
 
+**Measured again in the final verification round (2026-10-28).**
+`size_report.py run --configs strict --variants
+baseline,ng-5.5,ng-5.5+minimal,ng-5.5+minimal+reflection,ng-5.5+minimal+strict`:
+the same setup (Unity 6000.3.21f1, Android ARM64 IL2CPP release, Minimal
+stripping), the C# of main at `fe4f71dc`, the Lua 5.5.1 plugins built from
+`a2f8ad12` (the merge in between changed only the Lua 5.4 branch of
+`xlua_gc`). After the day's runtime changes (overload scoring, the owner
+thread, binding-mode parity, the struct, enum and `Nullable` rules, the
+registry checks, native bridge version 112). The strict, reflection and
+plain legacy probes printed `XLUA_SIZE_PROBE: Lua 5.5 42` on the `xlua16k`
+emulator. Deltas over the baseline (12,279,060); components compressed in
+the APK / uncompressed:
+
+| variant | APK | over baseline | change from "after" above | `libxlua.so` | `libil2cpp.so` | `global-metadata.dat` | stripped `XLua.dll` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| legacy (`ng-5.5`) | 13,745,798 | +1,466,738 | +9,328 over `d37515c2` | 165,597 / 388,136 | +619,224 / +2,068,472 | +136,071 / +391,368 | 266,752 |
+| minimal, nothing bound (does not run) | 12,731,870 | +452,810 | +5,208 | 137,270 / 312,176 | +262,998 / +909,544 | +46,317 / +143,720 | 205,312 |
+| minimal with `XLUA_REFLECTION` | 12,778,266 | +499,206 | +7,332 | 137,270 / 312,176 | +308,351 / +1,096,616 | +47,369 / +146,012 | 209,920 |
+| strict minimal (source generator) | 12,760,054 | +480,994 | +6,004 | 137,270 / 312,176 | +287,436 / +1,012,336 | +49,919 / +153,264 | 218,624 |
+
+- Strict minimal still costs less than keeping reflection (18,212 bytes)
+  and 28,184 more than the unbound player.
+- The rows grew by 5 to 9 KB: `libil2cpp.so` +2,842 to +5,120 compressed,
+  the metadata +1,264 to +1,505, `libxlua.so` +797 compressed for legacy
+  and +858 for minimal (bridge version 112: struct bounds, protected
+  helpers, `set_limits`; 388,136 bytes against 385,720 at `d37515c2` for
+  legacy). Not split by change.
+- `libunity.so` is unchanged; `Assembly-CSharp.dll` too (5,632, and 7,680
+  with the strict probe's wrapper).
+
 ### The core preset
 
 Measured 2026-10-18 after milestone 5 of
