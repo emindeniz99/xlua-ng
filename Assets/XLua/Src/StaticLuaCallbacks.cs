@@ -719,22 +719,15 @@ namespace XLua
 
 
         // Lua calls this for an error with no protected call around it; Lua aborts if it returns.
-        // In the Editor, on Mono and with XLUA_GENERAL it throws, as upstream does: the exception
-        // unwinds the native Lua frames, which Mono happens to do and the Editor must survive. In
-        // an IL2CPP player that unwinding is undefined behaviour, so the player logs the Lua error
-        // and ends with Environment.FailFast instead (docs/research/crash-inventory.md, item 9).
+        // It throws, as upstream does, everywhere: the exception unwinds the native Lua frames.
+        // Mono does that; IL2CPP does not promise it (undefined behaviour), but it worked in every
+        // Android IL2CPP player tested, and the smoke player's XLUA_SMOKE_PANIC mode checks it
+        // (owner decision 2026-10-28, docs/research/crash-inventory.md, item 9).
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         internal static int Panic(RealStatePtr L)
         {
             string reason = String.Format("unprotected error in call to Lua API ({0})", LuaAPI.lua_tostring(L, -1));
-#if ENABLE_IL2CPP && !UNITY_EDITOR && !XLUA_GENERAL
-            UnityEngine.Debug.LogError("xLua: " + reason);
-            Environment.FailFast("xLua: Lua panic, " + reason + "; the process ends, because a C# exception "
-                + "cannot unwind native Lua frames under IL2CPP");
-            return 0;
-#else
             throw new LuaException(reason);
-#endif
         }
 
 #if !XLUA_GENERAL

@@ -56,7 +56,7 @@ owner question; (c) by design: documented.
 | 6 | A C# finalizer that calls Lua (a second thread) | all | as 5: SIGABRT | **checked** in debug builds (2026-10-28) | as 5 | (b) |
 | 7 | Deep C# ↔ Lua recursion | LuaJIT | native stack overflow at about 10,240 levels: SIGSEGV | **fixed** (2026-10-28) | about 2.5 ns per C# call on LuaJIT | (b) |
 | 8 | Errors in `__gc` on Lua 5.3 | 5.3 | propagate from a GC step: panic in an unprotected C# call (`FullGc`, any allocating push) | open | a protected `FullGc`; or a vendored `lgc.c` change | (b) |
-| 9 | The panic handler throws a C# exception through native frames | all | undefined behaviour; Mono unwinds, IL2CPP need not (it did in the runs of 2026-10-28) | **decided** 2026-10-28: IL2CPP players log and `Environment.FailFast`; Editor, Mono and `XLUA_GENERAL` keep throwing | none (an error path) | (b) |
+| 9 | The panic handler throws a C# exception through native frames | all | undefined behaviour; Mono unwinds, IL2CPP need not (it did in the runs of 2026-10-28) | **decided** 2026-10-28: keep throwing everywhere (it worked in every Android IL2CPP player tested); the smoke player's `XLUA_SMOKE_PANIC` mode checks it | none (an error path) | (b) |
 | 10 | Struct accessors read the 8-byte header of any full userdata, whatever its size | all (mostly LuaJIT) | heap over-read; a write if the bytes look like a header | open | +1 `lua_rawlen` per accessor | (b) |
 | 11 | Old leak-checker walk `xlua_report_object_relationship` ([#1149](https://github.com/Tencent/xLua/issues/1149)) | 5.3+ | intermittent crash, not reproduced | open | diagnostic path only | (b) |
 | 12 | A disposed `LuaBase` used while its env lives (released reference reused) | all | wrong function or table, not a crash | open | one more comparison per call | (b) |
@@ -551,14 +551,19 @@ status to the error code (`ldo.c:134`) [C, code]. After items 3 and 4 the
 known ways to reach it are a real allocation failure in an unprotected call
 (no `MemoryLimit`) and item 8.
 
-**Owner decision of 2026-10-28.** In the Editor, on Mono and with
-`XLUA_GENERAL` the handler keeps throwing, as upstream does: the Editor must
-not die. In IL2CPP players (`ENABLE_IL2CPP && !UNITY_EDITOR`) it logs the
-Lua error with `Debug.LogError` and calls `Environment.FailFast` with a
-message that names it. The runs below are evidence of what happened before
-the change, not proof that throwing through native frames is safe: the
-behaviour stays undefined, and another compiler, unwinder, Unity version or
-plugin built without unwind tables may differ.
+**Owner decision of 2026-10-28, revised the same day after the experiment
+below.** The first decision was to keep throwing in the Editor, on Mono and
+with `XLUA_GENERAL`, and to log and `Environment.FailFast` in IL2CPP players.
+The experiment then showed that throwing worked in every IL2CPP player
+tested (the `catch` received the exception and the env kept working), while
+FailFast turned each panic into a native crash. The owner chose to keep
+throwing everywhere, as upstream does, and to keep the experiment as a
+check: `XLUA_SMOKE_PANIC` in the smoke player, to run on every platform's
+player (iOS and WebGL when they are tested), and `crash_repro.py`
+`panic_unprotected_rawset` on the host. The behaviour stays undefined in
+principle: another compiler, unwinder, Unity version or a plugin built
+without unwind tables may differ, which that check would show. Panics are
+rare after items 3 and 4.
 
 **How the runs reach the handler.** No natural path is left in a Lua 5.5
 player after today's fixes, so the experiment raises one on purpose:
@@ -569,15 +574,14 @@ the env still runs `DoString`, a C# call from Lua, a coroutine, `pcall` and
 `FullGc`, then `Dispose` and a new `LuaEnv`. `crash_repro.py`
 `panic_unprotected_rawset` does the same on the host.
 
-**Before the change [C].** Unity 6000.3.21f1, Android ARM64 IL2CPP, Minimal
+**Throwing (the behaviour kept) [C].** Unity 6000.3.21f1, Android ARM64 IL2CPP, Minimal
 stripping, a Lua 5.5.1 plugin built from main at `1533df01` with
 `build/make_android_lua55.sh` (NDK r30), release and Development players
 (`XLUA_SMOKE_DEFINES=XLUA_SMOKE_PANIC`). In every run the C# `catch`
 received `LuaException: unprotected error in call to Lua API (table index is
 nil)`, the env passed every check after each of the two panics, `Dispose`
 and a new `LuaEnv` worked, and there was no native crash (empty crash
-buffer, the process alive at the end). The Editor and host rows ran with
-the change, whose throwing path there is the code from before:
+buffer, the process alive at the end). The Editor and host rows ran the same throwing path:
 
 | Where | Release | Development |
 |---|---|---|
@@ -597,7 +601,7 @@ Nothing skipped by that unwind needed cleanup in these runs (Lua frees
 nothing on a longjmp either), so the env kept working. The `xlua16k` AVD is
 arm64-v8a on an Apple silicon host, not x86_64.
 
-**After the change [C].** The same players from the change: on the phone
+**With FailFast (tried, not kept) [C].** The same players with the FailFast change, which was reverted after these runs: on the phone
 and on the AVD, release and Development, the first panic ends the process.
 Logcat shows, in this order, the `Debug.LogError` line with its managed
 stack (`E Unity : xLua: unprotected error in call to Lua API (table index

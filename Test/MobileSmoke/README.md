@@ -171,10 +171,10 @@ by `SmokeBuild.ApplyDefines` like the others) the player and
 Lua call xLua's panic handler on purpose (`lua_rawset` with a nil key from C#,
 with no protected call around it), twice, and checks the env after each. It
 logs `XLUA_NG_PANIC <step> ...` lines as it goes and `XLUA_NG_PANIC_RESULT:
-...` at the end. Since 2026-10-28 an IL2CPP player ends at the first panic
-instead, after `xLua: unprotected error in call to Lua API (...)` (Unity's
-log) and `xLua: Lua panic, ...` (IL2CPP's FailFast message); the Editor gives
-the result line. Results:
+...` at the end. Every player should give the result line with the env
+usable after both panics: xLua's panic handler throws through the native Lua
+frames, which IL2CPP does not promise to unwind, so run this mode on each new
+platform or Unity version (owner decision 2026-10-28). Results:
 [crash-inventory.md](../../docs/research/crash-inventory.md), item 9.
 
 The iOS 15 setting belongs to this modern Unity smoke project. It does not
