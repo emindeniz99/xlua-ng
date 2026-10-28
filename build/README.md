@@ -222,7 +222,7 @@ CMake options (all `OFF` by default except `XLUA_CHEAP_HARDEN`):
 | `XLUA_WERROR` | Warnings in xLua's own files become errors (`-Werror`, `/WX`). CI turns it on. |
 | `XLUA_CHEAP_HARDEN` | `ON` in every preset (since 2026-10-18): the cheap hardening set, see below. |
 | `XLUA_HARDEN` | Hardening for the whole library, see below. |
-| `XLUA_APICHECK` | Lua's C API argument checks (`LUA_USE_APICHECK`, with `NDEBUG` removed so that `assert` stays on). For test builds; `sanitize.sh` and `coverage.sh` use it. LuaJIT compiles its checks into `libluajit.a`: also build it with `XCFLAGS=-DLUA_USE_APICHECK`. With `USING_LUAJIT`, configure stops when `LUAJIT_STATIC_LIB` has no `lj_assert_fail`, that is, was made without the checks. |
+| `XLUA_APICHECK` | Lua's C API argument checks (`LUA_USE_APICHECK`, with `NDEBUG` removed so that `assert` stays on). For test builds; `sanitize.sh` and `coverage.sh` use it. LuaJIT compiles its checks into `libluajit.a`: also build it with `XCFLAGS=-DLUA_USE_APICHECK`. With `USING_LUAJIT`, configure stops when `LUAJIT_STATIC_LIB` has no `lj_assert_fail`, that is, was made without the checks. With MSVC it also adds `xlua_apicheck_msvc.c`, which sends a failed check to stderr instead of a message box (the static C runtime does not know the host is a console program); with `msvcbuild_mt.bat`, set `CL=/DLUA_USE_APICHECK` for `lua51.lib`. `Test/Native/apicheck_probe.py` checks that a build has the checks. |
 | `XLUA_SANITIZE`, `XLUA_COVERAGE` | Sanitizer and coverage test builds, see [Test/README.md](../Test/README.md). |
 
 Size options ([size flags](#android-size-flags) below):
