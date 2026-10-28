@@ -139,35 +139,17 @@ jobs:
         timeout-minutes: 15
         run: python Test/Native/run_managed.py --runtime netfx --compiler "$CSC" --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/netfx"
       - name: Managed suite on Mono 6.12.0.206 (mcs)
+        # The Windows build reports itself as "6.12.0 (Visual Studio built mono)".
         if: ${{ !cancelled() && steps.plugin.outcome == 'success' }}
         timeout-minutes: 15
-        run: python Test/Native/run_managed.py --mono "$MONO_DIR/bin/mono.exe" --compiler "$MONO_DIR/lib/mono/4.5/mcs.exe" --mono-version 6.12.0.206 --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/mono"
+        run: python Test/Native/run_managed.py --mono "$MONO_DIR/bin/mono.exe" --compiler "$MONO_DIR/lib/mono/4.5/mcs.exe" --mono-version 6.12.0 --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/mono"
       - name: Control for Tencent/xLua#1081 (ANSI imports must fail on the .NET Framework)
-        # The same suite with the UTF-8 imports of XLUA_GENERAL turned off (LuaDLLBridge.cs,
-        # LuaDLL.cs), as before the fix: the UTF-8 cases must fail, which shows that the
-        # .NET Framework run above exercised the ANSI marshalling. The checkout is restored.
+        # The suite with the UTF-8 imports of LuaDLLBridge.cs, then of LuaDLL.cs, turned off (the
+        # code before the fixes): each variant must fail its own case, which shows that the
+        # .NET Framework run above exercised the ANSI marshalling (Test/Native/ansi_control.py).
         if: ${{ !cancelled() && steps.plugin.outcome == 'success' && matrix.lua == '5.5.1' }}
         timeout-minutes: 15
-        run: |
-          set -uo pipefail
-          files=(Assets/XLua/Src/LuaDLLBridge.cs Assets/XLua/Core/LuaDLL.cs)
-          sed -i 's/^#if XLUA_GENERAL$/#if XLUA_GENERAL_UTF8_IMPORTS_OFF/' "${files[@]}"
-          git diff --stat -- "${files[@]}"
-          python Test/Native/run_managed.py --runtime netfx --compiler "$CSC" --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/netfx-ansi" > "$RUNNER_TEMP/netfx-ansi.out" 2>&1
-          status=$?
-          git checkout -- "${files[@]}"
-          echo "run_managed.py exit: $status"
-          python - "$RUNNER_TEMP/netfx-ansi/managed-suite.log" <<'EOF'
-          import re, sys
-          log = open(sys.argv[1], encoding="utf-8", errors="replace").read()
-          failed = sorted(set(re.findall(r"^\s+(\S+) \.\.\. (?:FAIL|ERROR)", log, re.M)))
-          print("Failed with ANSI imports:", *failed, sep="\n  ")
-          need = {"CMyTestCaseLuaCallCSUpstream.CaseUtf8StringParameters", "CMyTestCaseLuaCallCSUpstream.CaseUtf8TypeNames"}
-          missing = need - set(failed)
-          if missing:
-              sys.exit("expected these to fail with ANSI imports: " + ", ".join(sorted(missing)))
-          print("XLUA_ANSI_CONTROL_PASS: the UTF-8 cases fail with ANSI imports on the .NET Framework")
-          EOF
+        run: python Test/Native/ansi_control.py --compiler "$CSC" --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/netfx-ansi"
       - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -176,8 +158,8 @@ jobs:
           path: |
             ${{ runner.temp }}/netfx/managed-suite*.log
             ${{ runner.temp }}/mono/managed-suite*.log
-            ${{ runner.temp }}/netfx-ansi/managed-suite*.log
-            ${{ runner.temp }}/netfx-ansi.out
+            ${{ runner.temp }}/netfx-ansi/*/managed-suite*.log
+            ${{ runner.temp }}/netfx-ansi/*.out
             ${{ runner.temp }}/mono-install.log
           if-no-files-found: warn
           retention-days: 7
