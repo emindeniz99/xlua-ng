@@ -57,7 +57,11 @@ Each item says what is left and where the runs that passed are recorded.
   sizes in [build/SIZE.md](build/SIZE.md)). Left: a release player on a
   phone, players from other Unity versions, an iPhone (a Development player
   passed in the iOS Simulator), WebGL, and the GCM mode on iOS, WebGL and a
-  phone.
+  phone. The strict minimal preset (no reflection fallback, the generator
+  binding everything the smoke uses) passed in a release and a Development
+  player on the emulator on 2026-10-28
+  ([Test/MobileSmoke/README.md](Test/MobileSmoke/README.md#2026-10-28-strict-minimal-players));
+  left for it: High stripping, iOS, WebGL and a phone.
 - **UPM package** (`Tools/make_upm_package.py`, source generator M6): the
   editor suite, hotfix players, the IL2CPP smoke and a Development WebGL
   player in headless Chrome pass from it
@@ -78,13 +82,18 @@ Each item says what is left and where the runs that passed are recorded.
   [source-generator.md](docs/design/source-generator.md#m8-as-implemented-2026-10-18).
   The host check passes: `obfuscation_check.py` renames the generated
   assembly with Cecil and runs it with Lua 5.5.1 and LuaJIT.
-- **LuaCATS with the source generator on Roslyn 4.3.1** (M10): M10's Unity
+- **LuaCATS with the source generator in the editor** (M10): M10's Unity
   steps passed on 6000.6.6f1 on 2026-10-28 (`LuaTypes/` equal to
   `Test/LuaCATS/expected`, Validate Setup's label and Generate Code problems;
   [Test/README.md](Test/README.md#after-m11-on-every-local-editor-2026-10-28)),
-  and M9's steps 1 and 2 on 2021.3.45f2. Left: the LuaCATS comparison on
-  2021.3 to 6000.3, which needs a `Sample.cs` without its `ref readonly`
-  parameters (Roslyn 4.3.1 cannot compile them).
+  and M9's steps 1 and 2 on 2021.3.45f2. The comparison is a script since
+  then (`Test/UnityMatrix/luacats_unity.py`) and passed on 2021.3.45f2 and
+  6000.3.21f1 with `Sample.cs` without its `ref readonly` members
+  (`LUACATS_NO_REF_READONLY`, `Test/LuaCATS/expected-no-ref-readonly`) and
+  on 6000.6.6f1 with them
+  ([Test/README.md](Test/README.md#luacats-from-the-editor-and-the-strict-minimal-player-2026-10-28)).
+  Left: 2022.3 and 6000.0, the Linux and Windows editors, and adding the
+  script to `unity-matrix.yml`.
 - **Windows ARM64**: load `Plugins/arm64/xlua.dll` in a Unity 2023.1+ Windows
   ARM64 player (and the Windows on Arm Editor), and run the `windows-arm64`
   job of `build.yml` once. `native-build.yml` built the Lua 5.3.6, 5.4.9,

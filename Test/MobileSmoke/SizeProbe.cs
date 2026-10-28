@@ -4,6 +4,8 @@
 // and has no xLua sources.
 // With XLUA_SIZE_UWR (the +uwr variants) it also creates one UnityWebRequest, as a project that
 // downloads anything does, so engine code stripping keeps the UnityWebRequest modules in every case.
+// With XLUA_SIZE_STRICT (ng-5.5+minimal+strict) the source generator binds SizeProbeApi, so the minimal
+// preset's player, which has no reflection fallback, runs the probe.
 // With XLUA_SIZE_MIXED (mixed-5.5) it also runs SizeProbeCore.Run(), LuaScript in the same player.
 // With XLUA_SIZE_GAME (the +game variants) it also times Lua calls into wrapped UnityEngine types
 // (XLUA_SIZE_TIMING lines: median ns per call of five runs, the Lua loop included), so players built
@@ -17,6 +19,10 @@ using XLua;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Debug = UnityEngine.Debug;
+#endif
+
+#if XLUA_SIZE_STRICT
+[assembly: LuaCallCSharp(typeof(SizeProbeApi))]
 #endif
 
 [Preserve]

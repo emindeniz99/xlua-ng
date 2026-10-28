@@ -270,7 +270,14 @@ source generator, compiles `Test/LuaCATS/Sample.cs` with the generator and
 rewrites the mcs spellings of `in` and `ref readonly`), writes LuaCATS
 definitions from the manifest the generator wrote into it (milestone M10;
 configuration lists are not read since M11) and compares them with `Test/LuaCATS/expected` and the `.luarc.json` beside them
-with `expected-luarc.json` (`--update` rewrites them). It checks strict mode
+with `expected-luarc.json` (`--update` rewrites them). It compiles
+`Sample.cs` a second time with `LUACATS_NO_REF_READONLY` at C# 9, which
+leaves out its C# 12 `ref readonly` members as Roslyn 4.3.1 (Unity 2021.3 to
+6000.3) needs, and compares those definitions with the overlay
+`Test/LuaCATS/expected-no-ref-readonly` over `expected` (`CS.lua` without the
+`Gauge` delegate, `Circle` without `Gauger` and `Stretch`; Lua 5.x plugins
+only). `Test/UnityMatrix/luacats_unity.py` compares an editor's output with
+the same files ([below](#luacats-from-the-editor-and-the-strict-minimal-player-2026-10-28)). It checks strict mode
 against `expected-strict`, the file suffix, the `.luarc.json` ownership rules,
 Clear and Generate, byte-identical output on a second run, under the tr-TR
 culture and from CRLF sources (`Test/LuaCATS/CultureLauncher.cs` sets tr-TR
@@ -2526,7 +2533,49 @@ Not run: `compile_time.py`, the device examples (`Test/Examples`),
 `--build-target WebGL` (no WebGL module for 6000.3.21f1 or 6000.6.6f1), the
 hotfix variants (another lane ran them the same day, above), M10's LuaCATS
 step on 2021.3.45f2 (`Sample.cs` has `ref readonly` parameters, which
-Roslyn 4.3.1 cannot compile), the Linux and Windows editors.
+Roslyn 4.3.1 cannot compile; ran later the same day, below), the Linux and
+Windows editors.
+
+### LuaCATS from the editor and the strict minimal player (2026-10-28)
+
+`Test/UnityMatrix/luacats_unity.py --unity EXE --unity-version V --plugin
+LIBXLUA.dylib --output EMPTY_DIR [--no-ref-readonly]` repeats M10's LuaCATS
+step in a real editor: an asmdef-layout project with the generator in
+`Assets/XLua/Src/Analyzers`, `Test/LuaCATS/Sample.cs` (the Roslyn copy) and
+`SampleAttributes.cs` in Assembly-CSharp, XLua > Generate LuaCATS Definitions
+in batch mode, and `LuaTypes/` and `.luarc.json` compared with the files
+`luacats_check.py` compares on the host. By default it compiles with
+`-langversion:12` against `Test/LuaCATS/expected` (Unity 6000.6); with
+`--no-ref-readonly` it defines `LUACATS_NO_REF_READONLY` and compares with
+`expected-no-ref-readonly` over `expected` (Unity 2021.3 to 6000.3, Roslyn
+4.3.1). Main at `aadd1d87` with this branch, macOS ARM64, the Lua 5.5.1
+Editor plugin built from `d37515c2` (the native code is the same), one
+editor at a time:
+
+| Unity | Fixture | Result |
+| --- | --- | --- |
+| 2021.3.45f2 (Package Manager under Rosetta 2) | `--no-ref-readonly` | 15 files equal, `.luarc.json` equal |
+| 6000.3.21f1 | `--no-ref-readonly` | 15 files equal, `.luarc.json` equal |
+| 6000.6.6f1 | `-langversion:12` | 15 files equal `expected`, `.luarc.json` equal |
+| 6000.3.21f1 | `-langversion:12` (control) | fails as expected: `error CS1617: Invalid option '12' for /langversion` |
+
+Each log has "the configuration of Assembly-CSharp, XLua comes from the
+xLua source generator's manifest (8 wrapped types)". `luacats_check.py`
+passed on the host with the new overlay (`LUACATS_GOLDEN_PASS:
+no-ref-readonly, 15 files match`), and its `--update` left every other
+expected file unchanged.
+
+The strict minimal smoke player (the minimal preset without
+`XLUA_REFLECTION`, with the generator binding what the smoke calls) passed
+in release and Development builds on the `xlua16k` emulator from Unity
+6000.3.21f1
+([MobileSmoke/README.md](MobileSmoke/README.md#2026-10-28-strict-minimal-players)),
+and `size_report.py --configs strict` measured the preset as shipped
+([build/SIZE.md](../build/SIZE.md#reflection-off-in-the-minimal-preset)).
+
+Not run: LuaCATS on 2022.3.62f3 and 6000.0.85f1 (Roslyn 4.3.1 as well),
+LuaLS over the editor's output in this script (the editor suite does that
+with its own fixture), the Linux and Windows editors.
 
 ### Compile check without Unity
 
@@ -2969,7 +3018,12 @@ plugin selector (`Editor/PluginVariants.cs`) picks it during the build, as in a
 project; `--configs minimal` builds `baseline`, `ng-5.5` and `ng-5.5+minimal`
 for Android (Minimal stripping) and iOS, and the report's JSON says, per player,
 whether the packed `libxlua.so` or the iOS link map has `luaopen_io` and
-`luaopen_socket_core` (the minimal library has neither). Results in
+`luaopen_socket_core` (the minimal library has neither). `+minimal` has no
+reflection fallback and nothing bound, so its probe does not run:
+`+minimal+reflection` adds `XLUA_REFLECTION`, and `+minimal+strict` installs
+the source generator in `Assets/XLua/Src/Analyzers` and binds what the probe
+calls (`SizeProbe.cs` with `XLUA_SIZE_STRICT`), the preset as shipped;
+`--configs strict` builds the baseline and the three for Android. Results in
 [build/SIZE.md](../build/SIZE.md#presets). Keep `--work` short: Unity's build
 pipes live in `TMPDIR` (`WORK/tmp`): with a 69-character `--work` Unity
 6000.3.21f1 failed before compiling with `SocketAddress.Size` from
