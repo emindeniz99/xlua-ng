@@ -69,6 +69,14 @@ owner question; (c) by design: documented.
 | 19 | LuaJIT FFI (`LuaLibs.Ffi`) | LuaJIT | arbitrary memory access by design; ARM64 callback argument defect | by design | n/a | (c) |
 | 20 | Lua errors through C# frames on IL2CPP / Win64 LuaJIT SEH | all | undefined behaviour | avoided by design; Win64 untested | n/a | (c) |
 | 21 | Fixed earlier: stack overflow of pushes (#1153), NULL C function (`debug.setupvalue`), LuaJIT int64 header, `xlua.cast`, negative `xlua_newstruct`, float casts, watchdog races | — | see "Fixed earlier" | fixed | — | — |
+| 22 | `debug.getregistry`: a script replaces an entry xLua reads (a metatable reference, the userdata cache, `registry[8]` on LuaJIT) | all | a number or string read as a table by `lua_setmetatable`, `lua_rawgeti`: SIGSEGV | by design, found by the bridge fuzzer | one `lua_type` check per push | (c) |
+| 23 | `debug.setmetatable` on an io file, then a call of it that LuaJIT's JIT records | LuaJIT | NULL read in `lj_record_mm_lookup` | LuaJIT's own assumption | n/a | (c) |
+| 24 | `debug.traceback(msg, level)` with a level near `INT_MIN` or `INT_MAX` | PUC Lua | signed overflow in `luaL_traceback` (undefined behaviour; no failure seen) | open | two lines in vendored `ldblib.c` or `lauxlib.c` | (b) |
+| 25 | `LuaEnv.AddLoader` after a script replaced `package` | all | panic (item 9) | **fixed** here | none (a cold path) | (a) |
+| 26 | A host function's type error for an argument past `nargs` + 20 | Lua 5.4, 5.5 (LuaScript) | Lua API check failure in builds with `XLUA_APICHECK` | **fixed** here | none (an error path) | (a) |
+| 27 | A new metatable for an all-weak (`__mode = "kv"`) table during a GC cycle, from any script | Lua 5.3 | heap use after free (upstream Lua bug, fixed in 5.4) | **fixed** here (vendored patch) | none measurable | (a) |
+| 28 | A light userdata with the int64 metatable (`debug.setmetatable`) read as an int64 | LuaJIT | read of 16 bytes at the address it holds | **fixed** here | one `lua_type` per int64 check | (a) |
+| 29 | LuaEnv's message handler after a script replaced `debug` | all; LuaJIT crashes | "error in error handling"; on LuaJIT with a hook that makes a protected call, C stack overflow | **fixed** here | none (an error path) | (a) |
 
 ## The fixes made here
 
@@ -407,6 +415,223 @@ mistake-catching check); no crash to fix.
   a call and use from another thread (`CheckThread`); its known crash items
   are fixed or listed in Security.md and core-luascript.md (watchdog frame
   walk race, owner question Q14/Q52) [S].
+
+## The bridge fuzz target (2026-10-28)
+
+The crash sweep of the [backlog](../design/backlog.md#tests-and-ci):
+`Test/Fuzz/fuzz_bridge.c`, run by `Test/Fuzz/run_bridge.sh` (Test/README.md
+describes it). A Lua driver turns each input into a list of operations: build
+values of every kind, call a native with arguments drawn from them, run
+operators, metatables, the `debug` library, `collectgarbage` and global
+replacement on them. The natives are `xlua.*` and the accessors, the `uint64`
+table and LuaJIT's int64 metamethods, the exports C# calls (through C
+wrappers that call them as `LuaDLLBridge.cs` does), the class and object
+indexers and the C# function trampolines around C stand-ins for C#
+functions; on the core preset, the buffer library, the sandbox's coroutine
+functions and host functions with a dispatcher that answers with every frame
+status. Oracles besides the sanitizers, Lua's API checks and hangs: a helper
+that C# calls outside a protected call raises nothing but a memory error, the
+stack is left as the caller expects, struct headers stay intact.
+
+Setup: `xlua-analysis:26.04` (Linux arm64 in OrbStack on macOS 27, Clang
+21.1.8), the library built by CMake for each preset with ASan, UBSan and
+`XLUA_APICHECK`, LuaJIT with its API checks only; libFuzzer in fork mode
+(`-fork=1`, continuing after a crash), 1 KB random seeds, inputs up to
+2 KB, 10 to 80 ms per input (up to 400 calls).
+
+### Found and fixed (a)
+
+- **25. `xlua_getloaders` raised** [C]. `LuaEnv.AddSearcher` (`AddLoader`)
+  starts with `xlua_getloaders`, which read `package.searchers` with
+  `lua_getglobal` and `lua_getfield` outside a protected call. A script that
+  set `package` to nil or a boolean, or gave `_G` an `__index` that raises,
+  made the next `AddLoader` raise with no handler: Lua's panic (item 9).
+  Found on legacy 5.4.9 by the "unprotected helper raised" oracle in the
+  first survey (33 of 56 reports); replacing `package` needs no `debug`.
+  Fix (`build/xlua.c`): the lookup runs in a helper under `lua_pcall`, and an
+  error gives nil, which C# already reports as "Can not set searcher!".
+  Cost: none on a hot path (`AddSearcher` only). Test:
+  `native_regression.py protected_helpers` (`package = nil`, `package = true`,
+  a raising `_G.__index`): before the fix "PANIC: unprotected error in call
+  to Lua API (attempt to index a nil value)" and exit 134 on 5.4.9 under ASan.
+- **26. A host function's type error past the frame** [C]. LuaScript's
+  `LuaCall` reports `GetLong(i)` on an argument the call did not pass as
+  `XLUA_FRAME_TYPEERROR` with argument `i + 1` (`LuaCall.cs:1057`); the
+  trampoline (`raise_frame_error`, `build/xlua_core.c`) passed it to
+  `luaL_typeerror`, which reads the argument. Past `nargs` + `LUA_MINSTACK`
+  that index is outside the frame: Lua's API check "unacceptable index"
+  aborted the core preset at once (5.4.9, 5.5.1). Release builds got Lua's
+  nil value there, so the message was right. Fix: for an argument above
+  `nargs` (or below 1, which `LuaCall` never sends), `luaL_argerror` with the
+  same "X expected, got no value" text. Test: `core_smoke.c`
+  (`typeerr(40)`): an assertion failure before, the expected message after.
+- **27. Lua 5.3: a new metatable for an all-weak table** [C]. A heap use after
+  free on legacy 5.3.6 (three crashes: in `luaV_finishset`, `luaH_get` and the
+  collector's `traversetable`), reduced to `setmetatable(t, {__mode = "kv"})`,
+  a GC step, `setmetatable(t, {})`, another step, then any access to `t`'s
+  metatable. No xLua code is involved: the stand-alone 5.3.6 interpreter
+  under ASan crashes the same way with `__mode = "kv"` (not with "k" or
+  "v"), and 5.4.9 and 5.5.1 do not. In 5.3.6's `traversetable` an all-weak
+  table met during propagation goes to `allweak`, which the atomic phase only
+  clears, and stays gray; `lua_setmetatable`'s barrier acts only for a black
+  table, so a metatable set afterwards is never marked and the sweep frees
+  it. Upstream lists it as "New metatable in an all-weak table can fool the
+  GC" (lua.org/bugs.html, reported 2025-06-12, since 5.3.0) [S]; 5.4 puts
+  the table in `grayagain` during propagation. That fix is copied into
+  `build/lua-5.3.6/src/lgc.c` (five lines, `build/LUA_PATCHES.md`). Test:
+  `native_regression.py weak_table_metatable`: ASan abort before, pass after
+  (5.3.6, sanitized build).
+- **28. LuaJIT: a light userdata with the int64 metatable** [C]. The int64
+  checks of `build/i64lib.c` (`lua_isint64`, `lua_isuint64`,
+  `lua_isinteger64`, `lua_isint64_or_uint64`) took `lua_touserdata`, which is
+  also the address a light userdata holds; after
+  `debug.setmetatable(ptr, getmetatable(int64))` a C# `long` read or `..`
+  read 16 bytes there (a global-buffer-overflow under ASan, legacy LuaJIT).
+  Fix: only a full userdata counts, as for the C# object readers
+  (MIGRATING.md, "A light userdata ... where the bridge expects a C#
+  object"). Cost: one `lua_type` per int64 check on LuaJIT [U, not
+  measured]. Test: `native_regression.py luajit_int64`: the light userdata
+  counted as an int64 before, and its concatenation succeeded.
+
+- **29. LuaEnv's message handler with `debug` replaced** [C]. `errorfunc`
+  (`build/xlua_core.c`), the handler of every protected call from C#, looked
+  up `debug.traceback` with `lua_getglobal` and `lua_getfield`; after a script
+  set `debug = nil` (or a number, or `debug.traceback` to a non-function) the
+  lookup raised inside the handler, so C# got "error in error handling"
+  instead of the error on every runtime. On LuaJIT a protected call inside
+  the handler resets that state (a plain `xpcall` whose handler calls
+  `pcall` and then fails runs the handler 10,913 times, until "stack
+  overflow"; PUC Lua stops after 215 with "error in error handling"), and
+  with a C handler each level also takes C stack: with
+  `debug.sethook(function() pcall(type) end, 'c')` and `debug = nil`, a
+  delegate call that fails overflowed the C stack (ASan stack-overflow,
+  legacy and minimal LuaJIT; the fuzzer reached it through a hook that called
+  `xlua_getloaders`). Fix: when `debug.traceback` is not a function, the
+  handler returns `luaL_traceback`'s text (what `debug.traceback` returns) or
+  a non-string message unchanged; a script's own `debug.traceback` is still
+  used. Test: `native_regression.py error_handler` ("error in error
+  handling" before; the LuaJIT hook case also checked).
+
+### By design or upstream (c)
+
+- **22. `debug.getregistry`** [C]. A script with the full `debug` library can
+  replace any registry entry that xLua's helpers read without a type check:
+  the metatable references of `xlua_pushcsobj`, `xlua_pushstruct`,
+  `xlua_newstruct`, `xlua_pushcstable` (`lua_setmetatable` with a non-table:
+  LuaJIT reads it as a table), the userdata cache of
+  `xlua_tryget_cachedud` and `_checked` (`lua_rawgeti` on a non-table), and
+  `registry[8]` on LuaJIT (int64). All crashed under `FUZZ_TRICKS=1` (legacy
+  5.4.9, LuaJIT). Like item 18, `XLUA_REDUCED_DEBUG` removes the means. A
+  `lua_type` check in each would turn them into errors; the checked cache
+  lookup, made against scripts that write into the cache, does not cover a
+  replaced cache table. Proposal: owner question (see below).
+- **23. LuaJIT: `debug.setmetatable` on an io file** [C, by the code;
+  reproduced under `FUZZ_TRICKS=1`]. LuaJIT's trace recorder treats the
+  metatables of special userdata as immutable and reads them without a NULL
+  check (`lj_record_mm_lookup`, `immutable_mt:`); with the metatable removed,
+  a recorded call of the file reads through NULL. A LuaJIT limitation; a
+  script needs the `debug` library.
+- **Item 18, more cases** [C]. A class indexer's fields upvalue
+  (`cls_indexer`, upvalue 2) is read with `lua_rawget`; `debug.setupvalue`
+  with a non-table makes LuaJIT read a number as a table (SIGSEGV). The C
+  function inside a C# function's trampoline (upvalue 1), taken out with
+  `debug.getupvalue` and called alone, writes its error flag to an upvalue
+  the C function does not have.
+- **Item 7, confirmed by the fuzzer** [C]: C# callbacks that call back into
+  Lua overflowed the C stack on LuaJIT (stack-overflow reports in
+  `lj_strfmt_pushvf` and the unwinder, nesting of `csharp_function_wrap` and
+  `lua_pcall`).
+
+### Open (b)
+
+- **24. `debug.traceback(msg, level)` with a level near `INT_MIN` or
+  `INT_MAX`** [C]. Signed overflow in `luaL_traceback` (`last - level`,
+  `level++`; `lauxlib.c:132`, `:139` in 5.5.1, `:137`, `:144` in 5.4.9),
+  undefined behaviour that UBSan reports; no wrong result or crash seen.
+  Any script with the `debug` library reaches it, and the error handler of
+  LuaEnv passes a fixed level. Options: a two-line clamp in the vendored
+  `ldblib.c` (`db_traceback`) or `lauxlib.c` of 5.3.6, 5.4.9 and 5.5.1, with
+  a `LUA_PATCHES.md` entry, or a report to lua-l only. Owner question.
+
+### Questions for the owner
+
+1. Item 22: add a `lua_type` check to the helpers that read xLua's registry
+   references (about 1 ns per push of a C# object or struct on the bridge's
+   hot path), or keep it as a `debug` trick of item 18?
+2. Item 24: patch the vendored Lua (three versions) for an overflow with no
+   observed effect, or only report it upstream?
+3. Item 27 changes the vendored Lua 5.3.6 (a backport of Lua 5.4's own fix):
+   kept as decided for (a) cases; say if vendored GC changes should wait for
+   you.
+
+### CPU time and coverage
+
+Fork mode with one job: CPU time is about the fuzzing time. Runs are
+libFuzzer's count of executed inputs.
+
+| Configuration | Fuzzing time | Runs | Reports |
+|---|---|---|---|
+| legacy 5.5.1 | 15 min | 29,382 | 3: item 24 |
+| legacy 5.4.9 | 15 min | 33,262 | 32: item 24 |
+| legacy 5.3.6 | 15 + 5 min (after the fix) | 28,103 + 6,627 | 4: item 27 |
+| legacy LuaJIT | 15 + 5 min | 221,553 + 72,112 | 6: item 7 (5), item 28 |
+| minimal 5.5.1 | 10 min | 24,061 | 0 |
+| minimal 5.4.9 | 10 min | 35,596 | 0 |
+| minimal 5.3.6 | 10 min | 19,227 | 0 |
+| minimal LuaJIT | 10 + 5 min | 180,885 + 89,509 | 10: item 29 |
+| core 5.5.1 | 15 min + 1 min | 107,768 | 2 smoke runs: item 26 |
+| core 5.4.9 | 15 min | 125,196 | 0 |
+| surveys with `FUZZ_TRICKS=1` (legacy 5.4.9 twice, LuaJIT) | 8.5 min | 89,812 (63,489 in the first, whose inputs stayed at 8 bytes or less) | items 10, 18, 22, 23, 25 |
+| smoke and triage runs | about 5 min | | |
+
+Total about 2 hours 40 minutes. Item 25 was fixed after the first survey,
+and the reports of items 7 and 24 led to the limits the target now keeps
+outside `FUZZ_TRICKS` (150 nested C# callbacks, traceback levels within
+±10^6).
+
+Coverage of the final corpora replayed once against libraries built with
+`XLUA_COVERAGE=ON` (llvm-cov):
+
+| Corpus | `xlua.c` functions | `xlua.c` branches | `i64lib.c` branches | `xlua_core.c` branches |
+|---|---|---|---|---|
+| legacy 5.5.1 | 79% | 71% | 100% (8) | 69% |
+| legacy LuaJIT | 83% | 75% | 83% | 65% |
+
+On the core preset (5.5.1): `xlua_core_sandbox.c` 61% of lines,
+`xlua_core_buffer.c` 76%, `xlua_core_limits.c` 58%.
+
+**Not covered:** the exports C# does not import (`xlua_tostruct`, the
+indirect references, `xlua_objlen`, the `print_*` helpers) and those it
+calls with fixed arguments (`xlua_get_registry_index`, `load_error_func`,
+`xlua_gl`); most float and decimal pack and unpack variants after
+`xlua_gettypeid` (`fuzz_struct.c` covers them); the overdraft of a core
+state (`raise_overdraft`: the stand-in C# functions allocate too little);
+the leak checker (`xlua_report_*`); LuaSocket and the `io` and `os`
+functions, which the target removes; `LuaEnv`'s own Lua code; on the core
+preset, `require` and its resolver, `XLUA_CALL_START` coroutines, handle
+iteration, time limits, `Interrupt` and the watchdog (`fuzz_core.c` and
+`core_smoke.c` cover most of them); C# itself (the stand-ins only do what C#
+functions do); bit 1 (checked accessors) and bit 0 (core states) were
+reached, but their share of the runs was not measured. Lua 5.3.6 with a core
+state has no instruction limit; Windows, macOS, x86-64 and 32-bit targets
+were not run.
+
+### Tests run for these fixes
+
+- Each regression check failed before its fix and passes after it, in the
+  container under ASan, UBSan and the API checks: `native_regression.py
+  protected_helpers` (5.4.9), `error_handler` (LuaJIT; 5.4.9 after),
+  `weak_table_metatable` (5.3.6), `luajit_int64` (LuaJIT), `core_smoke.c`
+  (core 5.5.1).
+- `sanitize.sh` (export check, all native regression checks, profiler smoke,
+  the managed suite through reflection; the image has no .NET SDK): legacy
+  5.3.6, 5.4.9, 5.5.1 and LuaJIT; `core-5.4.9` and `core-5.5.1`; minimal
+  5.5.1 and LuaJIT. All pass.
+- Lua 5.3.6's official suite (`lua_tests.py`, basic, complete and internal,
+  with the `lgc.c` patch): final OK.
+- `Tools/dependencies.py --check`: up to date.
+- Not run: macOS and Windows hosts, the source generator passes of the
+  managed suite, Unity, devices.
 
 ## Fixed earlier (for completeness)
 
