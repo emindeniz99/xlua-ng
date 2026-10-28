@@ -152,6 +152,11 @@ Run Unity in batch mode with the prepared project path and one of these
 above are unchanged (see "Player size" in `Test/README.md`).
 `XLUA_SMOKE_WEBGL_MAX_MEMORY` sets the WebGL Maximum Memory Size in MB (Unity
 2022.1+); above 4096, Unity 6.6 builds WebAssembly64 (Memory64).
+`XLUA_SMOKE_APP_ID` replaces the package name `org.xluang.smoke`: the
+`+pbench` size variants (`PlayerBench.cs`, Lua -> C# call cost in the
+player, `XLUA_PBENCH` lines in the log) get one package per binding mode, so
+their APKs can be installed side by side and launched in turn
+([descriptor-wrappers.md](../../docs/research/descriptor-wrappers.md#call-cost-on-the-phone-and-the-emulator-2026-10-28)).
 
 Set `XLUA_SMOKE_OUTPUT_ROOT` to the external build output directory. If unset,
 the harness uses a `builds` directory alongside the prepared project. For

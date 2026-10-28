@@ -215,7 +215,251 @@ minimum of the per-round medians, ns per call **[C]**:
   wrappers call the generic `translator.Get<T>`.
 - IL2CPP compiles the switch and the core to C++, where the costs are
   different. **Not measured on a device or the emulator** **[U]**; that is
-  the first thing a full version must measure.
+  the first thing a full version must measure. Measured on 2026-10-28:
+  see the next section.
+
+## Call cost on the phone and the emulator (2026-10-28)
+
+Step 1 of the owner's plan of 2026-10-28 ([backlog](../design/backlog.md)):
+the prototype's call cost in IL2CPP players on the test phone and the
+`xlua16k` emulator, against GCM and plain generated code, for the owner's
+decision.
+
+**Players** **[C]**: the spike branch (`spike/descriptor-wrappers` at
+`90c51ef2`, unchanged C# and generator, not merged with main) with one
+addition, the player bench: `Test/MobileSmoke/PlayerBench.cs` and the
+`+pbench` variant of `size_report.py` (committed on main with this note;
+on the spike tree the same file plus the variant
+`ng-5.5+pkg+sg+gcm+desc+pbench`). Three release players, Unity
+6000.3.21f1, Android ARM64 IL2CPP, Minimal stripping, xLua as the UPM
+package with the source generator, the spike's Lua 5.5.1 plugin
+(`ultra/plugins`, the same library as the spike's size players):
+
+| mode | variant | defines | `W_XLuaBench_BenchTarget` methods |
+| --- | --- | --- | ---: |
+| plain | `ng-5.5+pkg+sg+sub+pbench` | `XLUA_SPIKE_SUBSET` | 19 |
+| GCM | `ng-5.5+pkg+sg+gcm+sub+pbench` | `GEN_CODE_MINIMIZE`, `XLUA_SPIKE_SUBSET` | 19 |
+| descriptor | `ng-5.5+pkg+sg+gcm+desc+pbench` | `GEN_CODE_MINIMIZE`, `XLUA_SPIKE_DESC` | 2 (switch and registration) |
+
+All three wrap the same members: the generator's `SPIKE001` reported 9
+wrapped types, 239 of 251 Lua functions and 305 of 361 overloads in each
+build. Each player logs its mode and the wrapper's method count at start,
+so a mixed-up APK would show.
+
+**Cases**: the Lua -> C# cases of `Test/Native/Benchmark.cs` that the
+prototype covers, with the same Lua chunks and names (static and instance
+calls, property and field get and set, string argument and result,
+GCOptimize and boxed structs passed, created and read, an object result,
+class and `UnityEngine.Object` arguments, four overload sets), plus seven
+UnityEngine calls: `Vector3(x, y, z)`, `transform.position` get and set
+(a GCOptimize `Vector3` result and argument), `v.x` of a `Vector3`,
+`Mathf.Max(int, int)` and `Mathf.Max(float, float)` (overloads, the
+`params` ones left out by the subset), and `go:GetInstanceID()`.
+`lua_loop` is an empty Lua loop. Every number is ns per call with the Lua
+loop included, as on the host.
+
+**Method**: a player runs 7 rounds; a round runs every case once with
+100,000 calls after a full Lua and C# collection, and a case's result of
+one launch is the median of its 7 rounds. The three APKs are installed
+side by side (packages `org.xluang.pbench.plain`, `.gcm`, `.desc`) and
+launched in rotating order (plain, GCM, descriptor; GCM, descriptor,
+plain; ...): 8 launches per mode on the phone (15 s apart), 10 on the
+emulator. The tables give **the median of the per-launch medians, and in
+parentheses the minimum of them**. Nothing on the devices was pinned or
+changed: no CPU affinity, governor or setting; the players keep the screen
+on with `Screen.sleepTimeout` while in front.
+
+**Devices**:
+
+- **Phone**: moto g play 2024 (XT2413V), Snapdragon 680 (SM6225, 4x
+  Cortex-A73 and 4x Cortex-A53), Android 14, 4 KB pages. Thermal status 0
+  before and after every launch; the per-launch medians of a case differ
+  by about 1% (the median and minimum columns are close).
+- **Emulator**: `xlua16k` (Android 16, API 36, 16 KB pages, arm64, 4
+  cores) on the M2 Pro host, which other jobs were also using. It
+  scatters: a case's per-launch medians differ by up to 2x, so read its
+  differences under about 20 ns as noise.
+
+### Phone (moto g play 2024) **[C]**
+
+ns per call; "host" is the descriptor-minus-GCM difference of the
+2026-10-19 host table above (Mono, M2 Pro), and the last column is the
+phone's difference over the host's.
+
+| case | plain | GCM | descriptor | descriptor - GCM | vs GCM | host | phone / host |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `lua_loop` | 11.2 (11.2) | 11.2 (11.2) | 11.2 (11.2) | +0.0 (+0.0) | 0% | - | - |
+| `static_call` | 159.0 (157.3) | 212.4 (210.9) | 254.0 (253.4) | +41.6 (+42.5) | +20% | +16.4 | 2.5x |
+| `instance_call` | 338.9 (335.8) | 361.0 (359.6) | 405.6 (400.4) | +44.6 (+40.7) | +12% | +2.4 | 18.6x |
+| `property_get` | 391.1 (387.9) | 427.8 (427.2) | 469.8 (468.9) | +42.1 (+41.7) | +10% | +8.1 | 5.2x |
+| `property_set` | 343.3 (333.1) | 371.2 (368.6) | 426.0 (421.4) | +54.8 (+52.8) | +15% | +11.2 | 4.9x |
+| `field_get` | 394.0 (388.7) | 427.7 (425.7) | 473.0 (471.8) | +45.3 (+46.1) | +11% | +5.6 | 8.1x |
+| `field_set` | 334.4 (331.8) | 371.7 (368.2) | 426.5 (424.5) | +54.9 (+56.3) | +15% | +6.2 | 8.9x |
+| `string_arg` | 389.3 (382.8) | 436.0 (433.4) | 498.8 (497.3) | +62.8 (+64.0) | +14% | +11.4 | 5.5x |
+| `string_return` | 307.9 (305.6) | 353.4 (351.0) | 424.1 (423.5) | +70.8 (+72.5) | +20% | +10.9 | 6.5x |
+| `struct_gcopt_pass` | 776.0 (758.3) | 782.2 (768.4) | 844.7 (827.1) | +62.5 (+58.7) | +8% | +16.6 | 3.8x |
+| `struct_boxed_pass` | 2953.1 (2850.5) | 2855.5 (2833.5) | 2513.0 (2441.1) | -342.4 (-392.4) | -12% | -90.6 | - |
+| `struct_gcopt_new` | 774.1 (746.9) | 765.7 (762.9) | 853.4 (845.6) | +87.7 (+82.7) | +11% | +33.0 | 2.7x |
+| `struct_gcopt_field_get` | 440.2 (439.8) | 454.1 (453.9) | 482.0 (479.0) | +27.9 (+25.1) | +6% | +4.4 | 6.3x |
+| `struct_boxed_field_get` | 923.7 (897.5) | 911.5 (889.6) | 495.8 (490.0) | -415.7 (-399.6) | -46% | -94.0 | - |
+| `object_return_cached` | 1450.0 (1429.4) | 1444.6 (1435.0) | 1502.1 (1491.6) | +57.5 (+56.6) | +4% | +11.2 | 5.1x |
+| `unity_object_arg` | 553.7 (547.3) | 532.0 (528.4) | 408.9 (401.6) | -123.1 (-126.7) | -23% | +9.4 | - |
+| `class_object_arg` | 493.2 (467.2) | 498.0 (493.8) | 346.9 (344.5) | -151.2 (-149.3) | -30% | +14.0 | - |
+| `overload_disjoint` | 178.1 (177.2) | 212.8 (212.4) | 256.1 (255.7) | +43.3 (+43.3) | +20% | - | - |
+| `overload_num_integer` | 153.4 (148.9) | 189.1 (188.6) | 234.8 (234.6) | +45.8 (+46.0) | +24% | - | - |
+| `overload_num_float` | 156.8 (153.3) | 188.8 (188.1) | 234.6 (234.0) | +45.8 (+45.9) | +24% | - | - |
+| `overload_obj_class` | 1035.5 (994.2) | 982.8 (980.1) | 1075.0 (1052.8) | +92.2 (+72.8) | +9% | - | - |
+| `overload_obj_derived` | 1026.2 (1003.6) | 1046.2 (1038.3) | 1202.0 (1190.1) | +155.8 (+151.8) | +15% | - | - |
+| `unity_vector3_new` | 703.7 (685.4) | 704.1 (701.6) | 838.3 (829.5) | +134.2 (+127.9) | +19% | - | - |
+| `unity_position_get` | 876.1 (860.0) | 891.1 (868.6) | 968.3 (956.7) | +77.2 (+88.1) | +9% | - | - |
+| `unity_position_set` | 534.2 (519.4) | 552.0 (544.8) | 660.4 (634.4) | +108.4 (+89.6) | +20% | - | - |
+| `unity_vector3_field_get` | 497.0 (488.6) | 515.4 (512.0) | 592.8 (587.4) | +77.4 (+75.5) | +15% | - | - |
+| `unity_mathf_max_int` | 178.3 (175.2) | 215.6 (215.0) | 277.2 (276.1) | +61.5 (+61.1) | +29% | - | - |
+| `unity_mathf_max_float` | 173.4 (169.6) | 210.5 (209.5) | 271.5 (270.6) | +61.0 (+61.1) | +29% | - | - |
+| `unity_instance_method` | 3044.2 (2908.2) | 2964.9 (2925.3) | 2864.4 (2758.1) | -100.5 (-167.1) | -3% | - | - |
+
+### Emulator (`xlua16k`) **[C]**
+
+| case | plain | GCM | descriptor | descriptor - GCM | vs GCM | host | emulator / host |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `lua_loop` | 2.3 (2.2) | 2.2 (2.2) | 2.3 (2.2) | +0.0 (+0.0) | +2% | - | - |
+| `static_call` | 37.5 (34.1) | 60.2 (46.4) | 78.4 (58.4) | +18.2 (+12.0) | +30% | +16.4 | 1.1x |
+| `instance_call` | 80.5 (67.7) | 91.2 (75.6) | 98.9 (77.6) | +7.7 (+2.0) | +8% | +2.4 | 3.2x |
+| `property_get` | 98.1 (89.8) | 105.8 (84.8) | 93.9 (86.0) | -12.0 (+1.1) | -11% | +8.1 | - |
+| `property_set` | 74.7 (65.7) | 91.1 (72.0) | 86.1 (77.3) | -5.1 (+5.3) | -6% | +11.2 | - |
+| `field_get` | 107.0 (82.8) | 98.5 (90.8) | 109.8 (95.9) | +11.4 (+5.1) | +12% | +5.6 | 2.0x |
+| `field_set` | 78.8 (68.9) | 74.5 (69.5) | 89.4 (73.0) | +14.9 (+3.5) | +20% | +6.2 | 2.4x |
+| `string_arg` | 309.2 (162.0) | 260.9 (159.1) | 329.5 (215.2) | +68.7 (+56.1) | +26% | +11.4 | 6.0x |
+| `string_return` | 76.4 (61.8) | 78.6 (68.4) | 111.2 (85.0) | +32.6 (+16.6) | +41% | +10.9 | 3.0x |
+| `struct_gcopt_pass` | 157.2 (133.2) | 149.3 (130.3) | 153.6 (134.6) | +4.4 (+4.3) | +3% | +16.6 | 0.3x |
+| `struct_boxed_pass` | 668.3 (629.3) | 714.0 (630.3) | 594.4 (546.9) | -119.7 (-83.4) | -17% | -90.6 | - |
+| `struct_gcopt_new` | 130.1 (115.1) | 122.4 (116.7) | 151.3 (133.9) | +28.9 (+17.3) | +24% | +33.0 | 0.9x |
+| `struct_gcopt_field_get` | 97.5 (91.0) | 119.9 (89.8) | 116.7 (91.5) | -3.2 (+1.7) | -3% | +4.4 | - |
+| `struct_boxed_field_get` | 194.1 (166.1) | 197.2 (181.7) | 112.0 (94.0) | -85.1 (-87.7) | -43% | -94.0 | - |
+| `object_return_cached` | 317.1 (268.4) | 345.5 (288.5) | 318.7 (293.8) | -26.8 (+5.2) | -8% | +11.2 | - |
+| `unity_object_arg` | 135.7 (115.3) | 138.0 (109.8) | 106.4 (76.6) | -31.6 (-33.2) | -23% | +9.4 | - |
+| `class_object_arg` | 118.9 (97.1) | 126.1 (101.8) | 88.0 (73.1) | -38.1 (-28.8) | -30% | +14.0 | - |
+| `overload_disjoint` | 44.6 (36.9) | 47.7 (45.2) | 69.9 (56.3) | +22.3 (+11.1) | +47% | - | - |
+| `overload_num_integer` | 38.5 (34.5) | 42.6 (39.9) | 52.6 (46.0) | +10.0 (+6.1) | +24% | - | - |
+| `overload_num_float` | 41.5 (30.5) | 41.2 (37.1) | 56.0 (46.0) | +14.8 (+8.9) | +36% | - | - |
+| `overload_obj_class` | 230.2 (200.6) | 225.5 (196.2) | 229.5 (202.3) | +4.0 (+6.1) | +2% | - | - |
+| `overload_obj_derived` | 258.5 (221.6) | 242.4 (202.7) | 284.2 (232.6) | +41.8 (+29.9) | +17% | - | - |
+| `unity_vector3_new` | 147.2 (119.9) | 145.5 (106.9) | 189.0 (151.1) | +43.4 (+44.1) | +30% | - | - |
+| `unity_position_get` | 192.6 (146.9) | 168.2 (137.7) | 206.5 (157.3) | +38.3 (+19.7) | +23% | - | - |
+| `unity_position_set` | 122.6 (96.3) | 127.1 (100.0) | 148.0 (112.2) | +20.9 (+12.2) | +16% | - | - |
+| `unity_vector3_field_get` | 122.7 (100.5) | 129.5 (113.3) | 153.2 (120.3) | +23.7 (+7.0) | +18% | - | - |
+| `unity_mathf_max_int` | 53.0 (39.2) | 54.0 (47.5) | 72.4 (66.1) | +18.4 (+18.6) | +34% | - | - |
+| `unity_mathf_max_float` | 45.9 (38.7) | 55.1 (43.4) | 75.1 (60.5) | +20.0 (+17.1) | +36% | - | - |
+| `unity_instance_method` | 842.8 (765.6) | 839.0 (776.8) | 814.7 (682.8) | -24.3 (-93.9) | -3% | - | - |
+
+### What the numbers say
+
+- **On the phone the descriptor mode is 28 to 156 ns slower per call than
+  GCM** in every case where it reads its arguments the way GCM does: about
+  +42 to +46 ns for a call with zero to two integer arguments (static,
+  instance, property, field, the overload sets) and +60 to +134 ns with
+  strings, `Vector3` or a GCOptimize struct, which is **+6% to +29%** over
+  GCM **[C]**. The cost is mostly fixed per call, not per argument: the
+  static call with two integers, the instance call with one and the
+  property get with none all pay about 42 ns. On the host the same cases
+  paid 2 to 17 ns.
+- **Ratio to the host**: over the 11 hot-path cases measured on both, the
+  phone's GCM call costs 4.5x the host's (457 against 102 ns), and its
+  descriptor-minus-GCM difference 3.0x (+34.6 against +11.7 ns). Relative to
+  GCM the descriptor penalty is about the same on both (+8% here, +12% on
+  the host, for those cases); in nanoseconds it is **well above the host's
+  2 to 17 ns**, the measure the backlog set for this step. The emulator is
+  close to the host (+5.4 ns on the same cases, +13 ns over the whole mix
+  below), so it does not predict the phone **[C]**.
+- **Where the descriptor mode is faster** (phone): boxed structs (-342 and
+  -416 ns, the `GetObject` path already seen on the host) and class or
+  `UnityEngine.Object` arguments (-123 and -151 ns). The last two were
+  slower on the host (+9 and +14 ns), so IL2CPP pays more for the plain and
+  GCM wrappers' argument read there; not traced **[U]**. `object_return_cached`,
+  `overload_obj_*` and `unity_instance_method` are dominated by other work
+  (the translator's object cache, assignability checks;
+  `GetInstanceID` is declared on `UnityEngine.Object`, which this
+  configuration does not wrap, so that call goes through the reflection
+  wrapper in every mode).
+- **GCM itself** costs on the phone +53 ns (`static_call`) and +22 to +37
+  ns per call (instance, properties, fields, overloads) over plain wrappers,
+  about +24 ns over the mix below (+5%) **[C]**. The minimal preset implies
+  GCM, so its players already pay this.
+- **Why** (not profiled) **[U]**: per call the core
+  (`Assets/XLua/Src/SpikeDescriptorCore.cs` on the branch) enters the
+  group through the `CSharpWrapper` delegate as GCM does, then indexes the
+  type's reused buffer (`owner.buffer[0]`, line 204), loops over the
+  argument kinds with two switches each (`SetL`/`SetD`/`SetO`, from line
+  307), calls the type's switch through a second delegate (`invoker`, line
+  227) and switches over the result kind. IL2CPP adds null and bounds
+  checks to each of these and does not inline across the delegate. A full
+  version would need a profile on the phone (simpleperf) to tell which of
+  them matters.
+
+### Frame cost
+
+A hot-path mix of 18 cases (the static, instance, property and field cases,
+`string_return`, the three GCOptimize struct cases, `class_object_arg`,
+`overload_disjoint`, `overload_num_integer` and the five UnityEngine
+`Vector3`, `position` and `Mathf.Max(float)` cases), mean ns per call on
+the phone: **plain 437, GCM 461, descriptor 513**: the descriptor mode is
++52 ns (+11%) over GCM **[C]**. At 120 fps (8.33 ms per frame):
+
+| calls per frame | plain | GCM | descriptor | descriptor - GCM | share of the frame |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 0.44 ms | 0.46 ms | 0.51 ms | +0.05 ms | 0.6% |
+| 10,000 | 4.37 ms | 4.61 ms | 5.13 ms | +0.52 ms | 6.2% |
+
+On the emulator the same mix is 98, 102 and 115 ns (+0.13 ms per 10,000
+calls, 1.6% of the frame). A game that makes 10,000 Lua -> C# calls per
+frame on this phone already spends more than half of a 120 fps frame in the
+bridge; the descriptor mode adds about half a millisecond to that, or
+about 6% of the frame.
+
+### Recommendation
+
+**Go with changes, not with the plan as written.** The size gain stands
+(-443 KB of APK at game size, about 70% of what GCM saved), but the phone
+shows a fixed cost of about 42 ns per call over GCM (+11% over the mix),
+3x the host's in nanoseconds, so the mode should not become GCM's
+successor or the minimal preset's default:
+
+1. **An opt-in size mode next to GCM, not its replacement**, with a
+   per-type way back to GCM or plain wrappers (an attribute or a list in
+   the configuration) for the types a game calls every frame. Both modes
+   register through the same trampoline, so one assembly can mix them; the
+   generator already decides per type. About +1 day on the 12 **[U]**.
+2. **First, 2 days on the per-call overhead**, with this player bench on
+   the phone as the gate before the rest of the work: a simpleperf profile,
+   then the obvious candidates (the second delegate call into the type's
+   switch, the buffer access, the per-argument switches; for example
+   generated readers for the most common argument shapes). If the fixed
+   cost does not come down to about 20 ns per call on the phone, the mode
+   is still worth shipping as the opt-in size mode of point 1, for
+   projects that bind many types and call few of them per frame **[U]**.
+3. **Not "drop"**: the cost is confined to the types a project puts in
+   that mode, it falls on calls that are already 4.5x slower on this phone
+   than on the host, and for most projects the bound API is large while
+   the per-frame hot set is small.
+
+Total about 15 working days (12 + 1 for the per-type choice + 2 for the
+overhead work) **[U]**.
+
+### Not run
+
+- High or Medium stripping, Development players, `armeabi-v7a`, x86_64.
+- Other Lua versions (5.4.9, 5.3.6, LuaJIT); only Lua 5.5.1.
+- iOS and WebGL players; any device but this phone and this emulator.
+- The game-sized configuration (264 types) as a timing player: the bench
+  binds 9 types. Call cost should not depend on the number of bound types
+  (registration is per type and lazy) **[U]**; the spike's game players
+  (`ultra/size/players`) have their own timing lines and were not run.
+- The stack-buffer variant (`XLUA_SPIKE_DESC_STACK`), C# -> Lua calls
+  (the descriptor mode does not change them), allocations in the players,
+  and a CPU profile.
+- Main's current runtime: the spike tree is from 2026-10-19, so changes to
+  the translator since then (for example the bridge checks) are not in
+  these numbers; they apply to all three modes alike.
 
 ## Generic virtual methods
 
@@ -282,7 +526,9 @@ property is a binary break. **Not worth doing.**
    GCM to the generator; it never loses at small sizes; and the host call
    cost over GCM is 2 to 17 ns. Before it becomes a preset default, call
    cost must be measured on the emulator and a phone, since IL2CPP and Mono
-   differ here. It uses the GCM trampoline, so it needs `GEN_CODE_MINIMIZE`
+   differ here. (Measured on 2026-10-28: 28 to 156 ns over GCM on the
+   phone; the recommendation changed to an opt-in size mode, see
+   [the phone section](#recommendation-1).) It uses the GCM trampoline, so it needs `GEN_CODE_MINIMIZE`
    anyway; a separate define (or a generator option) would select it.
 2. **Effort for a full version: about 2.5 weeks (12 working days)** **[U]**:
    - generator, the remaining member kinds (3 to 4 days): `out`/`ref`/`in`
@@ -328,3 +574,14 @@ REPO OUT PLUGIN 8 sourcegen-sub,sourcegen-min-sub,sourcegen-desc,sourcegen-desc-
 players with `size_report.py run --configs core,core-high --variants
 baseline,core-5.5,ng-5.5+minimal`, and `IlScan.cs`, `symdiff.py` and
 `symsum.py` on their `Library` folders.
+
+The players of 2026-10-28: on a copy of the spike tree, add
+`Test/MobileSmoke/PlayerBench.cs` and the `+pbench` variant from main
+(plus `ng-5.5+pkg+sg+gcm+desc+pbench` in a `pbench-minimal` configuration),
+then `size_report.py run --platforms android --configs pbench-minimal
+--plugins PLUGINS` with `XLUA_SIZE_TMPDIR` set to a short directory, install
+the three APKs and launch them in rotating order, reading the `XLUA_PBENCH`
+lines from `adb logcat -s Unity`. The device script and the raw logs of this
+run are in `descriptor-phone-2026-10-28/` on the build disk
+(`scripts/pbench_device.py`, `scripts/aggregate.py`, `scripts/tables.py`,
+`phone/`, `emu/`).

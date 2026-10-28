@@ -65,6 +65,10 @@ Variants:
                of the IntKey entry check as a managed read and as the P/Invoke of iOS (Android:
                Assets/Plugins/iOS/HotfixFlags.cpp compiled into the player, called through __Internal),
                of the env's lock, and with +hotfix of a patched method; needs +sg
+  NAME+pbench  PlayerBench.cs in Assembly-CSharp, run by the probe (XLUA_SIZE_PLAYER_BENCH): the Lua -> C# cases of
+               Test/Native/Benchmark.cs and a few UnityEngine calls, XLUA_PBENCH lines in the log (ns per call of
+               seven rounds); each player gets its own package (org.xluang.pbench.plain or .gcm) so both can
+               be installed side by side; needs +sg (docs/research/descriptor-wrappers.md, 2026-10-28)
   NAME+uwr     the probe also calls UnityWebRequest.Get once, like a project that uses it anyway;
                its deltas are against baseline+uwr
   NAME+at-REF  Assets/XLua/{Src,Resources,Editor} from commit REF instead of this checkout
@@ -151,6 +155,8 @@ CORE_PLUGIN_VARIANT = {"core": "core", "mixed": "luascript"}
 # and IntKey mode against the same methods not injected, and the run-time probe without and with the define.
 HOTFIX = ["baseline", "ng-5.5+pkg+sg", "ng-5.5+pkg+sg+hotfix", "ng-5.5+pkg+sg+hftargets", "ng-5.5+pkg+sg+hftargets+hotfix",
           "ng-5.5+pkg+sg+hftargets+hotfix+intkey", "ng-5.5+pkg+sg+hfbench", "ng-5.5+pkg+sg+hfbench+hotfix"]
+# The player bench in the plain and GCM modes of the source generator (run with --configs pbench).
+PBENCH = ["ng-5.5+pkg+sg+pbench", "ng-5.5+pkg+sg+gcm+pbench"]
 CASES = {
     "android": [("default", {}, ANDROID_ALL + ["upstream+gen", "ng-5.5+pkg+sg", "ng-5.5+nosa",
                                                "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"]),
@@ -158,6 +164,7 @@ CASES = {
                 ("armv7", {"XLUA_SMOKE_STRIPPING": "Minimal", "XLUA_SMOKE_ANDROID_ARCHS": "ARMv7, ARM64"},
                  ["baseline", "upstream", "ng-5.5"]),
                 ("aab", {"XLUA_SMOKE_STRIPPING": "Minimal", "XLUA_SMOKE_AAB": "1"}, ["baseline", "upstream", "ng-5.5"]),
+                ("pbench", {"XLUA_SMOKE_STRIPPING": "Minimal"}, PBENCH),
                 # Which of two prebuilt plugins a build includes (run with --configs select-...).
                 ("select-none", {"XLUA_SMOKE_DEFINES": "XLUA_SPIKE_NONE"}, ["baseline+select", "baseline+constraints"]),
                 ("select-define", {"XLUA_SMOKE_DEFINES": "XLUA_FULL_PLUGIN"}, ["baseline+select", "baseline+constraints"]),
@@ -398,7 +405,7 @@ def prepare(a, work, platform, variant, project):
         [define for flag, define in LINK_FLAGS.items() if flag in flags] + \
         (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else []) + \
         (["HOTFIX_ENABLE"] if "hotfix" in flags else []) + (["XLUA_SIZE_HOTFIX_INTKEY"] if "intkey" in flags else []) + \
-        (["XLUA_SIZE_HOTFIX_BENCH"] if "hfbench" in flags else [])
+        (["XLUA_SIZE_HOTFIX_BENCH"] if "hfbench" in flags else []) + (["XLUA_SIZE_PLAYER_BENCH"] if "pbench" in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
     probe = "AllocProbe.cs" if "alloc" in flags else "SizeProbeCore.cs" if kind == "core" else "SizeProbe.cs"
     shutil.copy2(here / probe, assets / "XluaSmoke.cs")
@@ -427,6 +434,10 @@ def prepare(a, work, platform, variant, project):
         prepare_hotfix_tools(work, project)
     if "hftargets" in flags:
         write_hotfix_targets(assets / "HotfixSizeTargets.cs")
+    if "pbench" in flags:
+        if not sg:
+            sys.exit("+pbench needs +sg: " + variant)
+        shutil.copy2(here / "PlayerBench.cs", assets / "PlayerBench.cs")
     if "hfbench" in flags:
         shutil.copy2(repo / "Test/Native/HotfixBench.cs", assets / "HotfixBench.cs")
         if platform == "android":
@@ -616,7 +627,8 @@ def managed_stripped(project):
 
 def run(a):
     work = a.work.resolve()
-    env = dict(os.environ, TMPDIR=str(work / "tmp"), GRADLE_USER_HOME=str(work / "gradle-home"), XLUA_SMOKE_RELEASE="1")
+    # XLUA_SIZE_TMPDIR: a short directory when WORK is deep; Unity's build IPC sockets need paths under 104 bytes.
+    env = dict(os.environ, TMPDIR=os.environ.get("XLUA_SIZE_TMPDIR", str(work / "tmp")), GRADLE_USER_HOME=str(work / "gradle-home"), XLUA_SMOKE_RELEASE="1")
     (work / "tmp").mkdir(parents=True, exist_ok=True)
     for platform in a.platforms.split(","):
         variants = []
@@ -662,6 +674,9 @@ def run(a):
                     define = "XLUA_CORE_ONLY" if kind == "core" and "nodefine" not in flags else "XLUA_LUASCRIPT"
                     benv["XLUA_SMOKE_DEFINES"] = ";".join([d for d in benv.get("XLUA_SMOKE_DEFINES", "").split(";") if d]
                                                           + [define])
+                if "pbench" in flags:
+                    # One package per mode, so the players can be installed side by side and run interleaved.
+                    benv["XLUA_SMOKE_APP_ID"] = "org.xluang.pbench." + ("gcm" if "gcm" in flags else "plain")
                 if "gsize" in flags:
                     benv["XLUA_SMOKE_IL2CPP_CODEGEN"] = "OptimizeSize"
                 if "sim" in flags:
