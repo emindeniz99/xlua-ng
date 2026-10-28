@@ -451,6 +451,13 @@ is asserted: some cases still crash by design or on one runtime, and the
 inventory records which. Run it through the test slot script like the other
 native suites.
 
+`python3 Test/Native/repro_check.py --work DIR [-- CMAKE_ARGS]` builds the
+same configuration in two checkouts at different paths and requires the same
+bytes; `--script make_android_lua55.sh` (or another `make_*` script) compares
+everything the script writes. See
+[build/README.md](../build/README.md#reproducible-builds) for what it found.
+Run it through the test slot script; each build has a timeout (`--timeout`).
+
 `python3 Test/Native/check_apple_minos.py [--platform macos|ios] FILE...`
 reads the minimum OS (`LC_BUILD_VERSION` `minos`) of every architecture of a
 macOS bundle or dylib and every object of an iOS `libxlua.a` with `otool -l`,

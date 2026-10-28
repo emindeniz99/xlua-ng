@@ -28,6 +28,9 @@ else
 fi
 profdata="${LLVM_PROFDATA:-llvm-profdata}"
 cov="${LLVM_COV:-llvm-cov}"
+# build/CMakeLists.txt records the sources as build/... (-ffile-prefix-map, build/README.md
+# "Reproducible builds"); this maps them back to the checkout for the filters and the HTML.
+cov_paths=(-path-equivalence="build,$repo/build")
 
 for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
     build="$out/$version"
@@ -66,11 +69,11 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
     else
         sources=("$repo/build/xlua_core.c" "$repo/build/xlua_core_limits.c" "$repo/build/xlua_core.h" "$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c")
     fi
-    "$cov" report "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}" | tee "$build/report.txt"
-    "$cov" report -show-functions "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}" > "$build/functions.txt"
-    "$cov" show -format=html -output-dir="$build/html" "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}"
+    "$cov" report "$plugin" -instr-profile="$build/xlua.profdata" "${cov_paths[@]}" "${sources[@]}" | tee "$build/report.txt"
+    "$cov" report -show-functions "$plugin" -instr-profile="$build/xlua.profdata" "${cov_paths[@]}" "${sources[@]}" > "$build/functions.txt"
+    "$cov" show -format=html -output-dir="$build/html" "$plugin" -instr-profile="$build/xlua.profdata" "${cov_paths[@]}" "${sources[@]}"
     # Per-branch counts; an untaken side shows as "True: 0" or "False: 0".
-    "$cov" show -show-branches=count "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}" > "$build/branches.txt"
+    "$cov" show -show-branches=count "$plugin" -instr-profile="$build/xlua.profdata" "${cov_paths[@]}" "${sources[@]}" > "$build/branches.txt"
     echo "Uncovered functions ($version):"
     # Columns: name, regions, missed regions, cover, lines, missed lines, cover, ...
     awk '$1 !~ /^(Name|---|File|TOTAL)/ && NF >= 7 && $5 > 0 && $5 == $6 { print "  " $1 }' "$build/functions.txt" | sort -u
