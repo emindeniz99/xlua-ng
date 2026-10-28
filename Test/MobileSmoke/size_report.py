@@ -36,7 +36,15 @@ Variants:
                scripting defines, and the plugin built by XLUA_VARIANT=minimal XLUA_PRESET=minimal
                build/make_*.sh (Plugins/<platform>/xlua-variants/minimal/ under --plugins) copied as a
                variant next to the default one, so the plugin selector (Editor/PluginVariants.cs) picks
-               it at build time, as in a project
+               it at build time, as in a project. The preset has no reflection fallback (XLUA_NO_REFLECTION) and
+               this has no generated bindings, so the probe's C# call would fail: the size of what minimal leaves
+               in, not of a working player
+  NAME+minimal+reflection  the same with XLUA_REFLECTION in the Player Settings defines: the preset with the
+               reflection fallback kept, which runs the probe without generated bindings
+  NAME+minimal+strict  the preset as shipped, in a player that works: the source generator installed in
+               Assets/XLua/Src/Analyzers (Tools/build_source_generator.py, built into WORK/source-gen-build) binds
+               what the probe calls (SizeProbe.cs with XLUA_SIZE_STRICT: [assembly: LuaCallCSharp(typeof(SizeProbeApi))]),
+               in its GCM mode, which the preset implies
   NAME+uwr     the probe also calls UnityWebRequest.Get once, like a project that uses it anyway;
                its deltas are against baseline+uwr
   NAME+at-REF  Assets/XLua/{Src,Resources,Editor} from commit REF instead of this checkout
@@ -106,6 +114,8 @@ SOURCE_GEN = ["baseline", "ng-5.5+pkg", "ng-5.5+pkg+sg", "ng-5.5+pkg+sg+gcm"]
 # The same with a game-sized configuration (source-generator.md, M6 question 2).
 GAME = ["baseline+game", "ng-5.5+pkg+sg+game", "ng-5.5+pkg+sg+gcm+game"]
 PRESETS = ["baseline", "ng-5.5", "ng-5.5+minimal"]
+# The minimal preset without and with its reflection fallback, and as shipped with the source generator.
+STRICT = ["baseline", "ng-5.5+minimal", "ng-5.5+minimal+reflection", "ng-5.5+minimal+strict"]
 # LuaScript (core-luascript.md, section 6): alone, without the define, and next to LuaEnv; the package
 # layout throughout, so ng-5.5+pkg is the legacy row to compare with.
 CORE = ["baseline", "ng-5.5+pkg", "core-5.5", "core-5.5+nodefine", "mixed-5.5"]
@@ -132,6 +142,8 @@ CASES = {
                 ("game-medium", {"XLUA_SMOKE_STRIPPING": "Medium"}, GAME),
                 # The minimal preset against legacy (run with --configs minimal).
                 ("minimal", {"XLUA_SMOKE_STRIPPING": "Minimal"}, PRESETS),
+                # The minimal preset as shipped, with generated bindings (run with --configs strict).
+                ("strict", {"XLUA_SMOKE_STRIPPING": "Minimal"}, STRICT),
                 # LuaScript (run with --configs core,core-high).
                 ("core", {"XLUA_SMOKE_STRIPPING": "Minimal"}, CORE),
                 ("core-high", {"XLUA_SMOKE_STRIPPING": "High"}, CORE)],
@@ -274,6 +286,12 @@ def prepare(a, work, platform, variant, project):
         sys.exit("+sg needs +pkg: " + variant)
     if "gcm" in flags and not sg:
         sys.exit("+gcm needs +sg: " + variant)
+    strict = "strict" in flags
+    if (strict or "reflection" in flags) and "minimal" not in flags:
+        sys.exit("+strict and +reflection are kinds of +minimal: " + variant)
+    if strict and (pkg or at or "reflection" in flags):
+        sys.exit("+strict installs the generator into this checkout's Assets layout and takes no +pkg, +at-REF "
+                 "or +reflection: " + variant)
     assets = project / "Assets"
     for d in ["Assets/Editor", "Packages", "ProjectSettings"]:
         (project / d).mkdir(parents=True, exist_ok=True)
@@ -291,7 +309,7 @@ def prepare(a, work, platform, variant, project):
         (["XLUA_NO_STREAMING_ASSETS_LOADER"] if "nosa" in flags else []) + (["XLUA_SIZE_UWR"] if "uwr" in flags else []) + \
         [define for flag, define in CS_FEATURE_FLAGS.items() if flag in flags] + \
         (["GEN_CODE_MINIMIZE"] if "gcm" in flags else []) + (["XLUA_SIZE_MIXED"] if kind == "mixed" else []) + \
-        (["XLUA_SIZE_GAME"] if game else []) + \
+        (["XLUA_SIZE_GAME"] if game else []) + (["XLUA_SIZE_STRICT"] if strict else []) + \
         (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
     probe = "AllocProbe.cs" if "alloc" in flags else "SizeProbeCore.cs" if kind == "core" else "SizeProbe.cs"
@@ -317,6 +335,11 @@ def prepare(a, work, platform, variant, project):
         if (src / "Assets/XLua" / part).is_dir():
             shutil.copytree(src / "Assets/XLua" / part, assets / "XLua" / part,
                             ignore=shutil.ignore_patterns("*.asmdef", "*.asmdef.meta") if "noasmdef" in flags else None)
+    if strict:
+        # The generator where prepare.py --source-gen puts it: XLua.asmdef's folder, so it runs in the
+        # assemblies that reference XLua (Assembly-CSharp among them).
+        subprocess.run([sys.executable, str(repo / "Tools/build_source_generator.py"), "--output",
+                        str(work / "source-gen-build"), "--install", str(assets / "XLua/Src/Analyzers")], check=True)
     if name == "upstream":
         # xlua.bundle is x86_64 only and an arm64 Editor would load it instead of arm64/libxlua.dylib
         # (code generation fails with DllNotFoundException). It never ships in a mobile or WebGL player.
@@ -518,7 +541,8 @@ def run(a):
                 if "minimal" in flags:
                     # In Player Settings, where the plugin selector reads it (csc.rsp would only compile the C#).
                     benv["XLUA_SMOKE_DEFINES"] = ";".join([d for d in benv.get("XLUA_SMOKE_DEFINES", "").split(";") if d]
-                                                          + ["XLUA_PRESET_MINIMAL"])
+                                                          + ["XLUA_PRESET_MINIMAL"]
+                                                          + (["XLUA_REFLECTION"] if "reflection" in flags else []))
                 kind = variant.split("+")[0].split("-")[0]
                 if kind in CORE_PLUGIN_VARIANT:
                     # LuaScript compiles with either define; XLUA_CORE_ONLY also leaves XLua and XLua.Editor out.
@@ -696,7 +720,8 @@ def markdown(data):
     order = {v: i for i, v in enumerate(["baseline", "upstream", "upstream+gen", "ng-5.5",
                                          "ng-5.5+pkg", "ng-5.5+pkg+sg", "ng-5.5+pkg+sg+gcm", "ng-5.5+nosa",
                                          "baseline+game", "ng-5.5+pkg+sg+game",
-                                         "ng-5.5+pkg+sg+gcm+game", "ng-5.5+minimal", "core-5.5", "core-5.5+nodefine", "mixed-5.5", "ng-5.4", "ng-5.3", "ng-luajit",
+                                         "ng-5.5+pkg+sg+gcm+game", "ng-5.5+minimal", "ng-5.5+minimal+reflection",
+                                         "ng-5.5+minimal+strict", "core-5.5", "core-5.5+nodefine", "mixed-5.5", "ng-5.4", "ng-5.3", "ng-luajit",
                                          "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"])}
     for (platform, config), players in groups.items():
         players.sort(key=lambda p: order.get(p["variant"], 99))
