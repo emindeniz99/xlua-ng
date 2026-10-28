@@ -1483,6 +1483,10 @@ wins (`ObjectCasters.cs` `OverloadScore`, documented at the class):
 1. `3.0` on Lua 5.3+ is a float and prefers `double`; on LuaJIT it is the
    integer 3 (no subtype), as the integer check already treated it. So
    `Foo(6 / 2)` calls `Foo(double)` on Lua 5.4 and `Foo(int)` on LuaJIT.
+   **Confirmed 2026-10-28 (owner):** a float with an integer value stays a
+   float on Lua 5.3+ and prefers `double`; `math.tointeger(x)` (or `//`)
+   forces the `int` overload. No code change; the FAQ ("Can Lua call
+   overloaded C# methods?") gives `Foo(math.tointeger(6 / 2))`.
 2. Where C# betterness prefers narrower types, this rule prefers the type
    that holds every value: after `int`, `long` before `short` or `byte`,
    and `double` before `float` for an integer (C# picks `float` over

@@ -182,6 +182,7 @@ return {
 
     -- CMyTestCaseLuaCallCSUpstream
     ["CMyTestCaseLuaCallCSUpstream.CaseBridgeAfterDisposeThrows"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseDeepCSharpRecursion"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseDisposeWhileRunningThrows"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEmitCacheEnvsOnThreads"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEmitCacheOneAssembly"] = true,
@@ -200,6 +201,7 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseNullableDefaultTypeLoads"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseNullableDefaultValue"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseOperatorErrorNamesTheOperand"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseOwnerThreadCheck"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CasePointerReturn"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseRequireLoaderData"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseReturnHookOnRepeatedCalls"] = true,

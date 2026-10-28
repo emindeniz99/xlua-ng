@@ -541,7 +541,8 @@ Limits:
 - Code of the project that calls `obj:ToString()`, `obj:GetType()` or
   `obj:Equals()` needs `System.Object` bound (`[assembly:
   LuaCallCSharp(typeof(object))]`, which the examples have), and `t.Name` on a
-  `System.Type` needs `System.Type`. Without them these raise. That is part 2 of
+  `System.Type` needs `System.Type`. Without them these raise, with a hint
+  to use `tostring(...)` (question 5, decided 2026-10-28). That is part 2 of
   the type allowlist in [bridge-hardening.md](bridge-hardening.md#e-type-allowlist-audit-item-12-not-implemented)
   ("no reflection members on `System.Type` and `System.Object.GetType`").
 - `xlua.util` (`XLUA_UTIL`) helpers that use C# types, such as
@@ -580,6 +581,9 @@ Tests:
    would bring back the upstream trap the preset avoids (a project that works
    in the Editor and fails in its players). Keep, or make the Editor fall back
    with a warning?
+   **Decided 2026-10-28 (owner): keep.** In the minimal preset the Editor
+   stays strict, with no reflection fallback and no CodeEmit, the same as
+   players. No code change.
 2. **`[ReflectionUse]` as a per-type opt-in** under `XLUA_NO_REFLECTION`: the
    attribute already means "Lua reaches this type through reflection" and gets
    link.xml entries. Allowing it would keep the reflection wrapper code
@@ -592,6 +596,17 @@ Tests:
    kept. Require `[GCOptimize]` (or a generated converter) in minimal?
 5. **`System.Object` and `System.Type`:** bind them by default in minimal
    (`obj:ToString()`, `typeof(T).Name`), or leave them to the project, as now?
+   **Decided 2026-10-28 (owner): leave them to the project.** No binding by
+   default. `tostring(obj)` and `tostring(typeof(CS.T))` need no bindings
+   (the `__tostring` of every C# object, `StaticLuaCallbacks.ToString`), and
+   the "has no generated bindings" error for a member of `System.Object`, of
+   `System.Type` or of a type derived from it (`System.RuntimeType`, the type
+   of `typeof(CS.T)`, which is not public) now ends with a hint: use
+   `tostring(...)`, or bind `System.Type` (`Utils.objectOrTypeHint`).
+   `CaseNoReflectionObjectAndType` checks both in the strict suite; the FAQ
+   ("What does T has no generated bindings mean?") and
+   [MIGRATING.md](../MIGRATING.md#reflection-off-in-the-minimal-preset) say
+   so.
 
 ### The core column as implemented (native)
 
