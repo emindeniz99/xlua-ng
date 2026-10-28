@@ -17,6 +17,10 @@ on:
       - Tools/presets.py
       - Assets/XLua/Src/**
       - Assets/XLua/Core/**
+      # The .meta check of the linux job.
+      - '**.meta'
+      - Tools/check_meta.py
+      - Tools/make_upm_package.py
       - .github/workflows/build.yml
   workflow_dispatch:
 
@@ -130,6 +134,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Unity .meta files of Assets/, Test/UnitTest, Test/PrefTest and the UPM package: present,
+      # not orphaned, unique GUIDs, plugin CPU and OS settings (Test/README.md). About a second.
+      - name: Check the .meta files
+        run: python3 -I Tools/check_meta.py
       - name: Build
         run: |
           cd build

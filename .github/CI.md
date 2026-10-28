@@ -238,7 +238,10 @@ it.
 - `build.yml` (pushes) runs for `build/`, the NDK and OpenHarmony SDK
   installers, the checks of its jobs (`check_android_elf.py` with
   `managed_imports.py` and the C# it reads, `check_apple_minos.py`,
-  `ohos_check.sh` and its C files) and the workflow itself.
+  `ohos_check.sh` and its C files), every `.meta` file with
+  `Tools/check_meta.py` and `make_upm_package.py` (the `linux` job checks the
+  `.meta` files first, Test/README.md "Unity .meta files"), and the workflow
+  itself.
 - `unity-matrix.yml` runs for everything `prepare.py` and `hotfix_il2cpp.py`
   copy or build: `Assets/` except the guides in `Assets/XLua/Doc`, `General/`,
   `Tools/`, `Test/`, `build/`, `mise.toml` and the NDK installer.
