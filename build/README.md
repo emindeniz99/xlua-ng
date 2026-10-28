@@ -1155,7 +1155,14 @@ LuaJIT libraries:
   (Linux, macOS, iOS, Android arm64-v8a and x86_64, Windows ARM64). It still
   uses the Visual Studio 2017 generator.
 
-The bridge itself does not depend on the mode. The CMake `GC64` option, which
+The bridge itself does not depend on the mode. Until 2026-10-28 it did:
+`xlua_gl` read `lua_State` through LuaJIT's `lj_obj.h`, which `xlua.c` was
+compiled with in GC64 mode whatever the library's mode, so with a non-GC64
+library it got a different value from call to call and the first `LuaEnv`
+failed (`NullReferenceException` in `ImportType`; windows-host.yml run
+40642149114). It now takes the registry's address (`lua_topointer`), about
+2.5 ns more per call on LuaJIT (Apple M2 Pro). `xlua_libs.c` still includes
+`lj_arch.h`, for `LJ_HASFFI` only. The CMake `GC64` option, which
 defined `LUAJIT_ENABLE_GC64` for `xlua.c`, was removed: nothing in LuaJIT 2.1
 or the bridge reads that macro. Bytecode depends on the mode: a GC64 runtime
 rejects non-GC64 bytecode and the reverse (`lj_bcread.c:403`, the

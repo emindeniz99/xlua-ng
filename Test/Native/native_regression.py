@@ -370,6 +370,32 @@ def check_struct_alignment(state):
         lib.lua_settop(state, 0)
 
 
+def check_global_state_key(state):
+    """xlua_gl gives one value for a state and all its threads, across collections, and
+    another for another state: ObjectTranslatorPool finds an env's translator by it. On
+    LuaJIT it read lua_State through lj_obj.h, compiled in GC64 mode whatever mode the
+    library had, so with a non-GC64 library (build/make_win64_luajit.bat) it read the next
+    field too and changed from call to call (windows-host.yml run 40642149114)."""
+    lib.xlua_gl.argtypes = [P]
+    lib.xlua_gl.restype = P
+    lib.lua_newthread.argtypes = [P]
+    lib.lua_newthread.restype = P
+    key = lib.xlua_gl(state)
+    assert key, "xlua_gl returned NULL"
+    thread = lib.lua_newthread(state)
+    for _ in range(10):
+        run(state, "local t = {} for i = 1, 2000 do t[i] = {} end collectgarbage() "
+                   "local co = coroutine.create(function() coroutine.yield() end) coroutine.resume(co)")
+        assert lib.xlua_gl(state) == key and lib.xlua_gl(thread) == key, \
+            "xlua_gl changed: %r, thread %r, first %r" % (lib.xlua_gl(state), lib.xlua_gl(thread), key)
+    lib.lua_settop(state, -2)
+    other = lib.luaL_newstate()
+    try:
+        assert lib.xlua_gl(other) not in (None, key), "a second state got the same xlua_gl"
+    finally:
+        lib.lua_close(other)
+
+
 def check_exported_helpers(state):
     # Exports that no C# code calls, kept for native plugins that extend xLua.
     for name, args, res in [("xlua_get_registry_index", [], C.c_int), ("lua_createtable", [P, C.c_int, C.c_int], None),
@@ -2821,7 +2847,7 @@ try:
         "a LuaJIT library without the jit library (XLUA_LIBS): these checks need the global jit"
     if not uint64_built():
         run(state, UINT64_STAND_IN)
-    for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
+    for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
                                     "struct_accessors", "struct_clone", "indexers", "path_access", "protected_helpers", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
