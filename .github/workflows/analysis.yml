@@ -192,8 +192,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # x86_64: also the non-GC64 VM of make_win64_luajit.bat (nogc64),
-          # which needs a real x86-64 address space.
+          # x86_64: also the nx sysmalloc build, which needs a real x86-64 address space.
           - name: Linux x86_64
             runner: ubuntu-26.04
             artifact: luajit-tests-linux-x64

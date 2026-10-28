@@ -455,11 +455,13 @@ before `CaseUtf8TypeNames` reports, which counts as not passing.
 
 `windows-host.yml` runs both, with the native checks and
 `apicheck_probe.py`, on MSVC `XLUA_APICHECK` builds of Lua 5.3.6, 5.4.9,
-5.5.1, LuaJIT GC64 and LuaJIT without GC64
+5.5.1 and LuaJIT (GC64)
 ([.github/CI.md](../.github/CI.md), [windows-host.md](../docs/research/windows-host.md)).
 Run [40645581045](https://github.com/emindeniz99/xlua-ng/actions/runs/40645581045)
 passed: 496 tests in each of two modes on the .NET Framework and on Mono
-6.12.0 for every leg, and the control on 5.5.1. Three cases came from these
+6.12.0 for every leg (then five, with LuaJIT without GC64), and the control
+on 5.5.1. The LuaJIT leg also builds a `lua51.lib` without GC64 and
+requires CMake to refuse it. Three cases came from these
 runs: `CaseUtf8TypeNames` (two types with one-character CJK names; it fails
 without the `luaL_newmetatable` fix on the .NET Framework only),
 `CaseErrorsThroughCSharpCallbacks` (`Upstream.CallbackErrors`: Lua errors
@@ -513,8 +515,7 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library. Its `global_state_key` check (2026-10-28) requires `xlua_gl`, the
 key by which C# finds an env, to stay the same for a state and its threads
-across collections and to differ for another state; on LuaJIT without GC64 it
-read the wrong layout before the fix ([windows-host.md](../docs/research/windows-host.md#luajit-without-gc64)).
+across collections and to differ for another state.
 
 `python3 Test/Native/apicheck_probe.py [--luajit] PLUGIN` checks that a
 library built with `-DXLUA_APICHECK=ON` has Lua's C API checks: a child
@@ -1099,10 +1100,12 @@ fresh copy:
 | assert | `-DLUA_USE_ASSERT -DLUA_USE_APICHECK` (internal assertions) | a debug build |
 | nojit | `-DLUAJIT_DISABLE_JIT -DLUAJIT_NO_UNWIND` | the interpreter-only VM that `lj_arch.h` selects for iOS |
 | nx | `-DLUAJIT_USE_SYSMALLOC -DLUAJIT_DISABLE_JIT -DLUAJIT_DISABLE_FFI` | `make_nx64_luajit_gc64.bat`, without the console target |
-| nogc64 | `-DLUAJIT_DISABLE_GC64` (x86_64 only) | `make_win64_luajit.bat` |
 
-Without `--modes` it runs every mode the host can build: `nogc64` needs
-x86_64 Linux (macOS requires GC64, ARM64 has no other mode), and `nx` does
+A sixth mode, `nogc64` (`-DLUAJIT_DISABLE_GC64`, x86_64 only), matched the
+old `make_win64_luajit.bat`; it was removed on 2026-10-28, when xLua stopped
+supporting a 64-bit LuaJIT without GC64 (build/README.md, "LuaJIT GC64").
+
+Without `--modes` it runs every mode the host can build: `nx` does
 not run on Linux arm64. There GC64 keeps object pointers in 47 bits
 (`checkptrGC`, `lj_def.h`) and glibc's `malloc` returns addresses above 2^47,
 because the heap follows the PIE base at `0xaaaa...` in a 48-bit address
@@ -1182,22 +1185,24 @@ the run tests upstream LuaJIT with our build options.
 Results (2026-10-18), runner tests passed / standalone files passed, plus
 known failures:
 
-| Platform | default | assert | nojit | nx | nogc64 |
-|---|---|---|---|---|---|
-| macOS 27 arm64, Apple clang 21 | 510 / 60 + 2 | 510 / 60 + 2 | 388 / 59 + 2 | 306 / 40 | not available |
-| Linux arm64, `xlua-analysis:26.04`, GCC 15.2 | 510 / 61 + 1 | 510 / 61 + 1 | 388 / 60 + 1 | not available | not available |
-| Linux x86_64 under qemu-user 10.2.1 in that container, `x86_64-linux-gnu-gcc` 15.2 | 510 / 62 | 510 / 62 | 388 / 61 | not valid | not valid |
-| Linux x86_64, GitHub `ubuntu-26.04` runner (`analysis.yml` `luajit-tests`, run 39073496732, 2026-10-18) | 510 / 62 | 510 / 62 | 388 / 61 | 306 / 40 | 510 / 62 |
+| Platform | default | assert | nojit | nx |
+|---|---|---|---|---|
+| macOS 27 arm64, Apple clang 21 | 510 / 60 + 2 | 510 / 60 + 2 | 388 / 59 + 2 | 306 / 40 |
+| Linux arm64, `xlua-analysis:26.04`, GCC 15.2 | 510 / 61 + 1 | 510 / 61 + 1 | 388 / 60 + 1 | not available |
+| Linux x86_64 under qemu-user 10.2.1 in that container, `x86_64-linux-gnu-gcc` 15.2 | 510 / 62 | 510 / 62 | 388 / 61 | not valid |
+| Linux x86_64, GitHub `ubuntu-26.04` runner (`analysis.yml` `luajit-tests`, run 39073496732, 2026-10-18) | 510 / 62 | 510 / 62 | 388 / 61 | 306 / 40 |
+
+The removed `nogc64` mode passed on that runner too (510 / 62).
 
 Every run takes a few seconds (about 7 s under qemu). The x86_64 row is a
 functional check only. qemu-user, like Rosetta in OrbStack's Linux VM, gives
 the guest the host's arm64 addresses (`malloc` blocks above 2^47) and ignores
-`MAP_32BIT`, so `nogc64` cannot create a state there and `nx` crashes. Under
+`MAP_32BIT`, so `nx` crashes there. Under
 Rosetta the assert build also caught `lj_mem_realloc` returning
 `0xffff...`, so the Rosetta runs were discarded. The default, assert and
-nojit modes use LuaJIT's allocator, which places its blocks itself, and ran. On a real x86_64 machine (the CI row) all five modes pass with no
-known failure, so `nx` and `nogc64` work where they are used.
-Real x86_64 results, including `nogc64` and `nx`, come from the
+nojit modes use LuaJIT's allocator, which places its blocks itself, and ran. On a real x86_64 machine (the CI row) every mode passes with no
+known failure, so `nx` works where it is used.
+Real x86_64 results, including `nx`, come from the
 `luajit-tests` job in `.github/workflows/analysis.yml` (manual; Linux x86_64
 on `ubuntu-26.04` in every mode, macOS arm64 on `macos-26`), which has not
 run on a hosted runner yet.

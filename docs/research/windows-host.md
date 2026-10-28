@@ -34,10 +34,13 @@ Marks: [C] confirmed here, [S] secondary, [U] unconfirmed.
   ASCII gets no metatable under the name the bridge looks up, and the next
   `lua_rawset` on it trips Lua's API check (`lapi.c:755`, "table expected").
   Without the checks that is undefined behaviour in the native library. [C]
-- **The LuaJIT build without GC64 did not work at all, fixed.** The first
+- **The LuaJIT build without GC64 did not work at all.** The first
   `LuaEnv` failed with a `NullReferenceException` in `ImportType` on the .NET
   Framework (run 40642149114). `xlua_gl` read `lua_State` with the GC64 layout
-  while the library had the other one. [C]
+  while the library had the other one. [C] Fixed first in `xlua_gl`; the owner
+  then dropped the mode instead: every 64-bit LuaJIT is GC64 and the other
+  mode is refused at build time ([below](#luajit-without-gc64)), so the
+  workflow has four legs now.
 - **No SEH problem on LuaJIT for Win64** in the paths xLua uses: errors raised
   from C# functions, C# exceptions, errors through eight nested
   Lua/C#/`LuaFunction.Call` levels, in coroutines and with a C# message
@@ -53,7 +56,9 @@ Each leg (`windows-host.yml`, about 2 to 3 minutes):
 
 1. Installs Mono 6.12.0.206, the last Windows release, from its MSI (SHA-256
    checked; the MSI is cached). About 50 s.
-2. For LuaJIT, builds `lua51.lib` with `msvcbuild_mt.bat [nogc64] mixed` and
+2. For LuaJIT, first builds `lua51.lib` with `msvcbuild_mt.bat nogc64 mixed`
+   and requires CMake's configure to refuse it (since the drop of that mode,
+   below). Then builds it with `msvcbuild_mt.bat mixed` and
    `CL=/DLUA_USE_APICHECK` (cl reads extra options from `CL`), and checks
    that the library has `lj_assert_fail`.
 3. Builds `xlua.dll` with CMake, `-A x64 -DXLUA_APICHECK=ON`, Release. The
@@ -147,6 +152,54 @@ The alternative without the cost: a CMake option that defines
 `LUAJIT_DISABLE_GC64` for `xlua.c` and must match the library. It is not
 taken, because a mismatch fails as above and nothing can detect it at build
 time.
+
+### The mode dropped (2026-10-28)
+
+The owner chose to drop the mode instead of paying for it (question 2
+below, option c). Every 64-bit LuaJIT plugin was GC64 already except the one
+from `make_win64_luajit.bat`; macOS refuses the other mode and ARM64 has no
+other. What changed:
+
+- `xlua_gl` returns `G(L)` from `lj_obj.h` again, one load. Measured on the
+  Apple M2 Pro, release `libluajit.a`, with the `xlua_gl` export called
+  200 million times through a function pointer: 2.39 ns per call with the
+  registry's address, 0.89 ns with `G(L)` (best of three rounds, two runs
+  each). `benchmark.py --modes emit,sourcegen --filter lua_cs --no-lua
+  --runs 7` on LuaJIT, three interleaved rounds, median of the round
+  medians: simple calls (static and instance methods, properties, fields,
+  strings) 1 to 4 ns faster, a median of 1.9 ns (emit) and 3.7 ns (source
+  generator) over the 31 cases; no case slower by more than the noise. [C]
+- `xlua.c` stops with an `#error` when `LJ_64 && !LJ_GC64`. Checked with
+  `cc -arch x86_64 -DLUAJIT_OS=LUAJIT_OS_LINUX -DLUAJIT_DISABLE_GC64
+  -fsyntax-only` (the OS override gets past `lj_arch.h`'s own macOS check);
+  ARM64 and 32-bit targets compile with the define, which they ignore. [C]
+- The preprocessor of `xlua.c` cannot see the library's mode, because
+  `msvcbuild` defines `LUAJIT_DISABLE_GC64` for LuaJIT's own files only. So
+  CMake's configure reads the library for a 64-bit target and stops when it
+  contains `lj_state_newstate`, which only the non-GC64 mode defines
+  (`lj_state.c:246`; `lib_aux.c` calls it). `file(STRINGS)` reads the name
+  from an MSVC `.lib` as well as an `.a`, where the `nm` check of
+  `XLUA_APICHECK` does not run. Checked on macOS with a stand-in archive
+  holding the name (refused) and the real GC64 `libluajit.a` (accepted);
+  the `windows-host.yml` LuaJIT leg checks it on a real `nogc64` `lua51.lib`:
+  in run [40668992074](https://github.com/emindeniz99/xlua-ng/actions/runs/40668992074)
+  the configure stopped with the message, and the four legs then passed
+  (managed suite 2 × 508 on the .NET Framework and on Mono, native checks
+  and API probe). [C]
+- `make_win64_luajit.bat` builds GC64; `make_win64_luajit_gc64.bat` is gone.
+  The workflow's leg without GC64 and the `nogc64` mode of
+  `luajit_tests.py` are removed. `make_win64_luajit.bat` itself still asks
+  for the Visual Studio 2019 generator, which `windows-2022` lacks, so
+  `build.yml` builds no Windows x64 LuaJIT plugin (run 40668980945, as
+  before; [release.md](../design/release.md#not-in-the-release-and-why)).
+  `windows-host.yml` builds the x64 LuaJIT with `msvcbuild_mt.bat mixed` and
+  CMake directly. `native-build.yml` run 40668996995 passed, its LuaJIT jobs
+  included (Windows ARM64 through `make_win_arm64_luajit.bat`, where CMake's
+  check accepted the GC64 library, and the Linux sanitizer, minimal preset
+  and LuaCATS builds).
+- Bytecode precompiled for the old Windows x64 plugin does not load any
+  more (`BCDUMP_F_FR2`, `lj_bcread.c:403`); [MIGRATING.md](../MIGRATING.md)
+  says to recompile it.
 
 ## Errors through C# callbacks (SEH)
 
@@ -279,7 +332,8 @@ Question for the owner below.
 2. **`xlua_gl` on LuaJIT** costs about 2.5 ns more per C# call from Lua, for
    a build mode (non-GC64) that only `make_win64_luajit.bat` uses. The
    alternative is a CMake option that has to match the library. Keep the
-   fix, or drop the non-GC64 script instead?
+   fix, or drop the non-GC64 script instead? **Decided 2026-10-28:** drop the
+   mode on 64-bit targets ([above](#the-mode-dropped-2026-10-28)).
 3. **`NATIVE_LUA_PUSHSTRING` with `XLUA_GENERAL`** marshals ANSI on the .NET
    Framework. Leave it, make it UTF-8 there, or let it apply to Unity only?
 
