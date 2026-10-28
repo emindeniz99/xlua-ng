@@ -1275,16 +1275,52 @@ namespace XLua
             }
         }
 
-        // A value C# reads back from Lua. A struct where Lua has no value (or
-        // any value its caster does not take) is default(T), as the emitted
-        // bridges give, in every binding mode (owner decision Q35 of
-        // 2026-10-28); unboxing null threw NullReferenceException.
+        // A strict struct (ObjectCasters.IsStrictStruct) that C# reads back
+        // from Lua: a delegate's or interface's result or out value,
+        // LuaFunction.Func, LuaTable.Get (ObjectTranslator.Get<T>, the emitted
+        // bridges). null where Lua has no value, which the callers turn into
+        // default(S) (owner decision Q35 of 2026-10-28); the struct; or
+        // ObjectCasters.StructExpected for a value of another kind or a C#
+        // object of another class (owner decision Q56 of 2026-10-28): these
+        // paths gave default(S) or the cast's exception, while the generated
+        // readers of GCOptimize structs raised.
+        public object GetStructResult(RealStatePtr L, int index, Type type)
+        {
+            LuaTypes lua_type = LuaAPI.lua_type(L, index);
+            if (lua_type == LuaTypes.LUA_TNIL || lua_type == LuaTypes.LUA_TNONE)
+            {
+                return null;
+            }
+            object obj = getObject(L, index, type, false);
+            if (obj == null || !type.IsInstanceOfType(obj))
+            {
+                throw ObjectCasters.StructExpected(L, index, type);
+            }
+            return obj;
+        }
+
+        // Whether T is a strict struct, tested once per type.
+        static class StrictStruct<T>
+        {
+            public static readonly bool Value = ObjectCasters.IsStrictStruct(typeof(T));
+        }
+
+        // A value C# reads back from Lua. A struct where Lua has no value is
+        // default(T), as the emitted bridges give, in every binding mode
+        // (owner decision Q35 of 2026-10-28; unboxing null threw
+        // NullReferenceException), and a value of another kind raises
+        // (GetStructResult, Q56).
         public void Get<T>(RealStatePtr L, int index, out T v)
         {
             Func<RealStatePtr, int, T> get_func;
             if (tryGetGetFuncByType(typeof(T), out get_func))
             {
                 v = get_func(L, index);
+            }
+            else if (StrictStruct<T>.Value)
+            {
+                object obj = GetStructResult(L, index, typeof(T));
+                v = obj == null ? default(T) : (T)obj;
             }
             else
             {

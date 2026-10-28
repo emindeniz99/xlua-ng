@@ -1422,10 +1422,24 @@
    "constructors": [],
    "methods": [
     {
+     "name": "CallKinds",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityResults::CallKinds(Coverage.ParityStructResult,Coverage.ParityReflectedStructResult,Coverage.ParityVecResult,Coverage.ParityPairResult)"
+     ]
+    },
+    {
      "name": "Call",
      "static": true,
      "overloads": [
       "Coverage.ParityResults::Call(Coverage.ParityStructResult,Coverage.ParityReflectedStructResult,Coverage.ParityVecResult,Coverage.ParityPairResult,Coverage.ParityKindResult)"
+     ]
+    },
+    {
+     "name": "FuncKinds",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityResults::FuncKinds(XLua.LuaFunction)"
      ]
     },
     {
@@ -1436,10 +1450,24 @@
      ]
     },
     {
+     "name": "GetKinds",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityResults::GetKinds(XLua.LuaTable,System.String)"
+     ]
+    },
+    {
      "name": "Get",
      "static": true,
      "overloads": [
       "Coverage.ParityResults::Get(XLua.LuaTable,System.String)"
+     ]
+    },
+    {
+     "name": "InterfaceKinds",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityResults::InterfaceKinds(Coverage.IParityResults)"
      ]
     },
     {
@@ -1456,7 +1484,8 @@
    "indexers": [],
    "newindexers": [],
    "events": [],
-   "lazy": []
+   "lazy": [],
+   "fallback": []
   },
   {
    "type": "Coverage.ParityStruct",
@@ -6991,6 +7020,20 @@
     "Coverage.IMultiListed::Answer(System.Int32)"
    ],
    "properties": [],
+   "events": [],
+   "indexers": []
+  },
+  {
+   "type": "Coverage.IParityResults",
+   "methods": [
+    "Coverage.IParityResults::P()",
+    "Coverage.IParityResults::R()",
+    "Coverage.IParityResults::S()",
+    "Coverage.IParityResults::V()"
+   ],
+   "properties": [
+    "Coverage.IParityResults::Prop get"
+   ],
    "events": [],
    "indexers": []
   },

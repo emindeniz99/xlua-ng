@@ -2020,11 +2020,15 @@ namespace Coverage
 
         // LuaTable.Get<T> of key for each kind of type, joined with ",". A nil
         // value raises "can not assign nil to T" for every value type, int
-        // included, before any conversion (upstream, the same in every mode).
+        // included, before any conversion (upstream, the same in every mode;
+        // kept by owner decision Q55 of 2026-10-28). The last two are the
+        // alternatives the API guide names: ContainsKey, and Get<object>, which
+        // gives null for nil.
         public static string Get(LuaTable t, string key)
         {
             return string.Join(",", new string[]
             {
+                Try(() => t.Get<int>(key).ToString()),
                 Try(() => t.Get<ParityStruct>(key).X.ToString()),
                 Try(() => t.Get<ParityReflectedStruct>(key).X.ToString()),
                 Try(() => t.Get<MultiListedVec>(key).x.ToString()),
@@ -2032,6 +2036,8 @@ namespace Coverage
                 Try(() => ((int)t.Get<ParityKind>(key)).ToString()),
                 Try(() => ((int)t.Get<ParityReflectedKind>(key)).ToString()),
                 Try(() => t.Get<ParityStruct?>(key).HasValue ? "has" : "null"),
+                Try(() => t.ContainsKey(key) ? "contains" : "missing"),
+                Try(() => t.Get<object>(key) == null ? "null" : "value"),
             });
         }
 
@@ -2067,6 +2073,84 @@ namespace Coverage
                 Try(() => ((int)e()).ToString()),
             });
         }
+
+        // The value, or the exception's class and message (CaseParityStructResultKinds).
+        static string Text(Func<string> f)
+        {
+            try
+            {
+                return f();
+            }
+            catch (Exception e)
+            {
+                return e.GetType().Name + ": " + e.Message;
+            }
+        }
+
+        // Owner decision Q56 of 2026-10-28: a struct C# reads back from Lua
+        // given a value of another kind (a number, a string, a boolean, a
+        // function, a C# object of another class) raises "S expected, got
+        // <kind>" in every binding mode; nil and nothing still give default(S)
+        // (Q35). Each joins the results for ParityStruct, ParityReflectedStruct,
+        // the packed MultiListedVec and the table-read MultiListedPair with " | ".
+        public static string FuncKinds(LuaFunction f)
+        {
+            return string.Join(" | ", new string[]
+            {
+                Text(() => f.Func<int, ParityStruct>(0).X.ToString()),
+                Text(() => f.Func<int, ParityReflectedStruct>(0).X.ToString()),
+                Text(() => f.Func<int, MultiListedVec>(0).x.ToString()),
+                Text(() => f.Func<int, MultiListedPair>(0).a.ToString()),
+            });
+        }
+
+        public static string CallKinds(ParityStructResult a, ParityReflectedStructResult b, ParityVecResult c, ParityPairResult d)
+        {
+            return string.Join(" | ", new string[]
+            {
+                Text(() => a().X.ToString()),
+                Text(() => b().X.ToString()),
+                Text(() => c().x.ToString()),
+                Text(() => d().a.ToString()),
+            });
+        }
+
+        // The four methods, then the property, of an interface bridge.
+        public static string InterfaceKinds(IParityResults i)
+        {
+            return string.Join(" | ", new string[]
+            {
+                Text(() => i.S().X.ToString()),
+                Text(() => i.R().X.ToString()),
+                Text(() => i.V().x.ToString()),
+                Text(() => i.P().a.ToString()),
+                Text(() => i.Prop.X.ToString()),
+            });
+        }
+
+        // LuaTable.Get<S> of a key that holds a value (a missing key raises
+        // "can not assign nil to S" before any conversion, Q55).
+        public static string GetKinds(LuaTable t, string key)
+        {
+            return string.Join(" | ", new string[]
+            {
+                Text(() => t.Get<ParityStruct>(key).X.ToString()),
+                Text(() => t.Get<ParityReflectedStruct>(key).X.ToString()),
+                Text(() => t.Get<MultiListedVec>(key).x.ToString()),
+                Text(() => t.Get<MultiListedPair>(key).a.ToString()),
+            });
+        }
+    }
+
+    // Struct results of an interface bridge (CaseParityStructResultKinds, Q56).
+    [CSharpCallLua]
+    public interface IParityResults
+    {
+        ParityStruct S();
+        ParityReflectedStruct R();
+        MultiListedVec V();
+        MultiListedPair P();
+        ParityStruct Prop { get; }
     }
 
     [LuaCallCSharp]
