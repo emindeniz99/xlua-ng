@@ -1420,10 +1420,12 @@ static void handle_body(lua_State *L, void *ud) {
 		return;
 #if defined(XLUA_BUFFER)
 	case XLUA_HANDLE_NEWBUFFER:
-		if (v[1].u.i >= 0 && (uint64_t)v[1].u.i <= XLUA_BUFFER_MAX
-		    && (v[2].u.s = (const char *)xlua_core_new_buffer(L, (size_t)v[1].u.i)) != NULL) {
-			to_value(L, lua_gettop(L), &v[0], 0);
-			return;
+		if (v[1].u.i >= 0 && (uint64_t)v[1].u.i <= XLUA_BUFFER_MAX) {
+			v[2].u.s = (const char *)xlua_core_new_buffer(L, (size_t)v[1].u.i);
+			if (v[2].u.s != NULL) {
+				to_value(L, lua_gettop(L), &v[0], 0);
+				return;
+			}
 		}
 		a->status = XLUA_ERRCONFIG;
 		return;
