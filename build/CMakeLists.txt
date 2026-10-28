@@ -715,6 +715,9 @@ if (XLUA_APICHECK)
     target_compile_definitions (xlua PRIVATE LUA_USE_APICHECK)
     if (MSVC)
         target_compile_options (xlua PRIVATE /UNDEBUG)
+        # Failed checks print to stderr and abort instead of opening a message
+        # box (the static C runtime does not know the host is a console program).
+        target_sources (xlua PRIVATE xlua_apicheck_msvc.c)
     else ()
         target_compile_options (xlua PRIVATE -UNDEBUG)
     endif ()
