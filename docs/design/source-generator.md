@@ -3552,6 +3552,13 @@ runs were before decision 10's message change.
 4. **`HotfixDelegateBridge.Set`** and the process-wide id list now serve only
    xLua's own assembly without `HotfixBridges`. Keep them, or remove them (and
    the iOS native flag) and make IntKey need `HotfixBridges`?
+   2026-10-29: still reached, so kept, and still open. The configuration:
+   xLua compiled into the injected assembly, `HOTFIX_ENABLE`, IntKey on
+   `Inline` types (or types with only generic methods), and no `[Hotfix]`
+   attribute in that assembly (no generator, or only configuration lists).
+   The races of the list and of `HotfixFlags.cpp` were fixed, and
+   `hotfix_check.py` covers the list again (steps 7 and 8);
+   [hotfix.md](../research/hotfix.md#who-still-reaches-the-process-wide-list-2026-10-29).
 5. **Unbound configuration without the generator:** the build check now fails
    IL2CPP builds with `[CSharpCallLua]` configuration even when the generator
    is not installed, and warns for xLua's own `[assembly: GCOptimize]` in a
@@ -3831,6 +3838,11 @@ code changed: the smoke players on the emulator, `run_managed.py`,
    reaches its types only through the explicit APIs, Q29 and Q30), and (b)
    adds a preset rule to the generator. If (a) is taken, the backlog item is
    done.
+
+   **Coordinator's decision under the owner's 'do what is best',
+   2026-10-29: (a).** `[ReflectionUse]` keeps `preserve="all"` in every
+   preset, as upstream: nothing changes in the generator, and the backlog
+   item is closed.
 2. **Confirm M5's change for `[LuaCallCSharp]` types, `legacy` included.**
    Upstream's `link.xml` kept every member of every `[LuaCallCSharp]` type;
    since M5 only what the wrappers call is kept. MIGRATING.md records the
