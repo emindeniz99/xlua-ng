@@ -16,6 +16,11 @@
 # xlua_core_sandbox.c and xlua_core_nobc.c with check_exports.py --preset core,
 # native_regression.py and core_smoke.c; the bridge's checks do not apply there.
 # MONO_VERSION is passed to run_managed.py (default 6.14.1; "any" skips the check).
+# MIN_BRANCH_COVERAGE is the coverage gate: "FILE=PERCENT ..." (default "xlua.c=99"),
+# checked for each runtime that measures FILE. When a file's branch coverage is
+# below its percentage the script fails, after every runtime has been measured;
+# it prints XLUA_COVERAGE_GATE lines either way. An empty value turns the gate off.
+# The analysis workflow's coverage job runs with the default (Test/README.md).
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out="$(mkdir -p "${1:?usage: coverage.sh <output dir>}" && cd "$1" && pwd)"
@@ -28,6 +33,11 @@ else
 fi
 profdata="${LLVM_PROFDATA:-llvm-profdata}"
 cov="${LLVM_COV:-llvm-cov}"
+# build/CMakeLists.txt records the sources as build/... (-ffile-prefix-map, build/README.md
+# "Reproducible builds"); this maps them back to the checkout for the filters and the HTML.
+cov_paths=(-path-equivalence="build,$repo/build")
+min_branch_coverage="${MIN_BRANCH_COVERAGE-xlua.c=99}"
+gate_failed=0
 
 for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
     build="$out/$version"
@@ -66,13 +76,22 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
     else
         sources=("$repo/build/xlua_core.c" "$repo/build/xlua_core_limits.c" "$repo/build/xlua_core.h" "$repo/build/xlua.c" "$repo/build/i64lib.c" "$repo/build/memory_leak_checker.c")
     fi
-    "$cov" report "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}" | tee "$build/report.txt"
-    "$cov" report -show-functions "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}" > "$build/functions.txt"
-    "$cov" show -format=html -output-dir="$build/html" "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}"
+    "$cov" report "$plugin" -instr-profile="$build/xlua.profdata" "${cov_paths[@]}" "${sources[@]}" | tee "$build/report.txt"
+    "$cov" report -show-functions "$plugin" -instr-profile="$build/xlua.profdata" "${cov_paths[@]}" "${sources[@]}" > "$build/functions.txt"
+    "$cov" show -format=html -output-dir="$build/html" "$plugin" -instr-profile="$build/xlua.profdata" "${cov_paths[@]}" "${sources[@]}"
     # Per-branch counts; an untaken side shows as "True: 0" or "False: 0".
-    "$cov" show -show-branches=count "$plugin" -instr-profile="$build/xlua.profdata" "${sources[@]}" > "$build/branches.txt"
+    "$cov" show -show-branches=count "$plugin" -instr-profile="$build/xlua.profdata" "${cov_paths[@]}" "${sources[@]}" > "$build/branches.txt"
+    # The gate reads llvm-cov's per-file summary (branch counts), not the report's columns.
+    "$cov" export -summary-only "$plugin" -instr-profile="$build/xlua.profdata" "${cov_paths[@]}" "${sources[@]}" > "$build/summary.json"
+    if ! python3 "$repo/Test/Native/coverage_gate.py" "$build/summary.json" "$version" $min_branch_coverage; then
+        gate_failed=1
+    fi
     echo "Uncovered functions ($version):"
     # Columns: name, regions, missed regions, cover, lines, missed lines, cover, ...
     awk '$1 !~ /^(Name|---|File|TOTAL)/ && NF >= 7 && $5 > 0 && $5 == $6 { print "  " $1 }' "$build/functions.txt" | sort -u
     echo "XLUA_COVERAGE_DONE: $version (HTML in $build/html)"
 done
+if [[ "$gate_failed" != 0 ]]; then
+    echo "XLUA_COVERAGE_GATE: branch coverage below MIN_BRANCH_COVERAGE ($min_branch_coverage); see the FAIL lines above and branches.txt" >&2
+    exit 1
+fi
