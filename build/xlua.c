@@ -802,6 +802,40 @@ void print_value(lua_State *L,  char *str, int idx) {
 	lua_call(L, 2, 0);
 }
 
+/* The BaseType walk of the indexer closures below: from the type in the
+ * upvalue at base up its BaseType chain to the first type with an entry in
+ * the index function table at funcs, which is stored in the upvalue at found
+ * (left nil when no type has one); base is cleared, so the walk runs once
+ * per closure. Real System.Type chains end after a few types, but the debug
+ * library can put a table whose BaseType leads back to itself into the
+ * closure (debug.setupvalue), and that walk looped here in C, where the
+ * instruction count hook cannot stop it (docs/research/bridge-audit.md,
+ * "BaseType cycle"). The walk now stops with an error after
+ * XLUA_MAX_BASE_TYPES types and leaves the closure as it was. */
+#define XLUA_MAX_BASE_TYPES 1000
+
+static void find_base_func(lua_State *L, int base, int funcs, int found) {
+	int depth = 0;
+	lua_pushvalue(L, base);
+	while (!lua_isnil(L, -1)) {
+		if (++depth > XLUA_MAX_BASE_TYPES) {
+			luaL_error(L, "the BaseType chain is longer than %d types (a cycle?)", XLUA_MAX_BASE_TYPES);
+		}
+		lua_pushvalue(L, -1);
+		lua_gettable(L, funcs);
+		if (!lua_isnil(L, -1)) {
+			lua_replace(L, found);
+			break;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "BaseType");
+		lua_remove(L, -2);
+	}
+	lua_pop(L, 1);
+	lua_pushnil(L);
+	lua_replace(L, base);
+}
+
 //upvalue --- [1]: methods, [2]:getters, [3]:csindexer, [4]:base, [5]:indexfuncs, [6]:arrayindexer, [7]:baseindex
 //param   --- [1]: obj, [2]: key
 LUA_API int obj_indexer(lua_State *L) {	
@@ -846,22 +880,7 @@ LUA_API int obj_indexer(lua_State *L) {
 	}
 	
 	if (!lua_isnil(L, lua_upvalueindex(4))) {
-		lua_pushvalue(L, lua_upvalueindex(4));
-		while(!lua_isnil(L, -1)) {
-			lua_pushvalue(L, -1);
-			lua_gettable(L, lua_upvalueindex(5));
-			if (!lua_isnil(L, -1)) // found
-			{
-				lua_replace(L, lua_upvalueindex(7)); //baseindex = indexfuncs[base]
-				lua_pop(L, 1);
-				break;
-			}
-			lua_pop(L, 1);
-			lua_getfield(L, -1, "BaseType");
-			lua_remove(L, -2);
-		}
-		lua_pushnil(L);
-		lua_replace(L, lua_upvalueindex(4));//base = nil
+		find_base_func(L, lua_upvalueindex(4), lua_upvalueindex(5), lua_upvalueindex(7));
 	}
 	
 	if (!lua_isnil(L, lua_upvalueindex(7))) {
@@ -917,23 +936,7 @@ LUA_API int obj_newindexer(lua_State *L) {
 	}
 	
 	if (!lua_isnil(L, lua_upvalueindex(3))) {
-		lua_pushvalue(L, lua_upvalueindex(3));
-		while(!lua_isnil(L, -1)) {
-			lua_pushvalue(L, -1);
-			lua_gettable(L, lua_upvalueindex(4));
-
-			if (!lua_isnil(L, -1)) // found
-			{
-				lua_replace(L, lua_upvalueindex(6)); //basenewindex = newindexfuncs[base]
-				lua_pop(L, 1);
-				break;
-			}
-			lua_pop(L, 1);
-			lua_getfield(L, -1, "BaseType");
-			lua_remove(L, -2);
-		}
-		lua_pushnil(L);
-		lua_replace(L, lua_upvalueindex(3));//base = nil
+		find_base_func(L, lua_upvalueindex(3), lua_upvalueindex(4), lua_upvalueindex(6));
 	}
 	
 	if (!lua_isnil(L, lua_upvalueindex(6))) {
@@ -976,22 +979,7 @@ LUA_API int cls_indexer(lua_State *L) {
 	}
 	
 	if (!lua_isnil(L, lua_upvalueindex(3))) {
-		lua_pushvalue(L, lua_upvalueindex(3));
-		while(!lua_isnil(L, -1)) {
-			lua_pushvalue(L, -1);
-			lua_gettable(L, lua_upvalueindex(4));
-			if (!lua_isnil(L, -1)) // found
-			{
-				lua_replace(L, lua_upvalueindex(5)); //baseindex = indexfuncs[base]
-				lua_pop(L, 1);
-				break;
-			}
-			lua_pop(L, 1);
-			lua_getfield(L, -1, "BaseType");
-			lua_remove(L, -2);
-		}
-		lua_pushnil(L);
-		lua_replace(L, lua_upvalueindex(3));//base = nil
+		find_base_func(L, lua_upvalueindex(3), lua_upvalueindex(4), lua_upvalueindex(5));
 	}
 	
 	if (!lua_isnil(L, lua_upvalueindex(5))) {
@@ -1026,22 +1014,7 @@ LUA_API int cls_newindexer(lua_State *L) {
 	}
 	
 	if (!lua_isnil(L, lua_upvalueindex(2))) {
-		lua_pushvalue(L, lua_upvalueindex(2));
-		while(!lua_isnil(L, -1)) {
-			lua_pushvalue(L, -1);
-			lua_gettable(L, lua_upvalueindex(3));
-			if (!lua_isnil(L, -1)) // found
-			{
-				lua_replace(L, lua_upvalueindex(4)); //baseindex = indexfuncs[base]
-				lua_pop(L, 1);
-				break;
-			}
-			lua_pop(L, 1);
-			lua_getfield(L, -1, "BaseType");
-			lua_remove(L, -2);
-		}
-		lua_pushnil(L);
-		lua_replace(L, lua_upvalueindex(2));//base = nil
+		find_base_func(L, lua_upvalueindex(2), lua_upvalueindex(3), lua_upvalueindex(4));
 	}
 	
 	if (!lua_isnil(L, lua_upvalueindex(4))) {

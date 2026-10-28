@@ -867,3 +867,238 @@ function CMyTestCaseLuaCallCSCoverage.CaseAssemblyLevelConfig(self)
     ASSERT_EQ(t:Plus(2), 3)
     ASSERT_EQ(t.Hidden, nil)
 end
+
+-- Binding-mode parity (2026-10-28). Coverage.Parity has [LuaCallCSharp]
+-- (generated wrappers in the source generator's passes, emitted ones in the
+-- reflection pass); Coverage.ParityReflected is the same class without
+-- configuration (reflection wrappers in the source generator's passes,
+-- emitted ones in the reflection pass). Each case runs the same calls on
+-- both, the configured one first, and checks the results and error texts,
+-- which are the same in every binding mode. The ParityReflected half needs
+-- reflection (needs_reflection.lua).
+local parityTypes = {"Parity", "ParityReflected"}
+
+local function errorOf(f, ...)
+    local ok, err = pcall(f, ...)
+    ASSERT_EQ(ok, false)
+    return tostring(err)
+end
+
+local function expectErrorText(text, f, ...)
+    local err = errorOf(f, ...)
+    ASSERT_TRUE(string.find(err, text, 1, true) ~= nil)
+end
+
+-- [BlackList] on an operator (and an entry with its parameter types) leaves it
+-- out, also in generated code; a binary operator checks its operands in every
+-- mode, so a number is not passed as null.
+function CMyTestCaseLuaCallCSCoverage.CaseParityOperators(self)
+    for _, name in ipairs(parityTypes) do
+        local T = CS.Coverage[name]
+        local a, b = T(6), T(3)
+        ASSERT_EQ((a + b).Value, 9)
+        ASSERT_EQ((-a).Value, -6)
+        ASSERT_EQ((a * b).Value, 18)
+        expectErrorText("attempt to perform arithmetic", function() return a - b end)
+        expectErrorText("invalid arguments to right hand of * operator, need Coverage." .. name .. "!", function() return a * 2 end)
+        expectErrorText("invalid arguments to right hand of + operator, need Coverage." .. name .. "!", function() return a + 1 end)
+        expectErrorText("invalid arguments to left hand of + operator, need Coverage." .. name .. "!", function() return 1 + a end)
+        ASSERT_EQ(a < b, false)
+        ASSERT_EQ(a > b, true)
+    end
+end
+
+-- [BlackList] and [Obsolete] on an indexer or one of its accessors, an
+-- indexer with a private setter, a string-keyed indexer (get_Item and
+-- set_Item) and an indexer with two keys, which Lua's t[k] cannot call.
+function CMyTestCaseLuaCallCSCoverage.CaseParityIndexers(self)
+    for _, name in ipairs(parityTypes) do
+        local listed = CS.Coverage[name .. "ListedIndexer"]()
+        ASSERT_EQ(listed[1], nil)
+        expectErrorText("cannot set 1, no such field", function() listed[1] = 2 end)
+        local getter = CS.Coverage[name .. "ListedGetter"]()
+        ASSERT_EQ(getter[1], nil)
+        getter[1] = 5
+        ASSERT_EQ(getter.Last, 5)
+        local private = CS.Coverage[name .. "PrivateSetIndexer"]()
+        ASSERT_EQ(private[1], 2)
+        expectErrorText("cannot set 1, no such field", function() private[1] = 5 end)
+        ASSERT_EQ(private.Last, 0)
+        local strings = CS.Coverage[name .. "ListedStringIndexer"]()
+        ASSERT_EQ(strings.get_Item, nil)
+        ASSERT_EQ(strings.set_Item, nil)
+        ASSERT_EQ(strings.Other, 1)
+        -- Parity has this[int, int] and this[double]: o[1] reaches the second only.
+        local o = CS.Coverage[name](4)
+        expectErrorText("c# exception:System.InvalidOperationException: boom 1", function() return o[1] end)
+        expectErrorText("c# exception:System.InvalidOperationException: boom 1.5", function() return o[1.5] end)
+    end
+end
+
+-- A readonly field has a getter only, in every mode.
+function CMyTestCaseLuaCallCSCoverage.CaseParityReadonlyField(self)
+    for _, name in ipairs(parityTypes) do
+        local o = CS.Coverage[name](4)
+        ASSERT_EQ(o.ReadOnlyField, 7)
+        expectErrorText("cannot set ReadOnlyField, no such field", function() o.ReadOnlyField = 1 end)
+        ASSERT_EQ(o.ReadOnlyField, 7)
+        ASSERT_EQ(CS.Coverage[name .. "Struct"](3).R, 6)
+        expectErrorText("cannot set R, no such field", function() local s = CS.Coverage[name .. "Struct"](3) s.R = 1 end)
+    end
+end
+
+-- The error texts of the reflection wrappers are those of generated code.
+function CMyTestCaseLuaCallCSCoverage.CaseParityErrorTexts(self)
+    for _, name in ipairs(parityTypes) do
+        local T = CS.Coverage[name]
+        local o = T(4)
+        ASSERT_EQ(errorOf(T, "x"), "invalid arguments to Coverage." .. name .. " constructor!")
+        ASSERT_EQ(errorOf(o.Over, o), "invalid arguments to Coverage." .. name .. ".Over!")
+        ASSERT_EQ(errorOf(T.StaticOverload, {}), "invalid arguments to Coverage." .. name .. ".StaticOverload!")
+        -- No object as self: a Lua table is not made into a new object (the
+        -- emitted wrappers did), and reflection raises what generated code raises.
+        expectErrorText("c# exception:System.NullReferenceException", o.Add, {}, 1, 2)
+        expectErrorText("c# exception:System.NullReferenceException", o.Add, nil, 1, 2)
+        expectErrorText("c# exception:System.InvalidCastException", o.Add, CS.Coverage.Ref("r"), 1, 2)
+        -- A C# exception in a field setter or a method.
+        expectErrorText("c# exception:XLua.LuaException:", function() o.Value = 1.5 end)
+        expectErrorText("c# exception:XLua.LuaException:", o.Add, o, 1.5, 2)
+    end
+end
+
+-- An event's handler is checked before anything else: nil or a number raised
+-- a Lua error through the reflection wrapper's C# frames, or named the bridge
+-- of another function.
+function CMyTestCaseLuaCallCSCoverage.CaseParityEvents(self)
+    for _, name in ipairs(parityTypes) do
+        local T = CS.Coverage[name]
+        local o = T(4)
+        local n = 0
+        local f = function() n = n + 1 end
+        o:Changed("+", f)
+        T.StaticChanged("+", f)
+        ASSERT_EQ(o:Fire(), 2)
+        o:Changed("-", f)
+        T.StaticChanged("-", f)
+        ASSERT_EQ(o:Fire(), 0)
+        ASSERT_EQ(n, 2)
+        ASSERT_EQ(errorOf(o.Changed, o, "+"), "#3 need System.Action!")
+        ASSERT_EQ(errorOf(o.Changed, o, "+", nil), "#3 need System.Action!")
+        ASSERT_EQ(errorOf(o.Changed, o, "+", 5), "#3 need System.Action!")
+        ASSERT_EQ(errorOf(o.Changed, o, "*", f), "invalid arguments to Coverage." .. name .. ".Changed!")
+        ASSERT_EQ(errorOf(T.StaticChanged, "+", {}), "#2 need System.Action!")
+        ASSERT_EQ(errorOf(T.StaticChanged, "x", f), "invalid arguments to Coverage." .. name .. ".StaticChanged!")
+        ASSERT_EQ(o:Fire(), 0)
+        -- A C# exception after those errors is caught as usual.
+        expectErrorText("boom 1.5", function() return o[1.5] end)
+    end
+end
+
+-- The same calls on both types give the same results and errors (with the
+-- type name and addresses taken out), in every binding mode.
+function CMyTestCaseLuaCallCSCoverage.CaseParitySameResults(self)
+    local function norm(v)
+        local s = tostring(v)
+        s = s:gsub("ParityReflected", "Parity"):gsub("\n.*", ""):gsub("0x%x+", "ADDR"):gsub(": %-?%d+$", ": HASH")
+        return s
+    end
+    local function pack(...)
+        return {n = select("#", ...), ...}
+    end
+    local function run(name)
+        local T = CS.Coverage[name]
+        local o = T(4)
+        local results = {}
+        local function rec(name, f)
+            local r = pack(pcall(f))
+            local parts = {}
+            for j = 1, r.n do parts[#parts + 1] = norm(r[j]) end
+            results[#results + 1] = name .. " " .. table.concat(parts, " ")
+        end
+        rec("ctor", function() return T().Value, T(1, 2) end)
+        rec("Value", function() o.Value = "s" return o.Value end)
+        rec("StaticField", function() T.StaticField = 3 local v = T.StaticField T.StaticField = 10 return v end)
+        rec("PrivateSetProp", function() return o.PrivateSetProp end)
+        rec("PrivateSetProp=", function() o.PrivateSetProp = 1 end)
+        rec("PrivateGetProp", function() return o.PrivateGetProp end)
+        rec("WriteOnlyProp", function() o.WriteOnlyProp = 6 return o.WriteOnlyProp, o.Value end)
+        rec("ReadOnlyProp=", function() o.ReadOnlyProp = 1 end)
+        rec("Add", function() return o:Add(1, 2), o:Add("a", 2), o:Add(1), o:Add(1, 2, 3) end)
+        rec("Statics", function() return T.StaticAdd(1, 2), o.StaticAdd, T.Add end)
+        rec("Missing", function() return o.Missing, T.Missing end)
+        rec("Missing=", function() o.Missing = 1 end)
+        rec("T.Missing=", function() T.Missing = 1 end)
+        rec("Sum", function() return o:Sum(), o:Sum(1, 2, 3) end)
+        rec("Def", function() return o:Def(1), o:Def(1, 2) end)
+        rec("Def3", function() return o:Def(1, 2, 3) end)
+        rec("OutRef", function() return o:OutRef(3, 4) end)
+        rec("Over", function() return o:Over(1), o:Over(1.5), o:Over("s"), o:Over(nil), o:Over({}), o:Over(o) end)
+        rec("Nul", function() return o:Nul(1), o:Nul(nil), o:Nul(), o:Nul("x") end)
+        rec("Day", function() return o:Day(CS.System.DayOfWeek.Friday), o:Day(1) end)
+        rec("Arr", function() local a = o:Arr() return a.Length, a[0], a[2] end)
+        rec("Self", function() return o:Self() == o, o:Nothing() end)
+        rec("Callback", function() local n = 0 o.Callback = function() n = n + 1 end o.Callback() o.Callback = nil return n end)
+        rec("Transform", function() o.Transform = function(x) return x * 3 end return o:RunTransform(2) end)
+        rec("StaticPrivateSet=", function() T.StaticPrivateSet = 3 end)
+        rec("Any", function() o.Any = 3 return o.Any, o:Describe(o.Any), o:Describe(1.5), o:Describe("s"), o:Describe(true) end)
+        rec("Money", function() return T.Money, T.BigConst end)
+        rec("Overload2", function() return o:Overload2(1), o:Overload2(1, 2), o:Overload2("s") end)
+        rec("Object", function() return o:ToString(), o:GetType():ToString(), o:Equals(o), o == o end)
+        local S = CS.Coverage[name .. "Struct"]
+        rec("Struct", function() local s = S(3) s.X = 5 s:Bump() s.Prop = s.Prop + 1 return s.X, S().X, S.Make(4).X, S.Read(S(6)), S.Read({X = 7}) end)
+        -- Not compared: S.Read(5) and S.Read(nil) raise a NullReferenceException in
+        -- generated code and pass the struct's zero value in emitted and
+        -- reflection wrappers (a question for the owner, 2026-10-28).
+        local D = CS.Coverage[name .. "Derived"]
+        rec("Derived", function() local d = D() return d:Virt(), d:Hidden(), d.BaseField, d.DerivedField, d:BaseOnly() end)
+        return results
+    end
+    -- A missing argument for a Nullable<T> parameter is null, as nil is (it read as 0 in
+    -- generated and emitted wrappers).
+    ASSERT_EQ(CS.Coverage.Parity(1):Nul(), "null")
+    local configured = run("Parity")
+    ASSERT_EQ(CS.Coverage.ParityReflected(1):Nul(), "null")
+    local reflected = run("ParityReflected")
+    ASSERT_EQ(#configured, #reflected)
+    for i = 1, #configured do
+        ASSERT_EQ(reflected[i], configured[i])
+    end
+end
+
+-- Members in both [DoNotGen] and [BlackList] are left out, as in the emitted
+-- wrappers; a lazy method keeps only the overloads [BlackList] leaves in.
+function CMyTestCaseLuaCallCSCoverage.CaseLazyBlackListed(self)
+    local T = CS.Coverage.LazyListed
+    local o = T()
+    for _ = 1, 2 do
+        ASSERT_EQ(o.Both, nil)
+        ASSERT_EQ(o:Mixed(1), "int")
+        ASSERT_EQ(o:Mixed("s"), "int")
+        ASSERT_EQ(o.BothField, nil)
+        expectErrorText("cannot set BothField, no such field", function() o.BothField = 1 end)
+        ASSERT_EQ(o.BothProperty, nil)
+        expectErrorText("cannot set BothProperty, no such field", function() o.BothProperty = 1 end)
+        ASSERT_EQ(o.GetterListed, nil)
+        o.GetterListed = 9
+        ASSERT_EQ(o:Last(), 9)
+        ASSERT_EQ(o.BothEvent, nil)
+        ASSERT_EQ(T.BothStatic, nil)
+        ASSERT_EQ(o:Kept(), 6)
+    end
+end
+
+-- [Obsolete] operators and indexers of a configured type are left out of
+-- generated code as of emitted wrappers. Reflection wrappers (the minimal
+-- preset's first pass, FORCE_REFLECTION) still bind them: a question for the
+-- owner (binding-mode-parity.md).
+function CMyTestCaseLuaCallCSCoverage.CaseObsoleteOperator(self)
+    local T = CS.Coverage.ObsoleteOperator
+    ASSERT_EQ((T(6) + T(3)).Value, 9)
+    if CS.LuaTestCommon.ConfiguredTypesUseReflection() then
+        ASSERT_EQ((T(6) / T(3)).Value, 2)
+        ASSERT_EQ(T(6)[1], 1)
+        return
+    end
+    expectErrorText("attempt to perform arithmetic", function() return T(6) / T(3) end)
+    ASSERT_EQ(T(6)[1], nil)
+end

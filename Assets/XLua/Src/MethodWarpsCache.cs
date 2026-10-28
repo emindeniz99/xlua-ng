@@ -376,6 +376,17 @@ namespace XLua
                 if (luaStackPosStart > 1)
                 {
                     target = translator.FastGetCSObj(L, 1);
+                    // An object of the class, as generated code casts it: no
+                    // object (a Lua table, nil) or one of another class raises
+                    // what that cast raises, not TargetException.
+                    if (targetNeeded && !targetType.IsValueType() && !typeof(Delegate).IsAssignableFrom(targetType)
+                        && !method.DeclaringType.IsInstanceOfType(target))
+                    {
+                        // The runtime's own exception, whose text differs from a new
+                        // NullReferenceException's on some runtimes.
+                        if (target == null) return target.GetHashCode();
+                        throw new InvalidCastException();
+                    }
                     if (target is Delegate)
                     {
                         Delegate delegateInvoke = (Delegate)target;
@@ -468,6 +479,12 @@ namespace XLua
     public class MethodWrap
     {
         private string methodName;
+        // The error when no overload takes the arguments: "invalid arguments to
+        // T.Method!" (or "T constructor!") as in generated code, when the
+        // wrapper knows its type; operatorType is set for a binary operator
+        // (BindingApi.InvalidOperatorArguments).
+        internal string invalidArguments;
+        internal Type operatorType;
         private List<OverloadMethodWrap> overloads = new List<OverloadMethodWrap>();
         private bool forceCheck;
         // Whether two overloads can match the same arguments with different
@@ -524,7 +541,7 @@ namespace XLua
                             return overload.Call(L);
                         }
                     }
-                    return LuaAPI.luaL_error(L, "invalid arguments to " + methodName);
+                    return invalidArgumentsError(L);
                 }
 
                 // The best match: the lowest cost, the first one of equal cost.
@@ -553,16 +570,33 @@ namespace XLua
                 {
                     return best.Call(L);
                 }
-                return LuaAPI.luaL_error(L, "invalid arguments to " + methodName);
+                return invalidArgumentsError(L);
             }
+            // The exception as generated and emitted wrappers report it: its
+            // type, message and stack trace.
             catch (System.Reflection.TargetInvocationException e)
             {
-                return LuaAPI.luaL_error(L, "c# exception:" + e.InnerException.Message + ",stack:" + e.InnerException.StackTrace);
+                return LuaAPI.luaL_error(L, "c# exception:" + e.InnerException);
             }
             catch (System.Exception e)
             {
-                return LuaAPI.luaL_error(L, "c# exception:" + e.Message + ",stack:" + e.StackTrace);
+                return LuaAPI.luaL_error(L, "c# exception:" + e);
             }
+        }
+
+        int invalidArgumentsError(RealStatePtr L)
+        {
+            if (operatorType != null)
+            {
+                return Binding.BindingApi.InvalidOperatorArguments(ObjectTranslatorPool.Instance.Find(L), L, operatorType, methodName);
+            }
+            return LuaAPI.luaL_error(L, invalidArguments ?? ("invalid arguments to " + methodName));
+        }
+
+        // The error text of generated code for a method or the constructors of type.
+        internal static string InvalidArgumentsText(Type type, string methodName)
+        {
+            return "invalid arguments to " + type + (methodName == ".ctor" ? " constructor" : "." + methodName) + "!";
         }
     }
 
@@ -608,7 +642,9 @@ namespace XLua
                 }
                 else
                 {
-                    LuaCSFunction ctor = _GenMethodWrap(type, ".ctor", constructors, true).Call;
+                    var ctorWrap = _GenMethodWrap(type, ".ctor", constructors, true);
+                    ctorWrap.invalidArguments = MethodWrap.InvalidArgumentsText(type, ".ctor");
+                    LuaCSFunction ctor = ctorWrap.Call;
                     
                     if (type.IsValueType())
                     {
@@ -731,6 +767,14 @@ namespace XLua
                     bool is_static = add != null ? add.IsStatic : remove.IsStatic;
                     if (!is_static) start_idx = 1;
 
+                    // As the generated and emitted event wrappers: the handler is
+                    // checked before anything else, and the errors read as theirs.
+                    // A handler that was not a function (nil, a number) reached
+                    // CreateDelegateBridge, which stored it as a registry key: nil
+                    // raised a Lua error through the C# frames, and a number could
+                    // name the bridge of another function.
+                    string invalidArguments = "invalid arguments to " + type + "." + eventName + "!";
+                    string needHandler = "#" + (start_idx + 2) + " need " + eventInfo.EventHandlerType + "!";
                     methodsOfType[eventName] = (L) =>
                     {
                         object obj = null;
@@ -746,29 +790,29 @@ namespace XLua
 
                         try
                         {
-                            object handlerDelegate = translator.CreateDelegateBridge(L, eventInfo.EventHandlerType, start_idx + 2);
+                            object handlerDelegate = translator.GetObject(L, start_idx + 2, eventInfo.EventHandlerType);
                             if (handlerDelegate == null)
                             {
-                                return LuaAPI.luaL_error(L, "invalid #" + (start_idx + 2) + ", needed:" + eventInfo.EventHandlerType);
+                                return LuaAPI.luaL_error(L, needHandler);
                             }
                             switch (LuaAPI.lua_tostring(L, start_idx + 1))
                             {
                                 case "+":
                                     if (add == null)
                                     {
-                                        return LuaAPI.luaL_error(L, "no add for event " + eventName);
+                                        return LuaAPI.luaL_error(L, invalidArguments);
                                     }
                                     add.Invoke(obj, new object[] { handlerDelegate });
                                     break;
                                 case "-":
                                     if (remove == null)
                                     {
-                                        return LuaAPI.luaL_error(L, "no remove for event " + eventName);
+                                        return LuaAPI.luaL_error(L, invalidArguments);
                                     }
                                     remove.Invoke(obj, new object[] { handlerDelegate });
                                     break;
                                 default:
-                                    return LuaAPI.luaL_error(L, "invalid #" + (start_idx + 1) + ", needed: '+' or '-'" + eventInfo.EventHandlerType);
+                                    return LuaAPI.luaL_error(L, invalidArguments);
                             }
                             if (obj != null && type.IsValueType())
                             {
@@ -776,9 +820,13 @@ namespace XLua
                                 translator.Update(L, 1, obj);
                             }
                         }
+                        catch (System.Reflection.TargetInvocationException e)
+                        {
+                            return LuaAPI.luaL_error(L, "c# exception:" + e.InnerException);
+                        }
                         catch (System.Exception e)
                         {
-                            return LuaAPI.luaL_error(L, "c# exception:" + e + ",stack:" + e.StackTrace);
+                            return LuaAPI.luaL_error(L, "c# exception:" + e);
                         }
 
                         return 0;

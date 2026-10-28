@@ -1747,7 +1747,13 @@ The fixes and what is left are in the backlog rows of 2026-10-18.
   closure built with `A.BaseType = A` was still running after 15 seconds
   with a count hook set (Lua 5.5.1). The `debug` library already gives full
   control (items 7 and 8), so this is listed only; a fix would be a step
-  limit on the walk.
+  limit on the walk. **Changed 2026-10-28:** the four closures share
+  `find_base_func` (`build/xlua.c`), which stops with "the BaseType chain is
+  longer than 1000 types (a cycle?)" and leaves the closure as it was. [C]
+  (`native_regression.py` `indexer_base_walk`: a chain of 1002 tables and a
+  cycle raise in all four closures, twice; an entry on the 1000th type is
+  found. Before the change the finite chain ended with no entry and no
+  error, Lua 5.5.1.)
 - **Header of any full userdata.** The accessors and pack helpers still
   read the 8-byte struct header of any full userdata (item 5). The fuzz
   target only passes userdata of at least 4 bytes, the smallest that

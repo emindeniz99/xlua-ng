@@ -136,6 +136,25 @@ namespace XLua.Binding
             return translator.FastGetCSObj(L, index);
         }
 
+        static readonly Dictionary<string, string> operatorSymbols = new Dictionary<string, string>
+        {
+            { "op_Addition", "+" }, { "op_Subtraction", "-" }, { "op_Multiply", "*" }, { "op_Division", "/" }, { "op_Equality", "==" },
+            { "op_LessThan", "<" }, { "op_LessThanOrEqual", "<=" }, { "op_Modulus", "%" }, { "op_BitwiseAnd", "&" },
+            { "op_BitwiseOr", "|" }, { "op_ExclusiveOr", "^" }, { "op_LeftShift", "<<" }, { "op_RightShift", ">>" },
+        };
+
+        // The error of a binary operator whose operands no overload takes, as
+        // the generated operator wrappers raise it; the emitted and reflection
+        // wrappers call this (not generated code). Lua calls the metamethod of
+        // either operand, so it names the one that is not of the type.
+        public static int InvalidOperatorArguments(ObjectTranslator translator, RealStatePtr L, Type type, string methodName)
+        {
+            string symbol;
+            if (!operatorSymbols.TryGetValue(methodName, out symbol)) symbol = methodName;
+            return LuaAPI.luaL_error(L, "invalid arguments to " + (translator.Assignable(L, 1, type) ? "right" : "left")
+                + " hand of " + symbol + " operator, need " + type + "!");
+        }
+
         public static ObjectCast GetCaster(ObjectTranslator translator, Type type)
         {
             return translator.objectCasters.GetCaster(type);

@@ -21,6 +21,10 @@ using XLua;
 [assembly: BlackList(typeof(Coverage.AttributeListed), "AssemblyHidden")]
 [assembly: BlackList(typeof(Coverage.AttributeListed), "AssemblyHiddenMethod", typeof(int))]
 
+[assembly: BlackList(typeof(Coverage.Parity), "op_Multiply", typeof(Coverage.Parity), typeof(int))]
+[assembly: BlackList(typeof(Coverage.ParityReflected), "op_Multiply", typeof(Coverage.ParityReflected), typeof(int))]
+[assembly: DoNotGen(typeof(Coverage.LazyListed), "Both", "Mixed", "BothField", "BothProperty", "GetterListed", "BothEvent", "BothStatic")]
+
 namespace Coverage
 {
     public class Ref
@@ -1644,5 +1648,272 @@ namespace Coverage
         {
             return answer.Answer(n);
         }
+    }
+
+    [LuaCallCSharp]
+    public class Parity
+    {
+        public int Value;
+        public Parity() { }
+        public Parity(int v) { Value = v; }
+        public readonly int ReadOnlyField = 7;
+        public static readonly int StaticReadOnly = 8;
+        public const int Const = 9;
+        public static int StaticField = 10;
+        int privateSet = 11;
+        public int PrivateSetProp { get { return privateSet; } private set { privateSet = value; } }
+        public int PrivateGetProp { private get { return 12; } set { Value = value; } }
+        public int WriteOnlyProp { set { Value = value; } }
+        public int ReadOnlyProp { get { return 13; } }
+        public int Add(int a, int b) { return a + b; }
+        public static int StaticAdd(int a, int b) { return a + b; }
+        public string Name(string s) { return "name:" + s; }
+        public static Parity operator +(Parity a, Parity b) { return new Parity(a.Value + b.Value); }
+        // Left out by [BlackList] on the operator.
+        [BlackList] public static Parity operator -(Parity a, Parity b) { return new Parity(a.Value - b.Value); }
+        public static Parity operator -(Parity a) { return new Parity(-a.Value); }
+        public static Parity operator *(Parity a, Parity b) { return new Parity(a.Value * b.Value); }
+        // Left out by the [assembly: BlackList] entry with its parameter types.
+        public static Parity operator *(Parity a, int b) { return new Parity(a.Value * b * 1000); }
+        public static bool operator <(Parity a, Parity b) { return a.Value < b.Value; }
+        public static bool operator >(Parity a, Parity b) { return a.Value > b.Value; }
+        public int Sum(params int[] values) { int s = 0; foreach (var v in values) s += v; return s; }
+        public int Def(int a, int b = 5) { return a * 10 + b; }
+        public int OutRef(int a, out int b, ref int c) { b = a + 1; c = c * 2; return a; }
+        public string Over(int x) { return "int"; }
+        public string Over(string x) { return "string"; }
+        public string Over(double x) { return "double"; }
+        public string Over(object x) { return "object"; }
+        public string Nul(int? x) { return x.HasValue ? "has " + x.Value : "null"; }
+        public System.DayOfWeek Day(System.DayOfWeek d) { return d; }
+        public int[] Arr() { return new int[] { 1, 2, 3 }; }
+        public Parity Self() { return this; }
+        public Parity Nothing() { return null; }
+        public Action Callback;
+        public Func<int, int> Transform { get; set; }
+        public int RunTransform(int x) { return Transform(x); }
+        public event Action Changed;
+        public static event Action StaticChanged;
+        public int Fire() { int n = 0; if (Changed != null) { Changed(); n++; } if (StaticChanged != null) { StaticChanged(); n++; } return n; }
+        public int this[int a, int b] { get { return a * b; } }
+        public int this[double k] { get { throw new InvalidOperationException("boom " + k); } }
+        public static int StaticPrivateSet { get; private set; }
+        public object Any;
+        public string Describe(object o) { return o == null ? "null" : o.GetType().ToString(); }
+        public static decimal Money = 1.5m;
+        public const long BigConst = 9007199254740993;
+        public int Overload2(int a) { return 1; }
+        public int Overload2(int a, int b) { return 2; }
+        public static int StaticOverload(int a) { return 1; }
+        public static int StaticOverload(string a) { return 2; }
+        public override string ToString() { return "Parity(" + Value + ")"; }
+    }
+
+    // [BlackList] on an indexer: left out in every mode.
+    [LuaCallCSharp]
+    public class ParityListedIndexer
+    {
+        public int Last;
+        [BlackList] public int this[int i] { get { return i * 2; } set { Last = value; } }
+    }
+
+    // [BlackList] on the get accessor of an indexer: only reading is left out.
+    [LuaCallCSharp]
+    public class ParityListedGetter
+    {
+        public int Last;
+        public int this[int i] { [BlackList] get { return i * 2; } set { Last = value; } }
+    }
+
+    // An indexer whose setter is private: Lua can read it, not write it.
+    [LuaCallCSharp]
+    public class ParityPrivateSetIndexer
+    {
+        public int Last;
+        public int this[int i] { get { return i * 2; } private set { Last = value; } }
+    }
+
+    // An indexer with a string key is reached as get_Item and set_Item; [BlackList] on it hides both.
+    [LuaCallCSharp]
+    public class ParityListedStringIndexer
+    {
+        public string Last;
+        [BlackList] public string this[string k] { get { return "item:" + k; } set { Last = value; } }
+        public int Other = 1;
+    }
+
+    public class ParityReflected
+    {
+        public int Value;
+        public ParityReflected() { }
+        public ParityReflected(int v) { Value = v; }
+        public readonly int ReadOnlyField = 7;
+        public static readonly int StaticReadOnly = 8;
+        public const int Const = 9;
+        public static int StaticField = 10;
+        int privateSet = 11;
+        public int PrivateSetProp { get { return privateSet; } private set { privateSet = value; } }
+        public int PrivateGetProp { private get { return 12; } set { Value = value; } }
+        public int WriteOnlyProp { set { Value = value; } }
+        public int ReadOnlyProp { get { return 13; } }
+        public int Add(int a, int b) { return a + b; }
+        public static int StaticAdd(int a, int b) { return a + b; }
+        public string Name(string s) { return "name:" + s; }
+        public static ParityReflected operator +(ParityReflected a, ParityReflected b) { return new ParityReflected(a.Value + b.Value); }
+        // Left out by [BlackList] on the operator.
+        [BlackList] public static ParityReflected operator -(ParityReflected a, ParityReflected b) { return new ParityReflected(a.Value - b.Value); }
+        public static ParityReflected operator -(ParityReflected a) { return new ParityReflected(-a.Value); }
+        public static ParityReflected operator *(ParityReflected a, ParityReflected b) { return new ParityReflected(a.Value * b.Value); }
+        // Left out by the [assembly: BlackList] entry with its parameter types.
+        public static ParityReflected operator *(ParityReflected a, int b) { return new ParityReflected(a.Value * b * 1000); }
+        public static bool operator <(ParityReflected a, ParityReflected b) { return a.Value < b.Value; }
+        public static bool operator >(ParityReflected a, ParityReflected b) { return a.Value > b.Value; }
+        public int Sum(params int[] values) { int s = 0; foreach (var v in values) s += v; return s; }
+        public int Def(int a, int b = 5) { return a * 10 + b; }
+        public int OutRef(int a, out int b, ref int c) { b = a + 1; c = c * 2; return a; }
+        public string Over(int x) { return "int"; }
+        public string Over(string x) { return "string"; }
+        public string Over(double x) { return "double"; }
+        public string Over(object x) { return "object"; }
+        public string Nul(int? x) { return x.HasValue ? "has " + x.Value : "null"; }
+        public System.DayOfWeek Day(System.DayOfWeek d) { return d; }
+        public int[] Arr() { return new int[] { 1, 2, 3 }; }
+        public ParityReflected Self() { return this; }
+        public ParityReflected Nothing() { return null; }
+        public Action Callback;
+        public Func<int, int> Transform { get; set; }
+        public int RunTransform(int x) { return Transform(x); }
+        public event Action Changed;
+        public static event Action StaticChanged;
+        public int Fire() { int n = 0; if (Changed != null) { Changed(); n++; } if (StaticChanged != null) { StaticChanged(); n++; } return n; }
+        public int this[int a, int b] { get { return a * b; } }
+        public int this[double k] { get { throw new InvalidOperationException("boom " + k); } }
+        public static int StaticPrivateSet { get; private set; }
+        public object Any;
+        public string Describe(object o) { return o == null ? "null" : o.GetType().ToString(); }
+        public static decimal Money = 1.5m;
+        public const long BigConst = 9007199254740993;
+        public int Overload2(int a) { return 1; }
+        public int Overload2(int a, int b) { return 2; }
+        public static int StaticOverload(int a) { return 1; }
+        public static int StaticOverload(string a) { return 2; }
+        public override string ToString() { return "ParityReflected(" + Value + ")"; }
+    }
+
+    // [BlackList] on an indexer: left out in every mode.
+    public class ParityReflectedListedIndexer
+    {
+        public int Last;
+        [BlackList] public int this[int i] { get { return i * 2; } set { Last = value; } }
+    }
+
+    // [BlackList] on the get accessor of an indexer: only reading is left out.
+    public class ParityReflectedListedGetter
+    {
+        public int Last;
+        public int this[int i] { [BlackList] get { return i * 2; } set { Last = value; } }
+    }
+
+    // An indexer whose setter is private: Lua can read it, not write it.
+    public class ParityReflectedPrivateSetIndexer
+    {
+        public int Last;
+        public int this[int i] { get { return i * 2; } private set { Last = value; } }
+    }
+
+    // An indexer with a string key is reached as get_Item and set_Item; [BlackList] on it hides both.
+    public class ParityReflectedListedStringIndexer
+    {
+        public string Last;
+        [BlackList] public string this[string k] { get { return "item:" + k; } set { Last = value; } }
+        public int Other = 1;
+    }
+
+    // Members that are both in [DoNotGen] and [BlackList] (the [assembly: DoNotGen]
+    // at the top of this file): left out as in the emitted wrappers, not lazy.
+    [LuaCallCSharp]
+    public class LazyListed
+    {
+        [BlackList] public int Both() { return 1; }
+        public string Mixed(int x) { return "int"; }
+        [BlackList] public string Mixed(string s) { return "string"; }
+        [BlackList] public int BothField = 2;
+        [BlackList] public int BothProperty { get { return 3; } set { } }
+        public int GetterListed { [BlackList] get { return 4; } set { last = value; } }
+        int last;
+        public int Last() { return last; }
+        [BlackList] public event Action BothEvent { add { } remove { } }
+        [BlackList] public static int BothStatic() { return 5; }
+        public int Kept() { return 6; }
+    }
+
+    // An [Obsolete] operator of a configured type: the generator leaves it out,
+    // as the emitted wrappers do (and as it does for other obsolete members).
+    [LuaCallCSharp]
+    public class ObsoleteOperator
+    {
+        public int Value;
+        public ObsoleteOperator(int v) { Value = v; }
+        [Obsolete("use Divide")] public static ObsoleteOperator operator /(ObsoleteOperator a, ObsoleteOperator b) { return new ObsoleteOperator(a.Value / b.Value); }
+        public static ObsoleteOperator operator +(ObsoleteOperator a, ObsoleteOperator b) { return new ObsoleteOperator(a.Value + b.Value); }
+        [Obsolete("gone")] public int this[int i] { get { return i; } }
+    }
+
+    [LuaCallCSharp]
+    public struct ParityStruct
+    {
+        public int X;
+        public readonly int R;
+        public ParityStruct(int x) { X = x; R = x * 2; }
+        public int Prop { get { return X; } set { X = value; } }
+        public void Bump() { X++; }
+        public int Get() { return X; }
+        public static ParityStruct Make(int x) { return new ParityStruct(x); }
+        public static int Read(ParityStruct s) { return s.X; }
+        public override string ToString() { return "S" + X; }
+    }
+
+    public class ParityBaseOf
+    {
+        public virtual string Virt() { return "base"; }
+        public string Hidden() { return "base"; }
+        public int BaseField = 1;
+        public string BaseOnly() { return "baseonly"; }
+    }
+
+    [LuaCallCSharp]
+    public class ParityDerived : ParityBaseOf
+    {
+        public override string Virt() { return "derived"; }
+        public new string Hidden() { return "derived"; }
+        public int DerivedField = 2;
+    }
+
+    public struct ParityReflectedStruct
+    {
+        public int X;
+        public readonly int R;
+        public ParityReflectedStruct(int x) { X = x; R = x * 2; }
+        public int Prop { get { return X; } set { X = value; } }
+        public void Bump() { X++; }
+        public int Get() { return X; }
+        public static ParityReflectedStruct Make(int x) { return new ParityReflectedStruct(x); }
+        public static int Read(ParityReflectedStruct s) { return s.X; }
+        public override string ToString() { return "S" + X; }
+    }
+
+    public class ParityReflectedBaseOf
+    {
+        public virtual string Virt() { return "base"; }
+        public string Hidden() { return "base"; }
+        public int BaseField = 1;
+        public string BaseOnly() { return "baseonly"; }
+    }
+
+    public class ParityReflectedDerived : ParityReflectedBaseOf
+    {
+        public override string Virt() { return "derived"; }
+        public new string Hidden() { return "derived"; }
+        public int DerivedField = 2;
     }
 }

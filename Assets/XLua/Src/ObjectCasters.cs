@@ -1360,7 +1360,9 @@ namespace XLua
         {
             return (RealStatePtr L, int idx, object target) =>
             {
-                if (LuaAPI.lua_isnil(L, idx))
+                // A missing argument is nil too, as for the reflection wrappers;
+                // it read as 0 (none is not LUA_TNIL).
+                if (LuaAPI.lua_type(L, idx) <= LuaTypes.LUA_TNIL)
                 {
                     return null;
                 }

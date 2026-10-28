@@ -277,30 +277,47 @@ namespace XLua
 			return null;
 		}
 
+		// A C# exception in a field accessor reads as in generated code
+		// ("c# exception:" and the exception), not as one that reached
+		// FixCSFunction or LazyReflectionCall.
 		static LuaCSFunction genFieldGetter(Type type, FieldInfo field)
 		{
 			if (field.IsStatic)
 			{
 				return (RealStatePtr L) =>
 				{
-					ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
-					translator.PushAny(L, field.GetValue(null));
-					return 1;
+					try
+					{
+						ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+						translator.PushAny(L, field.GetValue(null));
+						return 1;
+					}
+					catch (Exception e)
+					{
+						return LuaAPI.luaL_error(L, "c# exception:" + e);
+					}
 				};
 			}
 			else
 			{
 				return (RealStatePtr L) =>
 				{
-					ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
-					object obj = translator.FastGetCSObj(L, 1);
-					if (obj == null || !type.IsInstanceOfType(obj))
+					try
 					{
-						return LuaAPI.luaL_error(L, "Expected type " + type + ", but got " + (obj == null ? "null" : obj.GetType().ToString()) + ", while get field " + field);
-					}
+						ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+						object obj = translator.FastGetCSObj(L, 1);
+						if (obj == null || !type.IsInstanceOfType(obj))
+						{
+							return LuaAPI.luaL_error(L, "Expected type " + type + ", but got " + (obj == null ? "null" : obj.GetType().ToString()) + ", while get field " + field);
+						}
 
-					translator.PushAny(L, field.GetValue(obj));
-					return 1;
+						translator.PushAny(L, field.GetValue(obj));
+						return 1;
+					}
+					catch (Exception e)
+					{
+						return LuaAPI.luaL_error(L, "c# exception:" + e);
+					}
 				};
 			}
 		}
@@ -311,39 +328,53 @@ namespace XLua
 			{
 				return (RealStatePtr L) =>
 				{
-					ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
-					object val = translator.GetArgObject(L, 1, field.FieldType);
-					if (field.FieldType.IsValueType() && Nullable.GetUnderlyingType(field.FieldType) == null && val == null)
+					try
 					{
-						return LuaAPI.luaL_error(L, type.Name + "." + field.Name + " Expected type " + field.FieldType);
+						ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+						object val = translator.GetArgObject(L, 1, field.FieldType);
+						if (field.FieldType.IsValueType() && Nullable.GetUnderlyingType(field.FieldType) == null && val == null)
+						{
+							return LuaAPI.luaL_error(L, type.Name + "." + field.Name + " Expected type " + field.FieldType);
+						}
+						field.SetValue(null, val);
+						return 0;
 					}
-					field.SetValue(null, val);
-					return 0;
+					catch (Exception e)
+					{
+						return LuaAPI.luaL_error(L, "c# exception:" + e);
+					}
 				};
 			}
 			else
 			{
 				return (RealStatePtr L) =>
 				{
-					ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
+					try
+					{
+						ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
 
-					object obj = translator.FastGetCSObj(L, 1);
-					if (obj == null || !type.IsInstanceOfType(obj))
-					{
-						return LuaAPI.luaL_error(L, "Expected type " + type + ", but got " + (obj == null ? "null" : obj.GetType().ToString()) + ", while set field " + field);
-					}
+						object obj = translator.FastGetCSObj(L, 1);
+						if (obj == null || !type.IsInstanceOfType(obj))
+						{
+							return LuaAPI.luaL_error(L, "Expected type " + type + ", but got " + (obj == null ? "null" : obj.GetType().ToString()) + ", while set field " + field);
+						}
 
-					object val = translator.GetArgObject(L, 2, field.FieldType);
-					if (field.FieldType.IsValueType() && Nullable.GetUnderlyingType(field.FieldType) == null && val == null)
-					{
-						return LuaAPI.luaL_error(L, type.Name + "." + field.Name + " Expected type " + field.FieldType);
+						object val = translator.GetArgObject(L, 2, field.FieldType);
+						if (field.FieldType.IsValueType() && Nullable.GetUnderlyingType(field.FieldType) == null && val == null)
+						{
+							return LuaAPI.luaL_error(L, type.Name + "." + field.Name + " Expected type " + field.FieldType);
+						}
+						field.SetValue(obj, val);
+						if (type.IsValueType())
+						{
+							translator.Update(L, 1, obj);
+						}
+						return 0;
 					}
-					field.SetValue(obj, val);
-					if (type.IsValueType())
+					catch (Exception e)
 					{
-						translator.Update(L, 1, obj);
+						return LuaAPI.luaL_error(L, "c# exception:" + e);
 					}
-					return 0;
 				};
 			}
 		}
@@ -471,9 +502,14 @@ namespace XLua
 						translator.PushAny(L, ret);
 						return 2;
 					}
+					// As generated code reports a C# exception.
+					catch (TargetInvocationException e)
+					{
+						return LuaAPI.luaL_error(L, "c# exception:" + e.InnerException);
+					}
 					catch (Exception e)
 					{
-						return LuaAPI.luaL_error(L, "try to get " + type + "." + prop.Name + " throw a exception:" + e + ",stack:" + e.StackTrace);
+						return LuaAPI.luaL_error(L, "c# exception:" + e);
 					}
 				}
 
@@ -518,9 +554,13 @@ namespace XLua
 
 						return 1;
 					}
+					catch (TargetInvocationException e)
+					{
+						return LuaAPI.luaL_error(L, "c# exception:" + e.InnerException);
+					}
 					catch (Exception e)
 					{
-						return LuaAPI.luaL_error(L, "try to set " + type + "." + prop.Name + " throw a exception:" + e + ",stack:" + e.StackTrace);
+						return LuaAPI.luaL_error(L, "c# exception:" + e);
 					}
 				}
 
@@ -729,8 +769,10 @@ namespace XLua
 			}
 
 			internal Entry[] entries;
-			// Indexers, for genItemGetter and genItemSetter.
-			internal PropertyInfo[] items;
+			// Indexers with a public get or set accessor that [BlackList] does
+			// not leave out, for genItemGetter and genItemSetter.
+			internal PropertyInfo[] itemGetters;
+			internal PropertyInfo[] itemSetters;
 			// The extension methods these were made with. Registering
 			// generated bindings replaces the lists of the types they extend
 			// (Binding.cs), and a different list makes the members again.
@@ -843,7 +885,8 @@ namespace XLua
 					entries.Add(new Entry { kind = Kind.Event, name = eventInfo.Name, isStatic = is_static });
 				}
 
-				List<PropertyInfo> items = new List<PropertyInfo>();
+				List<PropertyInfo> itemGetters = new List<PropertyInfo>();
+				List<PropertyInfo> itemSetters = new List<PropertyInfo>();
 				PropertyInfo[] props = type.GetProperties(flag);
 				// Property accessors are wrapped from the method list below; a
 				// property left out by [BlackList] takes its accessors with it.
@@ -860,10 +903,18 @@ namespace XLua
 						}
 						continue;
 					}
-					if (prop.GetIndexParameters().Length > 0 && !IsUnsupportedType(prop.PropertyType)
+					// One key, as in generated code: Lua's t[k] passes one, and
+					// PropertyInfo.GetValue with one value for a two-key indexer
+					// throws TargetParameterCountException.
+					if (prop.GetIndexParameters().Length == 1 && !IsUnsupportedType(prop.PropertyType)
 						&& !hasUnsupportedParameter(prop.GetIndexParameters()))
 					{
-						items.Add(prop);
+						// As in generated code: an accessor that is not public (a
+						// private setter) or that [BlackList] names is left out.
+						bool nonPublic = access == BindingFlags.NonPublic;
+						MethodInfo getter = prop.GetGetMethod(nonPublic), setter = prop.GetSetMethod(nonPublic);
+						if (getter != null && !isListed(getter)) itemGetters.Add(prop);
+						if (setter != null && !isListed(setter)) itemSetters.Add(prop);
 					}
 				}
 
@@ -1002,14 +1053,28 @@ namespace XLua
 					}
 				}
 
-				return new ReflectionMembers { entries = entries.ToArray(), items = items.ToArray(), extensionMethods = extend_methods };
+				return new ReflectionMembers { entries = entries.ToArray(), itemGetters = itemGetters.ToArray(), itemSetters = itemSetters.ToArray(),
+					extensionMethods = extend_methods };
 			}
 		}
 
 		static MethodWrap methodWrapOf(ObjectTranslator translator, ref ReflectionMembers.Entry entry)
 		{
-			return entry.overloads != null ? translator.methodWrapsCache.GenMethodWrap(entry.wrapName, entry.overloads)
-				: translator.methodWrapsCache._GenMethodWrap(entry.wrapType, entry.wrapName, entry.members);
+			// A binary operator checks its operands as generated code does, also
+			// with one overload, and its errors and those of methods read as there.
+			bool binaryOperator = entry.kind == ReflectionMembers.Kind.Operator
+				&& entry.wrapName != "op_UnaryNegation" && entry.wrapName != "op_OnesComplement";
+			var wrap = entry.overloads != null ? translator.methodWrapsCache.GenMethodWrap(entry.wrapName, entry.overloads, binaryOperator)
+				: translator.methodWrapsCache._GenMethodWrap(entry.wrapType, entry.wrapName, entry.members, binaryOperator);
+			if (binaryOperator)
+			{
+				wrap.operatorType = entry.wrapType;
+			}
+			else
+			{
+				wrap.invalidArguments = MethodWrap.InvalidArgumentsText(entry.wrapType, entry.wrapName);
+			}
+			return wrap;
 		}
 
 		static void makeReflectionWrap(RealStatePtr L, Type type, int cls_field, int cls_getter, int cls_setter,
@@ -1035,9 +1100,14 @@ namespace XLua
 						translator.PushFixCSFunction(L, genFieldGetter(type, entries[i].field));
 						LuaAPI.lua_rawset(L, entries[i].isStatic ? cls_getter : obj_getter);
 
-						LuaAPI.xlua_pushasciistring(L, entries[i].name);
-						translator.PushFixCSFunction(L, genFieldSetter(type, entries[i].field));
-						LuaAPI.lua_rawset(L, entries[i].isStatic ? cls_setter : obj_setter);
+						// A public readonly field has no setter, as in generated
+						// code. (xlua.private_accessible still writes non-public ones.)
+						if (!entries[i].field.IsInitOnly || !entries[i].field.IsPublic)
+						{
+							LuaAPI.xlua_pushasciistring(L, entries[i].name);
+							translator.PushFixCSFunction(L, genFieldSetter(type, entries[i].field));
+							LuaAPI.lua_rawset(L, entries[i].isStatic ? cls_setter : obj_setter);
+						}
 						break;
 					case ReflectionMembers.Kind.Event:
 						LuaAPI.xlua_pushasciistring(L, entries[i].name);
@@ -1067,8 +1137,8 @@ namespace XLua
 				}
 			}
 
-			item_getter = members.items.Length > 0 ? genItemGetter(type, members.items) : null;
-			item_setter = members.items.Length > 0 ? genItemSetter(type, members.items) : null;
+			item_getter = members.itemGetters.Length > 0 ? genItemGetter(type, members.itemGetters) : null;
+			item_setter = members.itemSetters.Length > 0 ? genItemSetter(type, members.itemSetters) : null;
 		}
 #endif
 
@@ -1191,6 +1261,27 @@ namespace XLua
 		}
 #endif
 
+		// An overload of a lazy member ([DoNotGen], or a member the source
+		// generator could not wrap) that generated and emitted wrappers leave
+		// out: [BlackList], [Obsolete] or a type that cannot cross the bridge.
+		static bool isLeftOutOverload(MethodBase method)
+		{
+			return HasUnsupportedType(method) || IsLeftOutObsolete(method) || BlackListRules.IsListedMethod(method);
+		}
+
+		// [Obsolete] members that generated code leaves out: all of them, or
+		// with XLUA_JUST_EXCLUDE_ERROR only those marked as errors (the source
+		// generator's Names.ObsoleteErrorsOnly). The emitted wrappers follow it.
+		internal static bool IsLeftOutObsolete(MemberInfo member)
+		{
+#if XLUA_JUST_EXCLUDE_ERROR
+			var obsolete = (ObsoleteAttribute)Attribute.GetCustomAttribute(member, typeof(ObsoleteAttribute), false);
+			return obsolete != null && obsolete.IsError;
+#else
+			return member.IsDefined(typeof(ObsoleteAttribute), false);
+#endif
+		}
+
 		[MonoPInvokeCallback(typeof(LuaCSFunction))]
 		internal static int LazyReflectionCall(RealStatePtr L)
 		{
@@ -1212,13 +1303,15 @@ namespace XLua
 						// As in the emitted and reflection wrappers: the static methods
 						// for the class, the instance and extension methods for objects.
 						// The generator registers an instance member for a name that
-						// only extension methods have, too.
+						// only extension methods have, too. The overloads that
+						// [BlackList] or [Obsolete] leaves out of the other wrappers
+						// stay out.
 						var members = type.GetMember(memberName);
 						List<MemberInfo> methods = new List<MemberInfo>();
 						for (int i = 0; i < members.Length; i++)
 						{
 							var mb = members[i] as MethodBase;
-							if (mb != null && mb.IsStatic == isStatic) methods.Add(mb);
+							if (mb != null && mb.IsStatic == isStatic && !isLeftOutOverload(mb)) methods.Add(mb);
 						}
 						if (!isStatic)
 						{
@@ -1227,7 +1320,7 @@ namespace XLua
 							{
 								foreach (var m in extensionMethods)
 								{
-									if (m.Name == memberName) methods.Add(m);
+									if (m.Name == memberName && !isLeftOutOverload(m)) methods.Add(m);
 								}
 							}
 						}
@@ -1235,7 +1328,9 @@ namespace XLua
 						{
 							return LuaAPI.luaL_error(L, "can not find " + memberName + " for " + type);
 						}
-						wrap = new LuaCSFunction(translator.methodWrapsCache._GenMethodWrap(type, memberName, methods.ToArray()).Call);
+						var methodWrap = translator.methodWrapsCache._GenMethodWrap(type, memberName, methods.ToArray());
+						methodWrap.invalidArguments = MethodWrap.InvalidArgumentsText(type, memberName);
+						wrap = new LuaCSFunction(methodWrap.Call);
 						if (isStatic)
 						{
 							LoadCSTable(L, type);
