@@ -75,8 +75,9 @@ end
 
 -- Tencent/xLua#1167: a pointer-returning method is left out.
 function CMyTestCaseLuaCallCSUpstream.CasePointerReturn(self)
+    -- Compiled outside Unity (XLUA_GENERAL) and in the IL2CPP suite's project,
+    -- which opens the guard (Test/UnityMatrix/il2cpp_suite.py).
     local T = CS.Upstream.PointerReturns
-    if not T then return end -- XLUA_GENERAL only
     ASSERT_EQ(T.Plain(), 1)
     ASSERT_EQ(T.Address, nil)
 end

@@ -217,6 +217,14 @@ local NEEDS_ALSO = {
     util = function() return (pcall(require, "xlua.util")) end,
     luajit = function() return rawget(_G, "jit") ~= nil end,
     puc = function() return rawget(_G, "jit") == nil end,
+    -- The whole debug library, which cases use as a tool: release players of
+    -- the minimal preset keep only traceback and getinfo (XLUA_REDUCED_DEBUG).
+    debug = function() return debug.getmetatable ~= nil end,
+    -- The [BlackList] lists and filters, which only the Editor and XLUA_GENERAL read.
+    lists = function() return not CS.LuaTestCommon.PlayerBlackList() end,
+    -- Unity builds (the cases that return early outside Unity) and builds outside Unity.
+    unity = function() return not CS.LuaTestCommon.IsXLuaGeneral() end,
+    general = function() return CS.LuaTestCommon.IsXLuaGeneral() end,
 }
 
 local function expectNoBindingsError(name, result)

@@ -58,7 +58,8 @@ public class LuaTestCommon
     public static string resultPath = Application.persistentDataPath + "/";
 	public static bool android_platform = false;
 #elif   UNITY_ANDROID
-    public static string resultPath = "/sdcard/luatest/";
+    // Android 11 and later give apps no /sdcard/luatest/; the app's own files directory needs no permission.
+    public static string resultPath = Application.persistentDataPath + "/";
 	public static bool android_platform = true;
 #elif   UNITY_EDITOR || UNITY_WSA
     public static string resultPath = Application.dataPath + "/xLuaTest/";
@@ -71,6 +72,10 @@ public class LuaTestCommon
     public static string existingFilePath =
 #if XLUA_GENERAL
         "../Test/UnitTest/StreamingAssets/main.lua";
+#elif UNITY_ANDROID && !UNITY_EDITOR
+        // StreamingAssets are inside the APK, out of io.open's reach; the IL2CPP suite's
+        // runner (Test/UnityMatrix/Il2cppSuite/XluaSuiteRunner.cs) copies them here.
+        Application.persistentDataPath + "/StreamingAssets/main.lua";
 #else
         Application.streamingAssetsPath + "/main.lua";
 #endif
@@ -123,11 +128,12 @@ public class LuaTestCommon
 #endif
     }
 
-    // True with XLUA_TEST_PLAYER_BLACKLIST: BlackListRules reads only the attribute
-    // forms of [BlackList], as in players, not the lists and filters of static classes.
+    // True in players and with XLUA_TEST_PLAYER_BLACKLIST: BlackListRules reads only the
+    // attribute forms of [BlackList], not the lists and filters of static classes
+    // (GenAttributes.cs, which reads them only in the Editor and XLUA_GENERAL).
     public static bool PlayerBlackList()
     {
-#if XLUA_TEST_PLAYER_BLACKLIST
+#if XLUA_TEST_PLAYER_BLACKLIST || !(UNITY_EDITOR || XLUA_GENERAL)
         return true;
 #else
         return false;
@@ -236,6 +242,17 @@ public class LuaTestCommon
     {
         var field = typeof(XLua.LuaEnv).GetField("DefaultLibraries", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
         return ((XLua.LuaLibs)field.GetValue(null) & XLua.LuaLibs.Debug) != 0;
+    }
+
+    // True in IL2CPP players: Unity defines ENABLE_IL2CPP only when it compiles the scripts
+    // of an IL2CPP player (Test/UnityMatrix/il2cpp_suite.py runs the suite in one).
+    public static bool Il2Cpp()
+    {
+#if ENABLE_IL2CPP
+        return true;
+#else
+        return false;
+#endif
     }
 
     public static bool InEditor()
