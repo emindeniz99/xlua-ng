@@ -145,6 +145,21 @@ namespace XLua.LuaDLL
         // The UTF-8 buffer of short strings that lua_tostring decodes and the
         // bridge's lua_pushstring encodes (one thread at a time).
         internal static byte[] strBuff = new byte[256];
+#else
+        // THREAD_SAFE and HOTFIX_ENABLE call Lua from several threads, so each
+        // thread gets a buffer of its own: no lock, and no new array for every
+        // short string. A field initializer would run on the first thread only.
+        [ThreadStatic] static byte[] threadStrBuff;
+
+        internal static byte[] ThreadStrBuff()
+        {
+            return threadStrBuff ?? (threadStrBuff = new byte[256]);
+        }
+
+        internal static void SetThreadStrBuff(byte[] buffer)
+        {
+            threadStrBuff = buffer;
+        }
 #endif
     }
 #endif
@@ -385,7 +400,9 @@ namespace XLua.LuaDLL
             // Short strings reuse the buffer that lua_pushstring encodes into.
             byte[] buffer = len <= CoreGlobals.strBuff.Length ? CoreGlobals.strBuff : new byte[len];
 #else
-            byte[] buffer = new byte[len];
+            // Short strings reuse this thread's buffer.
+            byte[] buffer = CoreGlobals.ThreadStrBuff();
+            if (len > buffer.Length) buffer = new byte[len];
 #endif
             Marshal.Copy(str, buffer, 0, len);
             return Encoding.UTF8.GetString(buffer, 0, len);
