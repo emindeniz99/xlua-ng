@@ -129,7 +129,7 @@ For the test configuration, the generated output on the build disk
 | 7 | **GCOptimize pack/unpack** (`CopyByValue`) | `GenPackUnpack` `Gen.cs:1443-1463`; float grouping `Gen.cs:1399-1441`; sizes `Gen.cs:1735-1796`; `T/PackUnpack.tpl.txt:18-122` | Overloads on `static partial class CopyByValue` | A per-assembly `internal static class Pack`. Primitive fields call the public `CopyByValue.Pack`/`UnPack` (`CopyByValue.cs:26-142`); nested structs call the generated overloads. The `xlua_pack_float2..6` grouping is kept. |
 | 8 | **Array fast paths** | `T/LuaWrapPusher.tpl.txt:197-232` (`StaticLuaCallbacks.__tryArrayGet/Set`), wired at `T/LuaRegister.tpl.txt:136-137` into `InternalGlobals.genTryArrayGetPtr/SetPtr` (`InternalGlobals.cs:31-34`); read at `StaticLuaCallbacks.cs:363-367,523-527` and `ObjectCasters.cs:538-539` | Two single static delegates | `AssemblyBindings.ArrayAccessor<T>`: a `Dictionary<Type, …>` keyed by array type, so several assemblies can contribute and the lookup is O(1) instead of an `if` chain. |
 | 9 | **Registration initer** | `GenLuaRegister` `Gen.cs:1306-1360`; `T/LuaRegister.tpl.txt:20-98` | `XLua_Gen_Initer_Register__` with `wrapInit<n>` batches of 50. Its static constructor calls `LuaEnv.AddIniter` (`:83-86`), triggered by `ObjectTranslator.s_gen_reg_dumb_obj` (`:94-98`) or, under `XLUA_GENERAL`/UWP, by reflection on that field (`OT.cs:228-234`). | One `Bindings` class per assembly. `[RuntimeInitializeOnLoadMethod(SubsystemRegistration)]` and, in the Editor, `[InitializeOnLoadMethod]` fill an `AssemblyBindings` and call `BindingApi.Register` (section 5.2). |
-| 10 | **`link.xml`** | `LinkXmlGen.cs:13-33`, `LinkXmlGen.tpl.txt:5-13`, run through `[GenCodeMenu]` | `Gen/link.xml` with `preserve="all"` for every `ReflectionUse` and `LuaCallCSharp` type. This keeps 36 KB more of `libunity.so` for `GameObject` and `Transform` (SIZE.md, "Reached only through reflection"). | None for wrapped members: direct calls keep them. Entries only for members that are reached by reflection (`ReflectionUse`, `DoNotGen`, per-member fallback), written per member. The generator embeds the list in an Editor-only constant; an `IUnityLinkerProcessor` writes it at build time (section 5.7). |
+| 10 | **`link.xml`** | `LinkXmlGen.cs:13-33`, `LinkXmlGen.tpl.txt:5-13`, run through `[GenCodeMenu]` | `Gen/link.xml` with `preserve="all"` for every `ReflectionUse` and `LuaCallCSharp` type. This keeps 36 KB more of `libunity.so` for `GameObject` and `Transform` (SIZE.md, "Reached only through reflection"). | None for wrapped members: direct calls keep them. Entries only for members that are reached by reflection (`ReflectionUse`, `DoNotGen`, per-member fallback), written per member. The generator embeds the list in an Editor-only constant; an `IUnityLinkerProcessor` writes it at build time (section 5.7). Since 2026-10-29 (owner, Q75) legacy and minimal with `HOTFIX_ENABLE` also keep every `LuaCallCSharp` type whole, as upstream ([below](#luacallcsharp-types-kept-whole-where-reflection-reaches-them-2026-10-29)). |
 | 11 | **Hotfix bridges** | `Gen.cs:1094-1145` adds `__Gen_Hotfix_Delegate<n>` signatures (`makeHotfixMethodInfoSimulation` `Gen.cs:970-1017`, `injectByGeneric` `Gen.cs:1061-1082`) to the delegate bridge set | `__Gen_Delegate_Imp*` on `DelegateBridge`; the injector finds them by name (`Hotfix.cs:306-308`) | A per-assembly bridge class emitted in each assembly that has `[Hotfix]` types (section 6). |
 | 12 | **LuaCATS interplay** | `LuaCATSGenerator.cs:1271,1282` calls `GetGenConfig` and repeats the member filters | `.lua` definition files and `.luarc.json` | Generators cannot write non-C# files. The menu stays, fed by a per-assembly **manifest** (bound types, members, overloads, fallback flags). The source generator emits it under `#if UNITY_EDITOR`; the menu reads it after compilation. The member filters then live only in the generator: "generate type definitions from exactly the binding set" (focus-creative-games.md, zlua lessons). |
 | 13 | **Generated-code flag and build check** | `DelegateBridge.Gen_Flag` (`DelegateBridge.cs:130`); `CheckGenerate` throws after a build without it (`Gen.cs:2032-2043`); CodeEmit is gated on it (`OT.cs:161,309,545`) | | `Gen_Flag` means "at least one assembly registered". CodeEmit and reflection are chosen per type, not globally. The build check becomes an `IPreprocessBuildWithReport` that finds assemblies with xLua configuration but no generated `Bindings` (the CS9057 case, SOURCEGEN_SPIKE.md note 2). |
@@ -1762,7 +1762,10 @@ How it follows sections 5.3, 5.5 and 5.7 and the decisions:
     the type declares a member of that name; a lazy member that names only
     extension methods needs none (the extension method map keeps them through
     delegates).
-  - wrapped members: nothing; the generated code calls them.
+  - wrapped members: nothing; the generated code calls them. Since
+    2026-10-29 this holds for strict minimal only: legacy and minimal with
+    `HOTFIX_ENABLE` keep every `[LuaCallCSharp]` type whole
+    ([owner decision Q75](#luacallcsharp-types-kept-whole-where-reflection-reaches-them-2026-10-29)).
 - **`IUnityLinkerProcessor`** (`SourceGenLinkXml`) merges the fragments of the
   assemblies loaded in the Editor by assembly and type (a type with
   `preserve="all"` anywhere keeps it) into `Temp/XLuaSourceGen/link.xml` and
@@ -3813,7 +3816,9 @@ code changed: the smoke players on the emulator, `run_managed.py`,
    list, minimal projects rarely need `[ReflectionUse]` (strict minimal
    reaches its types only through the explicit APIs, Q29 and Q30), and (b)
    adds a preset rule to the generator. If (a) is taken, the backlog item is
-   done.
+   done. *2026-10-29: unchanged. The owner's decision Q75 (question 2) keeps
+   the `[ReflectionUse]` entries as they are and closes the backlog item, as
+   (a) would.*
 2. **Confirm M5's change for `[LuaCallCSharp]` types, `legacy` included.**
    Upstream's `link.xml` kept every member of every `[LuaCallCSharp]` type;
    since M5 only what the wrappers call is kept. MIGRATING.md records the
@@ -3829,7 +3834,154 @@ code changed: the smoke players on the emulator, `run_managed.py`,
    project's own types lose them only with Medium or High stripping.
    `[ReflectionUse]` on the type brings the old behaviour back for that
    type. **Recommendation: confirm**, and name that workaround in
-   MIGRATING.md (done in this change).
+   MIGRATING.md (done in this change). *Decided 2026-10-29 (owner, Q75,
+   option b): not confirmed for builds that reach such members. Legacy, and
+   minimal with `HOTFIX_ENABLE`, keep every `[LuaCallCSharp]` type whole
+   again; strict minimal keeps M5's entries
+   ([below](#luacallcsharp-types-kept-whole-where-reflection-reaches-them-2026-10-29)).*
+
+### `[LuaCallCSharp]` types kept whole where reflection reaches them (2026-10-29)
+
+**Decision (owner, Q75, option b, 2026-10-29).** Wherever the build can reach
+non-public members of a bound type, or anything its wrapper does not call,
+through reflection, the generator writes `preserve="all"` for every
+`[LuaCallCSharp]` type, as upstream's `LinkXmlGen` did:
+
+- always in the **legacy** preset, which has the reflection fallback and
+  `xlua.private_accessible`;
+- in **minimal with `HOTFIX_ENABLE`**, where `xlua.private_accessible` is
+  available;
+- in **minimal with `XLUA_REFLECTION`**, if the generator runs there, as the
+  code decides (below).
+
+Strict minimal (no reflection, no hotfix) and core keep the narrow entries.
+Lazy-member and `[ReflectionUse]` entries stay as they are.
+
+The background: since M5 (2026-10-18) the generator's link.xml kept only the
+members the wrappers call, in every preset. That narrowing was never put to
+the owner. A member that only reflection reaches could then be stripped in an
+IL2CPP release player and read as `nil`, with no error, only on the device:
+`xlua.private_accessible` (which hotfix patches use a lot), the legacy
+reflection fallback, and the project's own C# reflection.
+
+**Minimal with `XLUA_REFLECTION`: narrow.** The generator does run there (it
+needs only `XLua.Binding`), so the rule had to be decided from the code. Lua
+reaches the same members of a `[LuaCallCSharp]` type there as in strict
+minimal **[C]**:
+
+- the reflection fallback (`Utils.ReflectionWrap`) wraps only types without
+  generated bindings: `ObjectTranslator.TryDelayWrapLoader` takes
+  `delayWrap` and then `BindingRegistry.TryGetLoader` first
+  (`ObjectTranslator.cs:133-141`);
+- `XLUA_RESTRICT_PRIVATE_ACCESS`, which the preset implies with no opt-out
+  (`Tools/presets.py`), leaves out `xlua.access` and
+  `xlua.private_accessible` without `HOTFIX_ENABLE`
+  (`ObjectTranslator.cs:940-948`) and limits `xlua.get_generic_method` and
+  `xlua.tofunction` to public methods (`StaticLuaCallbacks.cs:1437-1442`,
+  `1500-1504`), as in strict minimal;
+- the members a wrapper leaves to reflection (`[DoNotGen]`, XLSG004) are
+  lazy members with link.xml entries in every preset.
+
+Keeping the bound types whole would also not help the types the fallback
+does reach: those have no bindings and no `[LuaCallCSharp]`, and get
+link.xml entries only through `[ReflectionUse]`, as upstream. So
+`XLUA_REFLECTION` alone keeps the narrow entries; with `HOTFIX_ENABLE` the
+types are kept whole. The project's own C# reflection on a bound type is the
+one path left; strict minimal has it too, and `[ReflectionUse]` covers it.
+
+**The rule** (`Wrappers.PreserveBoundTypes`, `LinkXml.cs`), read from the
+compilation's preprocessor symbols as `GcmDefined` reads them:
+`!XLUA_PRESET_MINIMAL || HOTFIX_ENABLE`. So legacy keeps the types whole also
+with the opt-in `XLUA_RESTRICT_PRIVATE_ACCESS` or `XLUA_NO_REFLECTION`
+("always in legacy"). The Player Settings defines reach every assembly, and
+the Editor assemblies that `SourceGenChecks.MergedLinkXml` reads are compiled
+with them too.
+
+**What the generator writes:**
+
+- `<type fullname="T" preserve="all"/>` for every type of the assembly's
+  `[LuaCallCSharp]` list after the usual filter (public, not obsolete, not a
+  delegate, nameable; the same filter as upstream's `GetGenConfig`), types a
+  referenced assembly already wraps included. A closed generic type is named
+  by its definition (``System.Collections.Generic.List`1``), as for
+  `[ReflectionUse]`;
+- a type kept whole gets no member entries besides: `LinkXmlDocument` drops
+  the lazy members of a type that has `preserve="all"`, so no type is listed
+  twice;
+- the obfuz rules are unchanged (see "Not changed" below).
+
+**Tests:**
+
+- Generator unit tests (`build_source_generator.py --test`, 52 of 52):
+  - `LinkXmlKeepsBoundTypesWholeByPreset` checks the predicate for eleven
+    define combinations (legacy alone, with `GEN_CODE_MINIMIZE`,
+    `HOTFIX_ENABLE`, `XLUA_RESTRICT_PRIVATE_ACCESS`, with
+    `XLUA_NO_REFLECTION` and `XLUA_RESTRICT_PRIVATE_ACCESS`; minimal alone,
+    with `XLUA_NO_GCM`, `XLUA_UTIL`, `XLUA_REFLECTION`, `HOTFIX_ENABLE`,
+    `XLUA_REFLECTION` and `HOTFIX_ENABLE`). It also generates one source in
+    legacy, strict minimal, minimal with `XLUA_REFLECTION` and minimal with
+    `HOTFIX_ENABLE`, and compares the whole fragment: a class with a
+    `[DoNotGen]` member, a nested type, an enum, ``List`1`` and a
+    `[ReflectionUse]` type, each listed once;
+  - `ReflectionUseKeepsBoundTypeWhole` now runs in strict minimal, where a
+    wrapped type still gets no entry;
+  - `FallbackAndLinkXml` compares the legacy fragment (three types whole)
+    and the strict minimal one (the lazy members by name).
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`
+  on Lua 5.5.1, legacy and `--define XLUA_PRESET_MINIMAL` (macOS arm64
+  plugins built from this tree): 523 tests in each of two modes in every
+  pass. `SourceGenLauncher.CheckLinkXml` now also checks every wrapped class
+  of the suite: kept whole in legacy (109 classes; the fragment has 118
+  entries), not kept whole in strict minimal (109; 17 entries).
+- `editor_compile_check.py`: 7 editors x 85 configurations, 588 ok, 7
+  skipped; `obfuscation_check.py` passes (the obfuz rules did not change).
+
+**The player proof** ([MobileSmoke/README.md](../../Test/MobileSmoke/README.md#2026-10-29-xluaprivate_accessible-under-high-stripping-owner-decision-q75)):
+`SgSmoke.cs` got `SgPrivate`, a `[LuaCallCSharp]` class whose private field
+and private method no C# code uses. Where `xlua.private_accessible` exists,
+Lua sets and reads the field and calls the method through it. A legacy
+Android IL2CPP release player with High stripping (Unity 6000.3.21f1, the
+`xlua16k` emulator) **[C]**:
+
+- before the change: the generator's link.xml lists `SgApi.Reflected`,
+  `SgInit.Locked` and `SgReflected`; the stripped `Assembly-CSharp.dll` has
+  `SgPrivate` without `secret` and `Doubled`; the player reports `false,nil,
+  ... attempt to call a nil value (method 'Doubled')`: the set raised, the
+  read gave `nil`, the call failed, and the build said nothing;
+- after: `SgApi`, `SgInit`, `SgPrivate` and `SgReflected` have
+  `preserve="all"`, the stripped DLL keeps both members, and the player
+  passes (`private_accessible` in its pass line).
+
+Strict minimal has no `xlua.private_accessible`, so there is nothing to show
+there; its link.xml is the "before" one.
+
+**Size** ([SIZE.md](../../build/SIZE.md#legacy-keeps-luacallcsharp-types-whole-2026-10-29)):
+the game configuration (264 wrapped engine types) with Minimal stripping
+grows by 263,976 bytes of APK in legacy (`libil2cpp.so` +191 KB, `libunity.so`
++33 KB, metadata +40 KB compressed), as the `+linkall` measurement of
+2026-10-28 predicted (262,808). Strict minimal does not change.
+
+**Not changed: obfuz.** The obfuz rules still keep only the names of
+`[ReflectionUse]` types and of types with lazy members. So with obfuz in a
+legacy project, the `preserve="all"` entry of a renamed `[LuaCallCSharp]` type
+names its original type, which no longer exists when UnityLinker runs: in the
+`obfuscation_check.py` fixture, obfuz's rules rename `Game.Shop`,
+`Game.Color`, ``Game.Box`1`` and the others while the fragment lists them by
+their old names. A link.xml type that does not exist does not fail the
+build: a High-stripping build of the smoke project with a project link.xml
+naming `Q75.RenamedAway` in `Assembly-CSharp` and
+`UnityEngine.Q75RenamedAway` in `UnityEngine.CoreModule` passed, and
+UnityLinker received the file next to the generator's one **[C]** (Unity
+6000.3.21f1). The renamed type then loses the members only reflection
+reaches, as before this change; Lua could not find renamed private members
+by their old names anyway. **Question for the owner:** keep it so, or have
+the obfuz rules keep the names of every type kept whole (the name table
+already holds those names as strings, so little would be revealed, but obfuz
+would rename no `[LuaCallCSharp]` type in legacy)? This joins M8 question 1
+("Type names kept for link.xml").
+
+**Not run:** players of minimal with `HOTFIX_ENABLE` or `XLUA_REFLECTION`,
+High and Medium stripping sizes, iOS, WebGL, a phone, obfuz itself.
 
 ## 10. Open questions for the owner
 

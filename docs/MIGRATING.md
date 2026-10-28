@@ -299,6 +299,12 @@ alike:
 - **`[ReflectionUse]`** keeps only its meaning for the linker (link.xml); it
   does not make its type reachable without bindings (owner decision,
   2026-10-28). `XLUA_REFLECTION` is the opt-in, for the whole project.
+- **link.xml keeps only what the bindings call** of a `[LuaCallCSharp]` type
+  (and its `DoNotGen` and fallback members), unless `HOTFIX_ENABLE` is defined;
+  legacy, and minimal with `HOTFIX_ENABLE`, keep every such type whole, as
+  upstream did (owner decision Q75 of 2026-10-29; "Stripping (M5)" under
+  [Source generator](#source-generator-preview)). Members your own C#
+  reaches by reflection on a bound type need `[ReflectionUse]` for it.
 - **To keep reflection**, define `XLUA_REFLECTION` next to
   `XLUA_PRESET_MINIMAL`. A project without the source generator needs it, since
   nothing is bound there. **XLua > Validate Setup** warns when the preset is on
@@ -1373,17 +1379,33 @@ pushers (M4):
   lists what Lua reaches by reflection: `[ReflectionUse]` types with
   `preserve="all"`, as the legacy `LinkXmlGen`, and the `DoNotGen` and fallback
   members of wrapped types. A player build passes them to UnityLinker as one
-  file (`Temp/XLuaSourceGen/link.xml`). Wrapped members need no entry. The
-  legacy `link.xml` kept every member of every `[LuaCallCSharp]` type, so
-  under stripping a bound type now loses the members only reflection reaches:
-  non-public members used through `xlua.private_accessible`, `xlua.access` or
+  file (`Temp/XLuaSourceGen/link.xml`). What it keeps of a `[LuaCallCSharp]`
+  type depends on the preset (owner decision Q75 of 2026-10-29):
+
+  | Build | `[LuaCallCSharp]` types in link.xml |
+  |---|---|
+  | `legacy` (the default), with or without `HOTFIX_ENABLE` | `preserve="all"` for every type, as upstream's `link.xml` (since 2026-10-29) |
+  | `minimal` with `HOTFIX_ENABLE` | `preserve="all"` for every type (since 2026-10-29) |
+  | `minimal` without `HOTFIX_ENABLE` (strict, and with `XLUA_REFLECTION`) | Only the `DoNotGen` and fallback members; wrapped members are kept by the code that calls them |
+
+  From M5 (2026-10-18) to 2026-10-29 every preset kept only the wrapped
+  members, so in a legacy IL2CPP release player a member that only
+  reflection reaches could be stripped and read as `nil`: non-public members
+  used through `xlua.private_accessible`, `xlua.access` or
   `xlua.get_generic_method`, and members your own C# reflects on. Engine types
-  lose them with Minimal stripping too, your own types with Medium or High.
-  To keep such a type whole as before, add `[ReflectionUse]` for it too
-  (`[assembly: ReflectionUse(typeof(T))]`), which writes `preserve="all"`. On
-  the game-sized configuration of `build/SIZE.md`, not keeping the 264 wrapped
-  types whole saves 263 KB of APK with Minimal stripping and 331 KB with High
-  ([SIZE.md](../build/SIZE.md#what-linkxml-preservation-costs-2026-10-28)).
+  lose them with Minimal stripping, your own types with Medium or High.
+  Legacy keeps them again, at a cost of 264 KB of APK with Minimal
+  stripping for the 264 wrapped engine types of the game-sized configuration
+  in `build/SIZE.md`
+  ([SIZE.md](../build/SIZE.md#legacy-keeps-luacallcsharp-types-whole-2026-10-29)).
+  The minimal preset without `HOTFIX_ENABLE` has no `xlua.private_accessible`
+  or `xlua.access`, and its reflection APIs take public methods only, so Lua
+  reaches no member of a bound type that the bindings leave out; it keeps the
+  narrow entries. `XLUA_REFLECTION` does not change that: its fallback wraps
+  only types without generated bindings. If your own C# reflects on members
+  of a bound type there, add `[ReflectionUse]` for it too
+  (`[assembly: ReflectionUse(typeof(T))]`), which writes `preserve="all"` for
+  that type in every preset.
 - **When the generator did not run** (for example warning CS9057, a compiler
   older than it needs): after each domain reload the Editor logs an error for
   every assembly with xLua configuration and no generated bindings, an IL2CPP
