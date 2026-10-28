@@ -2439,7 +2439,8 @@ How it follows section 6 (option B) and decision 8:
 - **Configuration fixes the hotfix agent found:**
   - `[Hotfix]` on a type outside xLua's assembly was ignored: the injector
     compared the attribute type with xLua's `TypeDefinition` by reference.
-    It compares full names now.
+    It compares full names now. **Owner decision of 2026-10-28:** a bug fix,
+    so it applies in every preset, `legacy` included.
   - `[assembly: Hotfix(typeof(T), flags)]` is read by the injector (for types
     of the injected assembly) and by the Editor when it picks the assemblies
     to inject (`HotfixConfig.GetHotfixAssembly`).

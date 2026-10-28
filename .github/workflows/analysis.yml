@@ -82,7 +82,7 @@ jobs:
         run: .github/scripts/mono.sh wait
       - name: Measure coverage for Lua 5.3.6, 5.4.9 and 5.5.1
         # Fails when a file's branch coverage is below coverage.sh's MIN_BRANCH_COVERAGE
-        # (xlua.c=99 xlua_core.c=98 xlua_core_limits.c=93, Test/README.md); the reports are
+        # (xlua.c=100 xlua_core.c=98 xlua_core_limits.c=93, Test/README.md); the reports are
         # uploaded either way.
         run: Test/Native/coverage.sh "$RUNNER_TEMP/coverage"
       - name: Upload coverage reports
@@ -214,8 +214,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # x86_64: also the non-GC64 VM of make_win64_luajit.bat (nogc64),
-          # which needs a real x86-64 address space.
+          # x86_64: also the nx sysmalloc build, which needs a real x86-64 address space.
           - name: Linux x86_64
             runner: ubuntu-26.04
             artifact: luajit-tests-linux-x64

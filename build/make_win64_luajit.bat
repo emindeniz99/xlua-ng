@@ -1,14 +1,14 @@
 @echo off
-@rem LuaJIT without GC64 ("nogc64": 32-bit GC references, so the Lua heap is limited to
-@rem 2 GB; the upstream xLua default for Windows x64). Every other 64-bit LuaJIT plugin,
-@rem make_win64_luajit_gc64.bat included, is GC64.
-@rem Bytecode from one mode does not load in the other; luajit -b -W or -X picks the mode.
+@rem LuaJIT in GC64 mode (64-bit GC references, no 2 GB heap limit), msvcbuild's default
+@rem on x64 and the mode of every 64-bit LuaJIT plugin. xlua.c and CMake refuse a 64-bit
+@rem LuaJIT without GC64 (build/README.md, "LuaJIT GC64"). Bytecode from 32-bit LuaJIT,
+@rem which has only the other mode, does not load here; luajit -b -X writes GC64 bytecode.
 
 call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat"
 
 echo Swtich to x64 build env
 cd %~dp0\luajit-2.1\src
-call msvcbuild_mt.bat nogc64 mixed
+call msvcbuild_mt.bat mixed
 cd ..\..
 
 mkdir build_lj64 & pushd build_lj64

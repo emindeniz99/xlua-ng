@@ -1179,7 +1179,7 @@ a native ARM64 smoke executable; that executable has not run on a device.
 | `make_win_lua54.bat`, `make_win_lua55.bat` | `x86_64/xlua.dll` and `x86/xlua.dll` |
 | `make_win64_lua53.bat`, `make_win32_lua53.bat` | `x86_64/xlua.dll`, `x86/xlua.dll` |
 | `make_win_arm64_lua53.bat`, `make_win_arm64_lua54.bat`, `make_win_arm64_lua55.bat` | `arm64/xlua.dll` |
-| `make_win64_luajit.bat`, `make_win64_luajit_gc64.bat`, `make_win32_luajit.bat` | `x86_64/xlua.dll`, `x86/xlua.dll` |
+| `make_win64_luajit.bat`, `make_win32_luajit.bat` | `x86_64/xlua.dll`, `x86/xlua.dll` |
 | `make_win_arm64_luajit.bat` | `arm64/xlua.dll` |
 
 Windows ARM64 players exist from Unity 2023.1 ("ARM 64-bit" in the Windows
@@ -1205,34 +1205,49 @@ and its Python are ARM64. `build.yml` and `publish.yml` run the four
 `make_win_arm64_*.bat` scripts there. Not verified yet: no workflow has run
 with these jobs, and no Unity player or Editor has loaded the ARM64 DLL.
 
-### LuaJIT GC64 on x64
+### LuaJIT GC64
 
-LuaJIT 2.1 builds x64 in GC64 mode unless `LUAJIT_DISABLE_GC64` is defined
-(`luajit-2.1/src/lj_arch.h:216`); ARM64 is always GC64 (`lj_arch.h:303`).
-`msvcbuild_mt.bat nogc64` defines it, so the two x64 scripts build different
-LuaJIT libraries:
+Every 64-bit LuaJIT plugin is GC64: Linux, macOS, iOS, Android arm64-v8a
+and x86_64, Windows x64 and Windows ARM64. LuaJIT 2.1 builds x64 in GC64
+mode unless `LUAJIT_DISABLE_GC64` is defined (`luajit-2.1/src/lj_arch.h:216`,
+`msvcbuild_mt.bat nogc64`); ARM64 is always GC64 (`lj_arch.h:303`), and macOS
+refuses the other mode. 32-bit LuaJIT (x86, armv7) has only the non-GC64
+mode.
 
-- `make_win64_luajit.bat` (used by CI): non-GC64. GC references are 32-bit,
-  so the Lua heap must fit in the low 2 GB (`lj_alloc.c:105`), as in upstream
-  xLua's Windows x64 plugin.
-- `make_win64_luajit_gc64.bat`: GC64, like every other 64-bit LuaJIT plugin
-  (Linux, macOS, iOS, Android arm64-v8a and x86_64, Windows ARM64). It still
-  uses the Visual Studio 2017 generator.
+xLua does not support a 64-bit LuaJIT without GC64 (owner's decision,
+2026-10-28). `xlua_gl`, the key by which C# finds an env's translator, reads
+the global state through LuaJIT's `lj_obj.h` (`G(L)`, one load), whose
+`lua_State` layout depends on the mode; with a library in the other mode it
+read the wrong field and the first `LuaEnv` failed
+(`NullReferenceException` in `ImportType`; windows-host.yml run
+40642149114). Two checks keep both sides GC64:
 
-The bridge itself does not depend on the mode. Until 2026-10-28 it did:
-`xlua_gl` read `lua_State` through LuaJIT's `lj_obj.h`, which `xlua.c` was
-compiled with in GC64 mode whatever the library's mode, so with a non-GC64
-library it got a different value from call to call and the first `LuaEnv`
-failed (`NullReferenceException` in `ImportType`; windows-host.yml run
-40642149114). It now takes the registry's address (`lua_topointer`), about
-2.5 ns more per call on LuaJIT (Apple M2 Pro). `xlua_libs.c` still includes
-`lj_arch.h`, for `LJ_HASFFI` only. The CMake `GC64` option, which
-defined `LUAJIT_ENABLE_GC64` for `xlua.c`, was removed: nothing in LuaJIT 2.1
-or the bridge reads that macro. Bytecode depends on the mode: a GC64 runtime
-rejects non-GC64 bytecode and the reverse (`lj_bcread.c:403`, the
-`BCDUMP_F_FR2` flag). 32-bit LuaJIT and `make_win64_luajit.bat` share the
-non-GC64 format; all other 64-bit builds use GC64. `luajit -b -W` writes
-non-GC64 and `-b -X` GC64 bytecode from any LuaJIT.
+- `xlua.c` stops with an `#error` when `LJ_64 && !LJ_GC64`, that is when it
+  is compiled with `LUAJIT_DISABLE_GC64` for a 64-bit target.
+- CMake's configure, for a 64-bit target, reads the LuaJIT library
+  (`lua51.lib` with MSVC, otherwise `LUAJIT_STATIC_LIB`) and stops when it
+  contains `lj_state_newstate`, a function only the non-GC64 mode defines
+  (`lj_state.c`, `lib_aux.c`). The library's mode is not visible to
+  `xlua.c`'s preprocessor, since `msvcbuild` defines `LUAJIT_DISABLE_GC64`
+  for LuaJIT's own files only. `windows-host.yml` checks that a
+  `msvcbuild_mt.bat nogc64` library is refused.
+
+Until 2026-10-28 `make_win64_luajit.bat` built the non-GC64 mode, upstream
+xLua's Windows x64 default, whose GC references are 32-bit and whose Lua heap
+must fit in the low 2 GB (`lj_alloc.c:105`), and `make_win64_luajit_gc64.bat`
+built GC64. `make_win64_luajit.bat` now builds GC64 and the other script is
+gone. Between the Windows host change and this one (both 2026-10-28),
+`xlua_gl` returned the registry's address (`lua_topointer`) instead, which works in either mode but costs about 1.5 ns
+more per call (Apple M2 Pro, `benchmark.py` on LuaJIT: 1 to 4 ns less per
+simple C# call from Lua without it).
+
+`xlua_libs.c` includes `lj_arch.h`, for `LJ_HASFFI`. The CMake `GC64`
+option, which defined `LUAJIT_ENABLE_GC64` for `xlua.c`, was removed: nothing
+in LuaJIT 2.1 or the bridge reads that macro. Bytecode depends on the mode: a
+GC64 runtime rejects non-GC64 bytecode and the reverse (`lj_bcread.c:403`,
+the `BCDUMP_F_FR2` flag). Bytecode made for 32-bit LuaJIT or for the old
+Windows x64 plugin does not load in a 64-bit plugin; `luajit -b -X` writes
+GC64 bytecode and `-b -W` non-GC64 bytecode from any LuaJIT.
 
 ## Player size (2026-10-16)
 

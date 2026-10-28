@@ -106,9 +106,11 @@ Each item says what is left and where the runs that passed are recorded.
   40645581045; [windows-host.md](docs/research/windows-host.md)). The runs
   confirmed [#1081](https://github.com/Tencent/xLua/issues/1081) on the .NET
   Framework and fixed `luaL_newmetatable`'s ANSI import and `xlua_gl` on
-  LuaJIT without GC64. Left: owner questions 1 to 3 in windows-host.md (the
-  `[CSharpCallLua]` scan and dynamic assemblies, the cost of the `xlua_gl`
-  fix, `NATIVE_LUA_PUSHSTRING`); the source generator passes, .NET (Core)
+  LuaJIT without GC64. The owner then dropped that mode (question 2, option
+  c): every 64-bit LuaJIT is GC64, `make_win64_luajit.bat` included, and
+  `xlua_gl` reads `G(L)` again. Left: owner questions 1 and 3 in
+  windows-host.md (the `[CSharpCallLua]` scan and dynamic assemblies,
+  `NATIVE_LUA_PUSHSTRING`); the source generator passes, .NET (Core)
   and the console code page of #1179 on Windows; and a `gh workflow run` of
   the workflow from `main` (until the merge it ran from pushes to
   `ci/windows-host`).
