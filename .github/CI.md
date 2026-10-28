@@ -111,6 +111,23 @@ editor image, where it must patch and restore the fixture's `[Hotfix]` types
 compares `LuaTypes/` and `.luarc.json` with `Test/LuaCATS` (job timeout 45
 minutes). Neither has run on hosted runners yet.
 
+Two jobs added 2026-10-28 run the general Lua suite in an IL2CPP player
+(`Test/UnityMatrix/il2cpp_suite.py`, [Test/README.md](../Test/README.md#the-general-suite-in-an-il2cpp-player)).
+**IL2CPP suite build** builds the Lua 5.5.1 Android plugins (arm64-v8a and
+x86_64, plain and the minimal variant), runs `il2cpp_suite.py prepare` and
+`configure --arch x86_64` for each configuration (`plain`, `gcm`, `strict`),
+then two unity-builder steps with GameCI's digest-pinned
+`ubuntu-6000.3.26f1-android-3.2.2` image (`XluaSuiteBuild.ApplyDefines`,
+then `XluaSuiteBuild.BuildAndroid -xluaSuiteApk`), and uploads the APK
+(job timeout 60 minutes; skipped without the secrets). **IL2CPP suite run**
+downloads it and runs `il2cpp_suite.py run --serial emulator-5554` inside
+`reactivecircus/android-emulator-runner` (an API 34 x86_64 `google_apis`
+image; the job opens `/dev/kvm` to the runner's user first), then uploads
+the logs (job timeout 45 minutes). Hosted runners are x86_64, so CI builds
+X86_64 players where the local runs build ARM64 ones (an ARM64 APK would
+need the x86_64 image's ARM translation, which was not tried). Neither job
+has run yet.
+
 The preparation script also accepts `--platform macos` for a local Apple
 Silicon Editor check; CI uses its default Linux project because GameCI runs the
 matrix in Linux editor containers.
@@ -408,7 +425,7 @@ it.
   .meta files"). It takes seconds, so a `.meta`-only change does not start
   `build.yml`'s multi-platform build.
 - `unity-matrix.yml` runs for everything `prepare.py`, `hotfix_il2cpp.py`,
-  `hotfix_player.py` and `luacats_unity.py` copy or build: `Assets/` except
+  `hotfix_player.py`, `luacats_unity.py` and `il2cpp_suite.py` copy or build: `Assets/` except
   the guides in `Assets/XLua/Doc`, `General/`, `Tools/`, `Test/`, `build/`,
   `mise.toml`, the NDK installer and `mono.sh`.
 - `codeql.yml` skips pushes and pull requests that change only Markdown,

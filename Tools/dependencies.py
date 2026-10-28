@@ -122,6 +122,7 @@ ACTIONS_LATEST = {
     "game-ci/unity-test-runner": ("v4.4.0", "MIT", "v4.4.0 was published 10 minutes before v4.3.2 on 2026-09-09, so the releases/latest API still answers v4.3.2."),
     "jdx/mise-action": ("v5.2.0", "MIT", "Checked 2026-10-18: v5.2.0 (2026-10-16) and v5.1.2 (2026-10-12) are still inside the seven-day window."),
     "microsoft/setup-msbuild": ("v3", "MIT", "Release tag is the floating-style name v3 (same commit as v3.0.0)."),
+    "reactivecircus/android-emulator-runner": ("v2.38.0", "Apache-2.0", "Checked 2026-10-28: v2.38.0 (2026-07-05)."),
     "renovatebot/github-action": ("v46.3.8", "AGPL-3.0", "Checked 2026-10-16: v46.3.8 (2026-10-12) is still inside the seven-day window."),
 }
 
@@ -291,8 +292,13 @@ def parse_unity_matrix():
     return list(dict.fromkeys(re.findall(pat, text)))
 
 
+# Per Android image: when its digest was compared with the Docker Hub tag, the job and the player it builds.
+ANDROID_IMAGES = {"6000.3.26f1": ("2026-10-28", "il2cpp-suite-build", "IL2CPP suite player builds")}
+ANDROID_IMAGE_DEFAULT = ("2026-10-18", "hotfix-il2cpp", "hotfix IL2CPP player build")
+
+
 def parse_unity_android_images():
-    """The Android images of unity-matrix.yml's hotfix-il2cpp job (no test-framework key)."""
+    """The Android images of unity-matrix.yml's hotfix-il2cpp and il2cpp-suite-build jobs (no test-framework key)."""
     text = read(".github/workflows/unity-matrix.yml")
     pat = r"- unity-version:\s*(\S+)\s+editor-image:\s*unityci/editor@sha256:([0-9a-f]{64})"
     return list(dict.fromkeys(re.findall(pat, text)))
@@ -764,11 +770,13 @@ def build():
                 hashes=[{"alg": "SHA-256", "content": digest}]))
 
     for uver, digest in parse_unity_android_images():
+        checked, job, purpose = ANDROID_IMAGES.get(uver, ANDROID_IMAGE_DEFAULT)
         add(row("ci", "unityci/editor (GameCI image)", f"ubuntu-{uver}-android-{GAMECI_DOCKER_LATEST}",
-                "`.github/workflows/unity-matrix.yml` (hotfix-il2cpp)", "MIT (image recipe); contains proprietary Unity",
+                f"`.github/workflows/unity-matrix.yml` ({job})",
+                "MIT (image recipe); contains proprietary Unity",
                 "https://github.com/game-ci/docker", f"android-{GAMECI_DOCKER_LATEST}", "current",
-                f"Digest-pinned sha256:{digest[:12]}. Digest matched the Docker Hub tag on 2026-10-18. The Android "
-                "module with its SDK and NDK, for the hotfix IL2CPP player build.",
+                f"Digest-pinned sha256:{digest[:12]}. Digest matched the Docker Hub tag on "
+                f"{checked}. The Android module with its SDK and NDK, for the {purpose}.",
                 purl=f"pkg:docker/unityci/editor@sha256%3A{digest}", ctype="container",
                 vdisp=f"ubuntu-{uver}-android-{GAMECI_DOCKER_LATEST}", hashes=[{"alg": "SHA-256", "content": digest}]))
 

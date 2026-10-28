@@ -476,6 +476,201 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  # Test/UnityMatrix/il2cpp_suite.py: the general Lua suite (Test/UnitTest,
+  # the 522 cases run_managed.py runs under Mono) in an Android IL2CPP player,
+  # in three configurations: plain (the generator), gcm (GEN_CODE_MINIMIZE)
+  # and strict (XLUA_PRESET_MINIMAL without reflection, the minimal plugin
+  # variant). The build job prepares and configures the project with the
+  # script and launches the editor twice through unity-builder
+  # (XluaSuiteBuild.ApplyDefines, then XluaSuiteBuild.BuildAndroid). Hosted
+  # runners are x86_64 and run an x86_64 emulator with KVM, so the APK is
+  # X86_64 here (ARM64 locally); the run job boots that emulator and runs the
+  # APK with il2cpp_suite.py run.
+  il2cpp-suite-build:
+    name: Unity ${{ matrix.unity-version }} IL2CPP suite build (${{ matrix.config }})
+    needs: license
+    if: needs.license.outputs.available == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(vars.UNITY_MAX_PARALLEL || '2') }}
+      # ubuntu-6000.3.26f1-android-3.2.2, resolved 2026-10-28.
+      matrix:
+        config: [plain, gcm, strict]
+        unity-version: [6000.3.26f1]
+        include:
+          - unity-version: 6000.3.26f1
+            editor-image: unityci/editor@sha256:fd2641a484634dc6ef8aea4aa18e69cf1deeb233f6f7a56da4c24164b55d3fcd
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Free disk space for the Unity image
+        run: |
+          set -eu
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/local/share/powershell
+          df -h /
+
+      - name: Install Android NDK
+        run: .github/scripts/install-android-ndk.sh
+
+      # prepare builds the source generator with the SDK of mise.toml.
+      - name: Install the .NET SDK (mise.toml)
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          # A mise release past the seven-day window; Renovate bumps it.
+          version: 2026.10.4
+          install_args: dotnet
+          # mise-action's key: platform, mise version, install_args and the hash of mise.toml.
+          cache: true
+
+      # NuGet packages of the generator (locked mode checks their SHA-512), as in native-build.yml.
+      - name: Cache the tool downloads (Tools/.cache)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Tools/.cache
+          key: tools-cache-v1-${{ runner.os }}-${{ hashFiles('General/SourceGenerator/**/packages.lock.json', 'Tools/build_tools.py', 'Test/Native/coverage_cs_dotnet.py') }}
+          restore-keys: tools-cache-v1-${{ runner.os }}-
+
+      - name: Build the Lua 5.5.1 Android plugins (legacy and the minimal variant)
+        run: |
+          set -euxo pipefail
+          export XLUA_BUILD_ROOT="$RUNNER_TEMP/xlua-android" ANDROID_ABIS="arm64-v8a x86_64"
+          build/make_android_lua55.sh
+          XLUA_VARIANT=minimal XLUA_PRESET=minimal build/make_android_lua55.sh
+
+      - name: Prepare and configure the suite project
+        env:
+          UNITY_VERSION: ${{ matrix.unity-version }}
+          CONFIG: ${{ matrix.config }}
+          DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+          DOTNET_NOLOGO: "1"
+        run: |
+          set -eu
+          python3 Test/UnityMatrix/il2cpp_suite.py prepare --unity-version "$UNITY_VERSION" \
+            --android-plugins "$RUNNER_TEMP/xlua-android/plugin_lua55/Plugins/Android" \
+            --source-gen "$RUNNER_TEMP/source-generator" \
+            --project "$GITHUB_WORKSPACE/ci-il2cpp-suite-project" --out "$GITHUB_WORKSPACE/ci-il2cpp-suite-out"
+          python3 Test/UnityMatrix/il2cpp_suite.py configure --config "$CONFIG" --arch x86_64 \
+            --project "$GITHUB_WORKSPACE/ci-il2cpp-suite-project" --out "$GITHUB_WORKSPACE/ci-il2cpp-suite-out"
+
+      # The defines go into Player Settings in a launch of their own, so that the build
+      # launch compiles the scripts and the plugin selector with them.
+      - name: Apply the configuration's defines (XluaSuiteBuild.ApplyDefines)
+        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          unityVersion: ${{ matrix.unity-version }}
+          customImage: ${{ matrix.editor-image }}
+          projectPath: ci-il2cpp-suite-project
+          targetPlatform: Android
+          buildMethod: XluaSuiteBuild.ApplyDefines
+          buildsPath: ci-il2cpp-suite-out/builder-defines
+          versioning: None
+          allowDirtyBuild: true
+
+      # The path passed to the build method is the builder container's (the workspace at
+      # /github/workspace).
+      - name: Build the Android IL2CPP player (XluaSuiteBuild.BuildAndroid)
+        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          unityVersion: ${{ matrix.unity-version }}
+          customImage: ${{ matrix.editor-image }}
+          projectPath: ci-il2cpp-suite-project
+          targetPlatform: Android
+          buildMethod: XluaSuiteBuild.BuildAndroid
+          buildsPath: ci-il2cpp-suite-out/builder-build
+          customParameters: -xluaSuiteApk /github/workspace/ci-il2cpp-suite-out/xlua-suite.apk
+          versioning: None
+          allowDirtyBuild: true
+
+      - name: Make the build output readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" ci-il2cpp-suite-project ci-il2cpp-suite-out || true
+
+      - name: Check the APK
+        run: |
+          set -eu
+          test -s ci-il2cpp-suite-out/xlua-suite.apk
+          ls -l ci-il2cpp-suite-out/xlua-suite.apk
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: il2cpp-suite-${{ matrix.unity-version }}-${{ matrix.config }}
+          path: ci-il2cpp-suite-out/xlua-suite.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  # The APK of the job above on an x86_64 emulator (KVM on the hosted runner).
+  il2cpp-suite-run:
+    name: Unity ${{ matrix.unity-version }} IL2CPP suite run (${{ matrix.config }})
+    needs: il2cpp-suite-build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [plain, gcm, strict]
+        unity-version: [6000.3.26f1]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: il2cpp-suite-${{ matrix.unity-version }}-${{ matrix.config }}
+          path: ci-il2cpp-suite-out
+
+      # The hosted runner's kernel has KVM; the device node needs the runner's user.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # Every adb command of the script names the serial (-s emulator-5554).
+      - name: Run the suite on an x86_64 emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env:
+          CONFIG: ${{ matrix.config }}
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect
+          disable-animations: true
+          script: python3 Test/UnityMatrix/il2cpp_suite.py run --config "$CONFIG" --apk ci-il2cpp-suite-out/xlua-suite.apk --serial emulator-5554 --out ci-il2cpp-suite-out --run-timeout 1200
+
+      - name: Upload the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: il2cpp-suite-${{ matrix.unity-version }}-${{ matrix.config }}-logs
+          path: ci-il2cpp-suite-out/logs
+          if-no-files-found: warn
+          retention-days: 14
+
   # Test/UnityMatrix/hotfix_player.py --platform linux (owner's decision Q8,
   # 2026-10-28): post-build hotfix injection in a Linux x86_64 Mono player, with
   # xLua outside Assembly-CSharp. The no-assembly-csharp leg has xLua in its
