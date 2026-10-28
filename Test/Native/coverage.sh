@@ -20,6 +20,11 @@
 #    check_exports.py --preset core, native_regression.py and core_smoke.c;
 #    measures xlua_core.c, xlua_core_limits.c, xlua_core_sandbox.c,
 #    xlua_core_buffer.c and xlua_core_nobc.c;
+#  - core-tp-5.5.1: the same with xlua_core_limits.c's test points
+#    (-DXLUA_LIMITS_TEST_POINTS, a test build only; check_exports.py expects their
+#    two exports), where core_regression.py's check_core_stop_window stops a call
+#    after call_body's last stop check, which in a real build only another
+#    thread does: the sandbox's gate is 100 there (owner decision of 2026-10-28);
 #  - minimal-5.3.6, minimal-5.4.9, minimal-5.5.1: XLUA_PRESET=minimal (every
 #    export), with the native checks; measures xlua_libs.c, which builds with a
 #    reduced XLUA_LIBS only (the legacy runs measure the rest);
@@ -37,8 +42,9 @@
 # file, the script fails, after every runtime has been measured; it prints
 # XLUA_COVERAGE_GATE lines either way. An empty value turns that kind's gate off.
 # The minimums below 100 and why (2 GB strings on Lua 5.4, the stop window that
-# only another thread reaches, the core build's entries, the snapshot walk's
-# native allocation failures) are in Test/README.md.
+# only another thread reaches outside core-tp, the core build's entries, the
+# snapshot walk's native allocation failures, the test points' own code) are in
+# Test/README.md.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 out="$(mkdir -p "${1:?usage: coverage.sh <output dir>}" && cd "$1" && pwd)"
@@ -57,7 +63,7 @@ cov="${LLVM_COV:-llvm-cov}"
 # "Reproducible builds"); this maps them back to the checkout for the filters and the HTML.
 cov_paths=(-path-equivalence="build,$repo/build")
 gate_legacy="${MIN_BRANCH_COVERAGE-xlua.c=100 xlua_core.c=100 xlua_core_limits.c=100 xlua_core.h=100 i64lib.c=100 memory_leak_checker.c=83}"
-gate_core="${CORE_MIN_BRANCH_COVERAGE-xlua_core.c=100 xlua_core.c@core-5.4.9=99 xlua_core_limits.c=100 xlua_core.h=80 xlua_core_sandbox.c=97 xlua_core_buffer.c=100 xlua_core_buffer.c@core-5.4.9=99 xlua_core_nobc.c=100}"
+gate_core="${CORE_MIN_BRANCH_COVERAGE-xlua_core.c=100 xlua_core.c@core-5.4.9=99 xlua_core_limits.c=100 xlua_core_limits.c@core-tp-5.5.1=84 xlua_core.h=80 xlua_core_sandbox.c=97 xlua_core_sandbox.c@core-tp-5.5.1=100 xlua_core_buffer.c=100 xlua_core_buffer.c@core-5.4.9=99 xlua_core_nobc.c=100}"
 gate_minimal="${MINIMAL_MIN_BRANCH_COVERAGE-xlua_libs.c=100}"
 gate_bytecode="${BYTECODE_MIN_BRANCH_COVERAGE-xlua_noparser.c=100 xlua_chunkc.c=100}"
 gate_failed=0
@@ -69,6 +75,9 @@ run_tests() (
     local kind="$1" version="$2" build="$3" plugin="$3/libxlua.so"
     case "$kind" in
     core)
+        if [[ "$test_points" == ON ]]; then
+            export XLUA_EXPECT_TEST_POINTS=ON
+        fi
         python3 "$repo/Test/Native/check_exports.py" --preset core "$plugin"
         python3 "$repo/Test/Native/native_regression.py" "$plugin"
         "$clang_bin" -std=c17 -Wall -Wextra -Werror "$repo/Test/Native/core_smoke.c" -L"$build" -lxlua \
@@ -99,15 +108,17 @@ run_tests() (
     esac
 )
 
-for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 core-5.4.9 core-5.5.1 minimal-5.3.6 minimal-5.4.9 minimal-5.5.1 bytecode-5.5.1}; do
+for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 core-5.4.9 core-5.5.1 core-tp-5.5.1 minimal-5.3.6 minimal-5.4.9 minimal-5.5.1 bytecode-5.5.1}; do
     build="$out/$version"
+    test_points=OFF
     case "$version" in
+        core-tp-*) kind=core test_points=ON ;;
         core-*) kind=core ;;
         minimal-*) kind=minimal ;;
         bytecode-*) kind=bytecode ;;
         *) kind=legacy ;;
     esac
-    lua="${version#*-}"
+    lua="${version##*-}"
     rm -rf "$build/profiles"
     mkdir -p "$build/profiles"
     options=(-DCMAKE_C_COMPILER="$clang_bin" -DCMAKE_BUILD_TYPE=Debug -DLUA_VERSION="$lua" -DXLUA_COVERAGE=ON -DXLUA_APICHECK=ON)
@@ -115,6 +126,9 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 core-5.4.9 core-5.5.1 minimal-5.3.6
     case "$kind" in
     core)
         options+=(-DXLUA_PRESET=core -DXLUA_EXPORTS=all)
+        if [[ "$test_points" == ON ]]; then
+            options+=(-DCMAKE_C_FLAGS=-DXLUA_LIMITS_TEST_POINTS)
+        fi
         sources=("$b/xlua_core.c" "$b/xlua_core_limits.c" "$b/xlua_core.h"
                  "$b/xlua_core_sandbox.c" "$b/xlua_core_buffer.c" "$b/xlua_core_nobc.c")
         gate="$gate_core" ;;
