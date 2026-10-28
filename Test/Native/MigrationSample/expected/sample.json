@@ -18509,7 +18509,15 @@
    "constructors": [
     "XLuaTest.SignatureLoaderTest::.ctor()"
    ],
-   "methods": [],
+   "methods": [
+    {
+     "name": "ExampleFolder",
+     "static": true,
+     "overloads": [
+      "XLuaTest.SignatureLoaderTest::ExampleFolder(UnityEngine.MonoBehaviour)"
+     ]
+    }
+   ],
    "getters": [
     "PUBLIC_KEY static"
    ],
