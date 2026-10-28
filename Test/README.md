@@ -155,7 +155,14 @@ build type, so the bridge checks are on; `--define XLUA_NO_BRIDGE_CHECKS`
 runs it as a release player would (`CaseCheckObjectsForeignSelf`,
 `CaseCheckStructAccessorsForeign` and `CaseCheckObjectCache` then check the
 upstream behaviour), and `--define XLUA_BRIDGE_CHECKS` next to it checks
-that the force define wins. `CaseLightUserdataIsNoObject` passes in every
+that the force define wins. `CaseRegistryChecks` (2026-10-28, owner decision
+Q37) replaces, through `debug.getregistry`, the metatable reference of a
+class and of `decimal`, the userdata cache, a metatable stored by type name
+(read by `xlua.cast`) and, on LuaJIT, the int64 metatable `registry[8]` with
+a number, pushes values while they are replaced and restores them: the
+values come without a metatable, the cache misses, the named entry is
+removed, and int64 arithmetic raises "was replaced". It runs only with the
+bridge checks: a release player crashes there by design. `CaseLightUserdataIsNoObject` passes in every
 state: a light userdata is never read as an object (it failed before
 `xlua_tocsobj_fast` checked the value type, with checks off). Run the suite
 once without the defines and once with each, or all together. `CaseStrictStructTables` (`luaCallCsUpstream.lua`)
@@ -187,7 +194,11 @@ calls of both types one by one. `CaseParityObsolete` checks that `[Obsolete]`
 members are left out in every mode, reflection included, and
 `CaseParityStructArgs` that a struct parameter or field given nil, a number
 or nothing raises the same `InvalidCastException` everywhere (owner
-decisions of 2026-10-28). `CaseLazyBlackListed` and
+decisions of 2026-10-28). `CaseParityEnumArgs` does the same for enum
+parameters and fields (Q34), `CaseParityStructOtherObject` for a C# object
+of another class passed for a struct (Q36), and `CaseParityStructResults`
+checks that a struct C# reads back from a delegate or `LuaFunction.Func`
+where Lua returns nothing is `default(S)` (Q35), through `Coverage.ParityResults`. `CaseLazyBlackListed` and
 `CaseObsoleteOperator` cover `[DoNotGen]` with `[BlackList]` and `[Obsolete]`
 operators and indexers in generated code. The modes run in separate
 processes, so a case compares a mode with an expected value or with the
@@ -560,7 +571,20 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library. Its `global_state_key` check (2026-10-28) requires `xlua_gl`, the
 key by which C# finds an env, to stay the same for a state and its threads
-across collections and to differ for another state.
+across collections and to differ for another state. Its `registry_checks`
+check (2026-10-28) calls the `*_checked` push exports of the bridge checks
+(`xlua_pushcsobj_checked`, `xlua_pushstruct_checked`,
+`xlua_pushcstable_checked`, `xlua_tryget_cachedud_checked`,
+`lua_pushint64_checked`, `lua_pushuint64_checked`) with intact references and
+with a metatable reference and a cache replaced by a number, and checks
+`xlua_check_registry_refs`: on LuaJIT the int64 metamethods and the `uint64`
+functions raise once `registry[8]` is not a table, and work again once it is
+restored. Its `traceback_levels` check
+(2026-10-28) calls `debug.traceback` with levels near `INT_MIN` and
+`INT_MAX`, on the main thread, deep in a call chain and on a coroutine: the
+text must be the message and "stack traceback:" alone, and under UBSan
+(`sanitize.sh`) the unpatched `luaL_traceback` of Lua 5.3.6, 5.4.9 and 5.5.1
+stops with a signed overflow ([LUA_PATCHES.md](../build/LUA_PATCHES.md)).
 
 `python3 Test/Native/apicheck_probe.py [--luajit] PLUGIN` checks that a
 library built with `-DXLUA_APICHECK=ON` has Lua's C API checks: a child
@@ -1749,10 +1773,10 @@ back; on LuaJIT the JIT compiler is turned off once a profiler function is set
 (compiled code calls no hook), so the compiler is not fuzzed. An endless loop
 inside a hook function still runs without a limit (hooks are off there). The known crashes of
 [crash-inventory.md](../docs/research/crash-inventory.md) (items 8, 10, 18,
-22, 23 and 24: foreign userdata with a struct header, `debug.getregistry`,
+22 and 23: foreign userdata with a struct header, `debug.getregistry`,
 `debug.setupvalue` on a trampoline's C function and on a class indexer's
 fields, `__gc` errors on Lua 5.3, `debug.setmetatable` on io files on
-LuaJIT, `debug.traceback` levels near the int limits) are left out unless
+LuaJIT) are left out unless
 `FUZZ_TRICKS=1`; `FUZZ_BRIDGE_TRACE=1` (2, 3) on a reproducer says how the
 driver ended (and lists every call). The seeds are 16 fixed random inputs
 of 1 KB, which the script writes, and `Test/Fuzz/corpus/bridge`: the
@@ -1840,7 +1864,9 @@ assembles from a placeholder for every plugin:
   included) has the platforms, CPU and Editor OS that the script's `PLUGINS`
   table lists, nothing else enabled, and every plugin of
   `make_upm_package.py`'s `RELEASE_PLUGINS` has a `.meta`. A new plugin needs
-  a row there.
+  a row there. An enabled Editor must name a CPU of the Editor's enum
+  (`AnyCPU`, `x86_64`, `ARM64`), and the 32-bit `x86` desktop plugins must
+  have the Editor off.
 
 The file list comes from git (tracked files, and untracked ones that are not
 ignored). Run on 2026-10-28, it found these, now fixed:
@@ -1874,7 +1900,11 @@ names were already Unity's. Two things were left as they are: the WSA names
 (`ARM`, `ARM64`, `x64`, `x86`, upstream's), since no Universal Windows
 Platform module was installed to read its importer; and the Editor CPU `x86`
 of the 32-bit `x86/xlua.dll` and `x86/libxlua.so`, which is not a value of
-the Editor's enum in either version (no 32-bit Editor exists). Checked by
+the Editor's enum in either version (no 32-bit Editor exists).
+**Owner decision (2026-10-28, Q40): the Editor is off for those two.** They
+stay enabled for 32-bit Windows and Linux players; the check fails for an
+enabled Editor there, and for any enabled Editor with a CPU outside the
+Editor's enum (both findings on the old files, checked). Checked by
 breaking a copy of the repository: removing the
 Android x86_64 `.meta` files (the gap closed on 2026-10-19), a copied GUID,
 an orphan `.meta` with a malformed GUID and a wrong Android CPU each fail it,

@@ -114,6 +114,58 @@ load average of 40 to 100 from other jobs); the reader fix costs 1.8 ns in
 a native loop. The `xlua.f` lookup stays 12 ns in minimal (6 to 8 in
 legacy), the price of `XLUA_LOCK_XLUA_TABLE`.
 
+## Registry checks (owner decision Q37, 2026-10-28)
+
+The bridge fuzzer found that a script with `debug.getregistry` can replace
+the registry entries xLua reads without a type check, and that the next
+push then crashes ([crash-inventory.md](../research/crash-inventory.md),
+item 22). **Decided 2026-10-28 (owner, Q37): check them in debug builds
+only, under `XLUA_BRIDGE_CHECKS`, at no cost in release players.**
+
+- **How native code learns the build type:** as for the other bridge checks,
+  it does not. The plugin has a checked twin of each push function, and the
+  C# bridge imports it under the plain name when `XLUA_BRIDGE_CHECKS` is
+  defined (`LuaDLLBridge.cs`: the whole `DllImport` declaration in an
+  `#if`/`#else` with `EntryPoint`, so generated code, CodeEmit and the
+  reflection pushers call `LuaAPI.xlua_pushstruct` and the rest as before).
+  Release players import the plain functions, whose machine code is
+  unchanged (compared with `objdump` on the macOS arm64 LuaJIT plugin of
+  main and of this change: `xlua_pushcsobj`, `xlua_pushstruct`,
+  `xlua_pushcstable`, `xlua_tryget_cachedud`, `lua_pushint64`,
+  `lua_pushuint64` and `int64_add` give the same instructions).
+- **What is checked** (one `lua_type` each):
+  - the metatable reference of a C# type in `xlua_pushcsobj_checked`,
+    `xlua_pushstruct_checked` and `xlua_pushcstable_checked`
+    (`set_registry_metatable` in `build/xlua.c`): a value that is not a
+    table leaves the userdata or table without a metatable;
+  - the userdata cache in `xlua_pushcsobj_checked` (nothing is stored) and
+    in `xlua_tryget_cachedud_checked` (a miss);
+  - LuaJIT's int64 metatable `registry[8]` in `lua_pushint64_checked` and
+    `lua_pushuint64_checked` (`build/i64lib.c`; on Lua 5.3+ they push an
+    integer, as the plain ones do), and in the int64 metamethods and the
+    `uint64` functions, which `xlua_check_registry_refs` (called by the
+    `LuaEnv` constructor after `luaopen_i64lib`) wraps in a closure that
+    raises "the int64 metatable (registry[8]) was replaced";
+  - a metatable stored by type name (`LuaAPI.luaL_getmetatable`, used by
+    `getTypeId`, the registration code and `xlua.cast`): a value that is
+    neither nil nor a table is removed, and the caller sees none;
+  - the enum caches of generated code (`BindingApi.EnumCacheRef`): a cache
+    that is not a table is replaced by a new one, since the generated pusher
+    reads and writes it with `lua_rawgeti` and `lua_rawseti`.
+- **Not covered:** `xlua_newstruct` (C# does not call it), the indirect
+  references (not imported), and the upvalues of item 18
+  (`debug.setupvalue`), which are not registry entries. The fuzz target still
+  leaves `debug.getregistry` out unless `FUZZ_TRICKS=1`, because it also
+  drives the plain exports, which release players use.
+- **Cost:** none in release players. Debug builds pay one `lua_type` per
+  push of a C# object or struct and per int64 push on LuaJIT (about 1 ns,
+  not measured), three P/Invokes per enum push of generated code, and a
+  closure call per int64 metamethod on LuaJIT.
+- **Native bridge version 112** (the six new exports; 111 is the struct bounds work of the same day).
+- **Tests:** `native_regression.py registry_checks` (every runtime) and
+  `CaseRegistryChecks` in `luaBridgeHardening.lua` (the managed suite, which
+  runs as `XLUA_GENERAL`, a debug build type).
+
 ## Decisions for the owner
 
 ### A. Make the three checks unconditional? (superseded 2026-10-19)

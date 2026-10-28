@@ -183,6 +183,120 @@ function CMyTestCaseBridgeHardening.CaseCheckObjectCache(self)
     ASSERT_EQ(other:GetValue(), 4)
 end
 
+-- Owner decision Q37 (2026-10-28), crash-inventory item 22, a bridge check:
+-- the metatables of C# objects and structs, the userdata cache and LuaJIT's
+-- int64 metatable are registry entries, and a script with debug.getregistry
+-- can replace them. The push functions then gave lua_setmetatable a number
+-- (a crash on LuaJIT, and on Lua without its API checks), and the cache was
+-- indexed as a table. With the checks a value that is not a table is not
+-- used: the userdata gets no metatable, the cache misses, a metatable looked
+-- up by name is dropped, and int64 arithmetic raises. Release players crash
+-- by design (debug.getregistry is a debug tool), so the case runs only with
+-- the checks. It uses bound types only, so it runs without reflection too.
+function CMyTestCaseBridgeHardening.CaseRegistryChecks(self)
+    if not Defines.BridgeChecks() then return end
+    local reg = debug.getregistry()
+    local P = CS.BridgeHardening.Probe
+    local o = P(3)
+    local mt = debug.getmetatable(o)
+    local key, name
+    for k, v in pairs(reg) do
+        if rawequal(v, mt) then
+            if type(k) == "number" then key = k elseif type(k) == "string" then name = k end
+        end
+    end
+    ASSERT_TRUE(key ~= nil)
+    ASSERT_TRUE(name ~= nil)
+
+    -- The metatable reference of a class (xlua_pushcsobj).
+    reg[key] = 1
+    local ok, made = pcall(P.Make, 6)
+    reg[key] = mt
+    ASSERT_EQ(ok, true)
+    ASSERT_EQ(type(made), "userdata")
+    ASSERT_EQ(debug.getmetatable(made), nil)
+    ASSERT_EQ(pcall(function() return made.Value end), false)
+    ASSERT_EQ(P.Make(7):GetValue(), 7)
+
+    -- The metatable reference of a struct (xlua_pushstruct, decimal in every mode).
+    local Parity = CS.Coverage.Parity
+    local d = Parity.Money
+    local dmt = debug.getmetatable(d)
+    local dkey
+    for k, v in pairs(reg) do
+        if rawequal(v, dmt) and type(k) == "number" then dkey = k end
+    end
+    ASSERT_TRUE(dkey ~= nil)
+    reg[dkey] = 1
+    local ok2, d2 = pcall(function() return Parity.Money end)
+    reg[dkey] = dmt
+    ASSERT_EQ(ok2, true)
+    ASSERT_EQ(type(d2), "userdata")
+    ASSERT_EQ(debug.getmetatable(d2), nil)
+    ASSERT_EQ(string.sub(tostring(Parity.Money), 1, 3), "1.5")
+
+    -- The userdata cache (xlua_tryget_cachedud_checked, xlua_pushcsobj): a miss, and
+    -- nothing stored.
+    local function holds(t, value)
+        for _, v in pairs(t) do
+            if rawequal(v, value) then return true end
+        end
+        return false
+    end
+    local cache, ckey
+    for k, v in pairs(reg) do
+        if type(v) == "table" and getmetatable(v) ~= nil and holds(v, o) then
+            cache, ckey = v, k
+            break
+        end
+    end
+    ASSERT_TRUE(cache ~= nil)
+    reg[ckey] = 1
+    local ok3, back = pcall(o.Self, o)
+    reg[ckey] = cache
+    ASSERT_EQ(ok3, true)
+    ASSERT_EQ(back:GetValue(), 3)
+    ASSERT_TRUE(not rawequal(back, o))
+    ASSERT_EQ(holds(cache, back), false)
+    ASSERT_EQ(o:Self():GetValue(), 3)
+
+    -- A metatable by name (LuaAPI.luaL_getmetatable, here through xlua.cast): the
+    -- planted value is removed and the type counts as having none.
+    reg[name] = 1
+    local ok4, err4 = pcall(xlua.cast, o, typeof(P))
+    local removed = rawget(reg, name) == nil
+    reg[name] = mt
+    ASSERT_EQ(ok4, false)
+    ASSERT_TRUE(removed)
+    ASSERT_TRUE(string.find(tostring(err4), "no gen code", 1, true) ~= nil)
+    xlua.cast(o, typeof(P))
+    ASSERT_EQ(o:GetValue(), 3)
+
+    -- LuaJIT's int64 metatable, registry[8] (lua_pushint64 from C#, and the
+    -- metamethods and uint64 functions, xlua_check_registry_refs).
+    if jit then
+        -- Loaded first: a class loaded while registry[8] is replaced would keep values
+        -- without a metatable.
+        local T = CS.LuaTestObj
+        local i = uint64.parse("7")
+        local imt = reg[8]
+        ASSERT_TRUE(rawequal(debug.getmetatable(i), imt))
+        reg[8] = 1
+        local ok5, err5 = pcall(function() return i + 1 end)
+        local ok6, err6 = pcall(uint64.parse, "1")
+        local ok7, l = pcall(function() return T.lY4 end)
+        reg[8] = imt
+        ASSERT_EQ(ok5, false)
+        ASSERT_TRUE(string.find(tostring(err5), "was replaced", 1, true) ~= nil)
+        ASSERT_EQ(ok6, false)
+        ASSERT_EQ(ok7, true)
+        ASSERT_EQ(type(l), "userdata")
+        ASSERT_EQ(debug.getmetatable(l), nil)
+        ASSERT_EQ(uint64.compare(i + 1, 8), 0)
+        ASSERT_TRUE(rawequal(debug.getmetatable(T.lY4), imt))
+    end
+end
+
 -- Finding D: generated pushers of [LuaCallCSharp] and [GCOptimize] enums
 -- cached the userdata of each value in the enum's class table, keyed by the
 -- value, so rawset(CS.E, 1, x), or CS.E[1] = x once the value was pushed,

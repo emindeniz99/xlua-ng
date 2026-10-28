@@ -606,10 +606,26 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_running(IntPtr L);
 
+        // registry[meta], the metatable of a type by its name (Utils.MetatableKey), or nil.
+        // With the bridge checks (XLUA_BRIDGE_CHECKS, owner decision Q37) a value a script
+        // stored there through debug.getregistry that is neither nil nor a table is removed
+        // and nil is pushed, so the caller makes a new metatable (or reports none) instead
+        // of using a number or a string as a table.
         public static void luaL_getmetatable(IntPtr L, string meta)
 		{
             xlua_pushasciistring(L, meta);
 			lua_rawget(L, LuaIndexes.LUA_REGISTRYINDEX);
+#if XLUA_BRIDGE_CHECKS
+            LuaTypes type = lua_type(L, -1);
+            if (type != LuaTypes.LUA_TNIL && type != LuaTypes.LUA_TTABLE)
+            {
+                lua_pop(L, 1);
+                xlua_pushasciistring(L, meta);
+                lua_pushnil(L);
+                lua_rawset(L, LuaIndexes.LUA_REGISTRYINDEX);
+                lua_pushnil(L);
+            }
+#endif
 		}
 
 #if XLUA_GENERAL
@@ -657,8 +673,23 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_check_struct_accessors(IntPtr L);
 
+        // The bridge checks (XLUA_BRIDGE_CHECKS), called after luaopen_i64lib: on LuaJIT the int64
+        // metamethods and uint64 functions raise a Lua error once registry[8] is not a table.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_check_registry_refs(IntPtr L);
+
+        // With the bridge checks (XLUA_BRIDGE_CHECKS) this and the other push functions marked
+        // "registry checks" import the *_checked entry points (owner decision Q37, 2026-10-28;
+        // build/xlua.c set_registry_metatable): a metatable reference or userdata cache that a
+        // script replaced through debug.getregistry with something other than a table is not
+        // used, instead of crashing. Release players import the plain ones, at no cost.
+#if XLUA_BRIDGE_CHECKS
+        [DllImport(LUADLL, EntryPoint = "xlua_pushcsobj_checked", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlua_pushcsobj(IntPtr L, int key, int meta_ref, bool need_cache, int cache_ref);//[-0, +1, m]
+#else
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlua_pushcsobj(IntPtr L, int key, int meta_ref, bool need_cache, int cache_ref);//[-0, +1, m]
+#endif
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]//[,,m]
         public static extern int gen_obj_indexer(IntPtr L);
@@ -710,11 +741,22 @@ namespace XLua.LuaDLL
             return luaL_error(L, "LuaSocket is not compiled into the xlua native library");
         }
 
+        // Registry checks (see xlua_pushcsobj): the int64 metatable of LuaJIT.
+#if XLUA_BRIDGE_CHECKS
+        [DllImport(LUADLL, EntryPoint = "lua_pushint64_checked", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void lua_pushint64(IntPtr L, long n);//[,,m]
+#else
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void lua_pushint64(IntPtr L, long n);//[,,m]
+#endif
 
+#if XLUA_BRIDGE_CHECKS
+        [DllImport(LUADLL, EntryPoint = "lua_pushuint64_checked", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void lua_pushuint64(IntPtr L, ulong n);//[,,m]
+#else
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void lua_pushuint64(IntPtr L, ulong n);//[,,m]
+#endif
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern bool lua_isint64(IntPtr L, int idx);
@@ -777,11 +819,22 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern bool xlua_unpack_double(IntPtr buff, int offset, out double field);
 
+        // Registry checks (see xlua_pushcsobj).
+#if XLUA_BRIDGE_CHECKS
+        [DllImport(LUADLL, EntryPoint = "xlua_pushstruct_checked", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr xlua_pushstruct(IntPtr L, uint size, int meta_ref);
+#else
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr xlua_pushstruct(IntPtr L, uint size, int meta_ref);
+#endif
 
+#if XLUA_BRIDGE_CHECKS
+        [DllImport(LUADLL, EntryPoint = "xlua_pushcstable_checked", CallingConvention = CallingConvention.Cdecl)]
+        public static extern void xlua_pushcstable(IntPtr L, uint field_count, int meta_ref);
+#else
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void xlua_pushcstable(IntPtr L, uint field_count, int meta_ref);
+#endif
 
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]

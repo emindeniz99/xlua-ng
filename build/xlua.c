@@ -63,7 +63,7 @@ LUA_API int xlua_get_registry_index(void) {
 }
 
 LUA_API int xlua_get_lib_version(void) {
-	return 111;
+	return 112;
 }
 
 #if LUA_VERSION_NUM >= 505
@@ -772,9 +772,17 @@ LUA_API int xlua_tryget_cachedud(lua_State *L, int key, int cache_ref) {
  * index, and every later push of that C# object then returns that value.
  * This accepts only a C# object userdata (bridge tag, at least an int of
  * payload) that holds the index it is stored under; anything else is a miss,
- * and the caller pushes a new userdata, which replaces the entry. */
+ * and the caller pushes a new userdata, which replaces the entry. A cache
+ * that is no longer a table (debug.getregistry()[ref] = 1, which made
+ * lua_rawgeti read a number as a table) is a miss too; the C# bridge then
+ * pushes with xlua_pushcsobj_checked, which stores nothing there (owner
+ * decision Q37, docs/research/crash-inventory.md item 22). */
 LUA_API int xlua_tryget_cachedud_checked(lua_State *L, int key, int cache_ref) {
 	lua_rawgeti(L, LUA_REGISTRYINDEX, cache_ref);
+	if (lua_type(L, -1) != LUA_TTABLE) {
+		lua_pop(L, 1);
+		return 0;
+	}
 	lua_rawgeti(L, -1, key);
 	if (is_cs_data(L, -1) && userdata_size(L, -1) >= sizeof(int) && *(int *)lua_touserdata(L, -1) == key)
 	{
@@ -802,6 +810,41 @@ LUA_API void xlua_pushcsobj(lua_State *L, int key, int meta_ref, int need_cache,
     lua_rawgeti(L, LUA_REGISTRYINDEX, meta_ref);
 
 	lua_setmetatable(L, -2);
+}
+
+/* The registry checks of debug builds (owner decision Q37, 2026-10-28;
+ * docs/research/crash-inventory.md item 22). The metatable of every C#
+ * object and struct, and the userdata cache, are registry references, and a
+ * script with debug.getregistry can store any value there. The push
+ * functions above give lua_setmetatable whatever they find, and a number or
+ * a string read as a table crashed (LuaJIT, and Lua without its API checks);
+ * cacheud stored into it with lua_rawseti. With the C# bridge checks
+ * (XLUA_BRIDGE_CHECKS: the Editor, Development Builds, XLUA_GENERAL) the
+ * bridge imports the functions below under the same names (DllImport
+ * EntryPoint): a value that is not a table leaves the userdata without a
+ * metatable, so a script that uses it gets a Lua error, and nothing is
+ * cached. Release players keep the functions above, unchanged. */
+static void set_registry_metatable(lua_State *L, int meta_ref) {
+	lua_rawgeti(L, LUA_REGISTRYINDEX, meta_ref);
+	if (lua_type(L, -1) == LUA_TTABLE) {
+		lua_setmetatable(L, -2);
+	} else {
+		lua_pop(L, 1);
+	}
+}
+
+LUA_API void xlua_pushcsobj_checked(lua_State *L, int key, int meta_ref, int need_cache, int cache_ref) {
+	int* pointer = (int*)new_userdata(L, sizeof(int));
+	*pointer = key;
+	if (need_cache) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, cache_ref);
+		if (lua_type(L, -1) == LUA_TTABLE) {
+			lua_pushvalue(L, -2);
+			lua_rawseti(L, -2, key);
+		}
+		lua_pop(L, 1);
+	}
+	set_registry_metatable(L, meta_ref);
 }
 
 void print_top(lua_State *L) {
@@ -1187,6 +1230,21 @@ LUA_API void xlua_pushcstable(lua_State *L, unsigned int size, int meta_ref) {
 	lua_createtable(L, 0, size); // NOLINT(bugprone-narrowing-conversions): size is only a preallocation hint; Lua ignores non-positive hints
     lua_rawgeti(L, LUA_REGISTRYINDEX, meta_ref);
 	lua_setmetatable(L, -2);
+}
+
+/* xlua_pushstruct and xlua_pushcstable for the bridge checks: see
+ * set_registry_metatable. */
+LUA_API void *xlua_pushstruct_checked(lua_State *L, unsigned int size, int meta_ref) {
+	CSharpStruct *css = (CSharpStruct *)new_userdata(L, size + sizeof(int) + sizeof(unsigned int));
+	css->fake_id = -1;
+	css->len = size;
+	set_registry_metatable(L, meta_ref);
+	return css;
+}
+
+LUA_API void xlua_pushcstable_checked(lua_State *L, unsigned int size, int meta_ref) {
+	lua_createtable(L, 0, size); // NOLINT(bugprone-narrowing-conversions): as in xlua_pushcstable
+	set_registry_metatable(L, meta_ref);
 }
 
 /* A negative size used to wrap around in size_t: -8 to -1 allocated less than

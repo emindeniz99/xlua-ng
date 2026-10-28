@@ -108,6 +108,14 @@ namespace XLua.SourceGenerator
             "GCOptimize struct '{0}' has no generated bindings, and this build does not reach C# through reflection (XLUA_NO_REFLECTION, part of XLUA_PRESET_MINIMAL): Lua gets its values without boxing, but reading or setting its fields ({1}) raises '{0} has no generated bindings' at run time. Mark it [LuaCallCSharp], or add [assembly: XLua.LuaCallCSharp(typeof({2}))] for a type you cannot change",
             DiagnosticSeverity.Warning);
 
+        // The same for a struct a referenced assembly configures, such as
+        // xLua's UnityEngine defaults (GenAttributes.cs), where a member this
+        // assembly binds passes it (owner decision Q41 of 2026-10-28).
+        public static readonly DiagnosticDescriptor UnboundReferencedStruct = Make("XLSG014",
+            "GCOptimize struct without generated bindings",
+            "GCOptimize struct '{0}', configured by assembly '{4}', has no generated bindings, and this build does not reach C# through reflection (XLUA_NO_REFLECTION, part of XLUA_PRESET_MINIMAL): '{3}' passes such values between Lua and C#, but reading or setting their fields ({1}) raises '{0} has no generated bindings' at run time. Add [assembly: XLua.LuaCallCSharp(typeof({2}))] to this assembly",
+            DiagnosticSeverity.Warning);
+
         public static readonly DiagnosticDescriptor ConfigurationList = Make("XLSG011",
             "Configuration list, not read by the source generator",
             "[{0}] on '{1}' is a configuration list, which the source generator does not read; it reads [{0}] on types and [assembly: {0}(typeof(T))]. Convert the list with XLua > Migrate Configuration to Attributes (XLuaGenerate --migrate), then delete it",

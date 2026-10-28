@@ -446,10 +446,11 @@ namespace XLua
                 {
                     il.Emit(OpCodes.Ldtoken, type);
                     il.Emit(OpCodes.Call, Type_GetTypeFromHandle); // typeof(type)
-                    // An argument of a strict struct type raises for nil or a
-                    // number (GetStructArg) instead of passing the zero value below.
+                    // An argument of a strict struct or enum type raises for nil
+                    // or a value of another kind (GetStructArg) instead of
+                    // passing the zero value below; a result keeps it (Q35).
                     il.Emit(OpCodes.Callvirt, !luaResult && ObjectCasters.RefusesTables(type) ? ObjectTranslator_GetUnityObjectArg
-                        : !luaResult && ObjectCasters.IsStrictStruct(type) ? ObjectTranslator_GetStructArg : ObjectTranslator_GetObject);
+                        : !luaResult && ObjectCasters.IsStrictArg(type) ? ObjectTranslator_GetStructArg : ObjectTranslator_GetObject);
                 }
                 if (type.IsValueType)
                 {

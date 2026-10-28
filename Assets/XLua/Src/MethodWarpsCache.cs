@@ -411,10 +411,11 @@ namespace XLua
                         {
                             args[inPosArray[i]] = Array.CreateInstance(paramsType, 0);
                         }
-                        else if (!isOptionalArray[i] && ObjectCasters.IsStrictStruct(signature.argTypes[i]))
+                        else if (!isOptionalArray[i] && ObjectCasters.IsStrictArg(signature.argTypes[i]))
                         {
-                            // A missing struct argument raises as nil does
-                            // (ObjectCasters.StructExpected), as in generated code.
+                            // A missing struct or enum argument raises as nil
+                            // does (ObjectCasters.StructExpected), as in
+                            // generated code.
                             args[inPosArray[i]] = castArray[i](L, luaStackPos, null);
                         }
                         else
