@@ -1663,6 +1663,13 @@ driver ended (and lists every call). The seeds are 16 fixed random inputs
 of 1 KB, which the script writes, and `Test/Fuzz/corpus/bridge` (the
 reduced input of crash-inventory item 27: on legacy Lua 5.3.6 it replaces the
 metatable of an all-weak `_G` between GC steps).
+It runs for 60 seconds in every native-build (`sanitizers` job, legacy,
+Lua 5.5.1), and for 30 minutes every Monday in `analysis.yml`'s `fuzz-bridge`
+job (owner decision 2026-10-28) on legacy 5.5.1, legacy LuaJIT, minimal 5.4.9
+and core 5.5.1. The weekly job keeps the corpus it grows in the Actions cache
+(one entry per configuration), so each week starts from the last; a crash
+uploads its reproducer and `fuzz.log` as an artifact for 30 days. Add a minimised
+reproducer of every fixed crash to `native_regression.py` or the seed corpus.
 On 2026-10-28 (Linux arm64 container, Clang 21.1.8) the target ran for about
 2 hours 40 minutes of CPU in fork mode: legacy 15 minutes on each runtime,
 minimal 10, core 15 on 5.4.9 and 5.5.1, plus re-runs after the fixes. It

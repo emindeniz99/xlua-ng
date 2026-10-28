@@ -198,8 +198,10 @@ and weekly, and uploads its results to code scanning. **Native analysis** (`anal
 reproducers. Its `coverage` job fails when a file's branch coverage drops
 below `coverage.sh`'s `MIN_BRANCH_COVERAGE` (`xlua.c` 100%, `xlua_core.c` 98%,
 `xlua_core_limits.c` 93%; Test/README.md). That job also runs on pushes to
-`main` and on pull requests (owner decision 2026-10-28, path filters below);
-the other jobs run only by hand. Its `lua-tests` job runs lua.org's official test suites through
+`main` and on pull requests (owner decision 2026-10-28, path filters below).
+Its `fuzz-bridge` job runs `Test/Fuzz/run_bridge.sh` for 30 minutes on four
+configurations every Monday at 03:17 UTC and by hand, keeping its corpus in the
+Actions cache (owner decision 2026-10-28). The other jobs run only by hand. Its `lua-tests` job runs lua.org's official test suites through
 `Test/Native/lua_tests.py` for Lua 5.3.6 (also with `LUAC_COMPATIBLE_FORMAT`),
 5.4.9 and 5.5.1, plain and under ASan and UBSan; the script downloads the
 pinned archives and checks their SHA-256. Check workflow changes with
