@@ -122,6 +122,41 @@ public sealed class XluaEditorToolsTests
         }
     }
 
+    // XLua > Migrate Configuration to Attributes writes the configuration of the
+    // project's own types into their assembly, and leaves the attributes on
+    // them alone where the source generator runs. Without asmdefs
+    // (prepare.py --no-asmdef) xLua compiles into Assembly-CSharp, and the menu
+    // took Assembly-CSharp for xLua's own assembly: it copied every type
+    // attribute there into Assets/XLuaConfig/XLuaConfig.cs and could not write
+    // [Hotfix] lists of its types (Unity 2021.3.45f2, 2026-10-28). In an
+    // assembly the generator does not compile, the type attributes are
+    // converted like a list, and the result names that list, so that the next
+    // run rewrites the file instead of keeping it with an error.
+    [Test]
+    public void MigrationMenuLeavesTypeAttributesWhereTheGeneratorRuns()
+    {
+        var assembly = typeof(XluaEditorTest.Pair).Assembly;
+        Assert.AreEqual("Assembly-CSharp", assembly.GetName().Name);
+        Assert.IsTrue(ConfigMigrationMenu.CanWriteInto(assembly), "the menu writes into Assembly-CSharp");
+        Assert.IsTrue(ConfigMigrationMenu.GeneratorRunsIn(assembly), "the generator runs in Assembly-CSharp");
+        Assert.IsTrue(ConfigMigrationMenu.GeneratorRunsIn(typeof(XLua.LuaEnv).Assembly), "the generator runs in xLua's assembly");
+        var types = XLua.Utils.GetAllTypes().Where(t => t.Assembly == assembly).ToList();
+        string typeList = "[LuaCallCSharp] on the types of Assembly-CSharp";
+        var options = new MigrationOptions
+        {
+            BindingsHost = "Assembly-CSharp",
+            CanWrite = ConfigMigrationMenu.CanWriteInto,
+            GeneratorRunsIn = ConfigMigrationMenu.GeneratorRunsIn,
+        };
+        var result = Generator.MigrateConfiguration(types, options);
+        CollectionAssert.DoesNotContain(result.Lists, typeList, result.Report);
+        Assert.IsFalse(result.Files.Any(f => f.Lists.Contains(typeList)), result.Report);
+        options.GeneratorRunsIn = a => false;
+        result = Generator.MigrateConfiguration(types, options);
+        CollectionAssert.Contains(result.Lists, typeList, result.Report);
+        Assert.IsTrue(result.Files.Any(f => f.Lists.Contains(typeList) && f.Text.Contains("typeof(XluaEditorTest.Pair)")), result.Report);
+    }
+
     [Test]
     public void ValidateSetupAcceptsThePlugin()
     {
