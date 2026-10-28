@@ -738,7 +738,16 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   exports and the C budget on a state without the core allocator, a host
   function's argument that is light userdata or, on Lua 5.5, a 2 GB external
   string over untouched memory, a hook that is not core's own, and a
-  coroutine resumed with `lua_resume` instead of `coroutine.resume`. A bridge library built with
+  coroutine resumed with `lua_resume` instead of `coroutine.resume`; and
+  `core_sandbox_edges` (2026-10-28), the edges of `xlua_core_sandbox.c` and
+  `xlua_core_buffer.c` that the others leave (the file's docstring lists
+  them), among them a coroutine error whose `__tostring` raises (the plain
+  call's text, the coroutine's traceback, the error object as the error
+  handle; a memory error or a stop in it is the call's) and, with the Lua
+  API exported, `xlua_core_call`, `_handle`, `_register`, `_set_require` and
+  `_unref` from a host function whose stack is exactly full, where a push
+  before the export's own stack check fails Lua's API check (an abort with
+  `XLUA_APICHECK`). A bridge library built with
   `XLUA_LUASCRIPT=ON` runs the same checks after its own.
 - **`Test/Native/core_smoke.c`** drives the same file and edges through the
   core exports only, without Python, so it works with the managed export
@@ -1543,7 +1552,7 @@ Mono 6.14.1, reflection only, no .NET SDK), branches taken of all:
 | `xlua_core.c` (core) | | 123 of 124 | 136 of 136 |
 | `xlua_core.h` (core) | | 16 of 20 | 16 of 20 |
 | `xlua_core_limits.c` (core) | | 152 of 152 | 152 of 152 |
-| `xlua_core_sandbox.c` | | 540 of 554 (97.5%) | 541 of 554 (97.7%) |
+| `xlua_core_sandbox.c` | | 556 of 570 (97.5%) | 557 of 570 (97.7%) |
 | `xlua_core_buffer.c` | | 101 of 102 | 102 of 102 |
 | `xlua_core_nobc.c` | | no branches | no branches |
 | `xlua_libs.c` (minimal) | 2 of 2 | 2 of 2 | 6 of 6 |
@@ -1571,9 +1580,13 @@ What is below 100, and why:
   after `call_body`'s last stop check and before the call ends: no Lua code,
   hook or finalizer runs in that window, so only another thread's Interrupt
   or watchdog reaches it. `check_core_stop_window` takes all of them in a
-  build with `-DXLUA_LIMITS_TEST_POINTS` (554 of 554 on 5.5.1, macOS), which
+  build with `-DXLUA_LIMITS_TEST_POINTS` (570 of 570 on 5.5.1, macOS), which
   the coverage run does not build. The one on 5.4.9 is a result string of 2
-  GB (as above).
+  GB (as above). The two fixes of the same day (a coroutine error whose
+  `__tostring` raises, and the exports on an exactly full stack) brought
+  branches that are all taken, and removed the two non-string message checks
+  of `xlua_core_call` that only the first bug reached: 540 and 541 of 554
+  before, the same 14 and 13 missed after.
 - **`xlua_core.h` in the core runs, 4 branches:** `xlua_core_enter` and
   `xlua_core_leave` on a state without the core allocator, and a nested
   entry on another thread than the running one. Every entry of a core

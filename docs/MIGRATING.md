@@ -1715,6 +1715,24 @@ Without the asmdefs it compiles into Assembly-CSharp with the rest.
   got no value)". A frame with a type error for argument 0 or below, which
   `LuaCall` does not produce, gets the same message instead of reading an
   invalid stack index.
+- **A coroutine error whose `__tostring` raises, and the exports on a full
+  stack** (fixes, 2026-10-28):
+  - `LuaScript.Start` and `LuaCoroutine.Resume` for a coroutine that fails
+    with an error object whose `__tostring` raises threw
+    `LuaRuntimeException` with "unknown error (status 2)", no
+    `LuaStackTrace` and no `ErrorValue`. They now throw it with "(error
+    object is a table value)", the text a call gives for an error object
+    without a usable `__tostring`, with the coroutine's traceback and the
+    error object as `ErrorValue`. A memory error or a stop inside that
+    `__tostring` throws as it does in a call. Calls (`Load`, `Call`) are
+    unchanged.
+  - **native:** `xlua_core_call`, `xlua_core_handle`, `xlua_core_register`,
+    `xlua_core_set_require` and `xlua_core_unref` pushed a value before they
+    checked the stack, so a C host whose stack was exactly full failed Lua's
+    API check (an abort in an `XLUA_APICHECK` build). They now check first:
+    `xlua_core_call` returns `XLUA_ERRSTACK` with "stack overflow", the next
+    three `XLUA_ERRMEM`, and `xlua_core_unref` returns 0 and keeps the
+    handle. `LuaScript` never fills the stack; no ABI change.
 - **Smaller core-only players** (2026-10-18,
   [core-luascript.md](design/core-luascript.md) section 8.15): the same
   `LuaScript` API in less IL2CPP code. What can be seen:
