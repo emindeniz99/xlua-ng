@@ -6,7 +6,7 @@ Generate Code, `CustomGen`, `[GenCodeMenu]`, `LinkXmlGen` and the templates unde
 
 ## What to do instead
 
-* **`link.xml`** needs no custom step: the source generator lists `[ReflectionUse]` types and the members Lua reaches through reflection, and a player build passes them to UnityLinker (see [ReflectionUse](Configure_EN.md#xluareflectionuse)).
+* **`link.xml`** needs no custom step: the source generator lists `[ReflectionUse]` types, the `[LuaCallCSharp]` types in the legacy preset and with `HOTFIX_ENABLE` (as `LinkXmlGen` did), and the members Lua reaches through reflection, and a player build passes them to UnityLinker (see [LuaCallCSharp](Configure_EN.md#xlualuacallcsharp) and [ReflectionUse](Configure_EN.md#xluareflectionuse)).
 * **LuaLS definitions:** **XLua > Generate LuaCATS Definitions** writes them from the generator's manifests ([LuaCATS definitions](LuaCATS.md)).
 * **Other files:** write an Editor script that runs from its own `[MenuItem]` or from a build callback, and writes the file with ordinary C#. It can read
   * the configuration by reflection: the attributes are metadata, so `Assembly.GetCustomAttributes` and `Type.GetCustomAttributes` return them; an assembly-level one names its configured types in `Types` (`BlackList` in `Type` or `TypeName`, `Member` and the parameter types);

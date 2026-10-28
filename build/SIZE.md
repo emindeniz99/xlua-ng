@@ -1754,6 +1754,51 @@ baseline 220,672 / 200,704; source generator 1,051,136 / 893,440, with
 Not measured: iOS, WebGL, Medium stripping, a smaller `[ReflectionUse]` list,
 and players run on a device (these size builds are not run).
 
+## Legacy keeps `[LuaCallCSharp]` types whole (2026-10-29)
+
+Since owner decision Q75 of 2026-10-29 the source generator writes
+`preserve="all"` for every `[LuaCallCSharp]` type in the legacy preset and in
+minimal with `HOTFIX_ENABLE`; strict minimal keeps the narrow entries
+([source-generator.md](../docs/design/source-generator.md#luacallcsharp-types-kept-whole-where-reflection-reaches-them-2026-10-29)).
+What legacy now pays, measured on the game configuration of the section
+above: `size_report.py run --platforms android --configs linkxml-minimal
+--variants baseline+game,ng-5.5+pkg+sg+game`, once from main at `fd4a43ce`
+(before) and once with the change (after), Unity 6000.3.21f1, release ARM64
+IL2CPP APKs, Minimal stripping, the package layout, the Lua 5.5.1 plugin of
+2026-10-28 (`libxlua.so` 165,593 / 388,136, sha256 `cb2109d0...`, 705 bytes
+more in the APK than the plugin of the section above). Compressed in the APK
+/ uncompressed:
+
+| variant | APK | delta over the baseline | `libil2cpp.so` delta | `libunity.so` delta | `global-metadata.dat` delta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| baseline+game, before | 12,287,144 | +0 | | | |
+| baseline+game, after | 12,287,152 | +0 | | | |
+| `ng-5.5+pkg+sg+game`, before (narrow) | 18,670,602 | +6,383,458 | +3,966,965 / +15,134,512 | +1,666,270 / +3,666,304 | +582,800 / +2,036,892 |
+| `ng-5.5+pkg+sg+game`, after (`preserve="all"`) | 18,934,578 | +6,647,426 | +4,158,275 / +15,977,680 | +1,699,412 / +3,758,944 | +622,322 / +2,186,424 |
+| **after - before** | **+263,976** | **+263,968** | **+191,310 / +843,168** | **+33,142 / +92,640** | **+39,522 / +149,532** |
+
+- **Legacy pays 263,976 bytes of APK** (1.4% of the APK, 4.1% of what xLua
+  and the 264 wrapped types add to it), as the `+linkall` variant of the section above
+  predicted (262,808). The two baselines differ by 8 bytes, which is the
+  noise of the APK container.
+- **The generator's link.xml** (`link-sourcegen.xml` next to each player):
+  before, one type, `UnityEngine.GameObject` with the `[DoNotGen]` methods
+  `SendMessage` and `BroadcastMessage`; after, 264 types with
+  `preserve="all"` and no member entries (`GameObject`'s two methods are
+  covered by its `preserve="all"`). The stripped `UnityEngine.CoreModule.dll`
+  grows from 1,051,136 to 1,217,024 bytes, the size of the `+linkall` player
+  above; `Assembly-CSharp.dll`, `XLua.dll` and `UnityEngine.UI.dll` keep their
+  sizes (Minimal stripping keeps those assemblies whole).
+- **Strict minimal** writes the "before" entries, so its size does not
+  change; neither does minimal with `XLUA_REFLECTION` alone. Minimal with
+  `HOTFIX_ENABLE` pays as legacy does, on top of the hotfix cost below. Not
+  measured here.
+- **High stripping** was not measured again: the `+linkall` variant of the
+  section above gives 331,168 bytes for it.
+
+Not measured: High and Medium stripping, iOS, WebGL, a project's own types
+(Minimal stripping keeps them whole anyway).
+
 ## Hotfix (`HOTFIX_ENABLE`, 2026-10-28)
 
 `Test/MobileSmoke/size_report.py run --platforms android --configs hotfix`,

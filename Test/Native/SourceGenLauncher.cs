@@ -415,7 +415,31 @@ static class SourceGenLauncher
             reflectionUse++;
         }
         Check(reflectionUse > 0, "the suite has no [ReflectionUse] types");
-        Console.WriteLine("XLUA_SOURCE_GEN_LINKXML: " + lazy + " lazy members and " + reflectionUse + " [ReflectionUse] types kept");
+
+        // The wrapped [LuaCallCSharp] classes (owner decision Q75 of 2026-10-29): kept
+        // whole where xlua.private_accessible or the legacy reflection fallback can reach
+        // their other members (the legacy preset, minimal with HOTFIX_ENABLE); in strict
+        // minimal and minimal with XLUA_REFLECTION only a [ReflectionUse] type is.
+#if !XLUA_PRESET_MINIMAL || HOTFIX_ENABLE
+        const bool whole = true;
+#else
+        const bool whole = false;
+#endif
+        var reflectionUseNames = new HashSet<string>(Regex.Matches(Regex.Match(manifest, "\"reflectionUse\":\\[([^\\]]*)\\]").Groups[1].Value, "\"([^\"]+)\"")
+            .Cast<Match>().Select(m => m.Groups[1].Value));
+        int bound = 0;
+        foreach (Match m in Regex.Matches(manifest, "\\{\"type\":\"([^\"]+)\",\"kind\":\"class\""))
+        {
+            Type type = FindType(m.Groups[1].Value);
+            if (type == null) continue; // a constructed generic type, kept by its definition's name
+            string key = type.Assembly.GetName().Name + "|" + type.FullName.Replace('+', '/') + "|*";
+            bool expected = whole || reflectionUseNames.Contains(m.Groups[1].Value);
+            Check(listed.Contains(key) == expected, "link.xml " + (expected ? "does not keep" : "keeps") + " the [LuaCallCSharp] type " + type + " whole");
+            bound++;
+        }
+        Check(bound > 0, "the manifest lists no wrapped classes");
+        Console.WriteLine("XLUA_SOURCE_GEN_LINKXML: " + lazy + " lazy members and " + reflectionUse + " [ReflectionUse] types kept, "
+            + bound + " [LuaCallCSharp] classes " + (whole ? "kept whole" : "not kept whole"));
         return entries;
     }
 
