@@ -16,10 +16,13 @@
 # xlua_core_sandbox.c and xlua_core_nobc.c with check_exports.py --preset core,
 # native_regression.py and core_smoke.c; the bridge's checks do not apply there.
 # MONO_VERSION is passed to run_managed.py (default 6.14.1; "any" skips the check).
-# MIN_BRANCH_COVERAGE is the coverage gate: "FILE=PERCENT ..." (default "xlua.c=99"),
+# MIN_BRANCH_COVERAGE is the coverage gate: "FILE=PERCENT ..." (default
+# "xlua.c=99 xlua_core.c=98 xlua_core_limits.c=93", owner decision 2026-10-28),
 # checked for each runtime that measures FILE. When a file's branch coverage is
 # below its percentage the script fails, after every runtime has been measured;
 # it prints XLUA_COVERAGE_GATE lines either way. An empty value turns the gate off.
+# The core-* runtimes take CORE_MIN_BRANCH_COVERAGE instead (default empty: off),
+# since their build of xlua_core_limits.c leaves the bridge's hooks to the bridge.
 # The analysis workflow's coverage job runs with the default (Test/README.md).
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -36,7 +39,8 @@ cov="${LLVM_COV:-llvm-cov}"
 # build/CMakeLists.txt records the sources as build/... (-ffile-prefix-map, build/README.md
 # "Reproducible builds"); this maps them back to the checkout for the filters and the HTML.
 cov_paths=(-path-equivalence="build,$repo/build")
-min_branch_coverage="${MIN_BRANCH_COVERAGE-xlua.c=99}"
+min_branch_coverage="${MIN_BRANCH_COVERAGE-xlua.c=99 xlua_core.c=98 xlua_core_limits.c=93}"
+core_branch_coverage="${CORE_MIN_BRANCH_COVERAGE-}"
 gate_failed=0
 
 for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
@@ -83,7 +87,10 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
     "$cov" show -show-branches=count "$plugin" -instr-profile="$build/xlua.profdata" "${cov_paths[@]}" "${sources[@]}" > "$build/branches.txt"
     # The gate reads llvm-cov's per-file summary (branch counts), not the report's columns.
     "$cov" export -summary-only "$plugin" -instr-profile="$build/xlua.profdata" "${cov_paths[@]}" "${sources[@]}" > "$build/summary.json"
-    if ! python3 "$repo/Test/Native/coverage_gate.py" "$build/summary.json" "$version" $min_branch_coverage; then
+    gate="$min_branch_coverage"
+    if [[ "$version" == core-* ]]; then gate="$core_branch_coverage"; fi
+    # shellcheck disable=SC2086 # one FILE=PERCENT argument per word
+    if ! python3 "$repo/Test/Native/coverage_gate.py" "$build/summary.json" "$version" $gate; then
         gate_failed=1
     fi
     echo "Uncovered functions ($version):"
@@ -92,6 +99,6 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1}; do
     echo "XLUA_COVERAGE_DONE: $version (HTML in $build/html)"
 done
 if [[ "$gate_failed" != 0 ]]; then
-    echo "XLUA_COVERAGE_GATE: branch coverage below MIN_BRANCH_COVERAGE ($min_branch_coverage); see the FAIL lines above and branches.txt" >&2
+    echo "XLUA_COVERAGE_GATE: branch coverage below MIN_BRANCH_COVERAGE ($min_branch_coverage) or CORE_MIN_BRANCH_COVERAGE ($core_branch_coverage); see the FAIL lines above and branches.txt" >&2
     exit 1
 fi
