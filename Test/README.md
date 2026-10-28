@@ -549,7 +549,11 @@ graph traversal, and regressions for native defects found by the analysis
 below. Run them against a library built for the host architecture. LuaJIT
 builds have no internal-header leak checker, so `profiler_smoke.py` does not apply to
 them; a Lua 5.x library built with `-DXLUA_LEAK_CHECKER=OFF` passes it with only
-the `xlua_gc` checks. `check_exports.py` also fails when `build/xlua_exports.txt`, the export
+the `xlua_gc` checks. Since 2026-10-28 `profiler_smoke.py` also walks after
+every small collection step of a cycle full of garbage whose parts are newer
+than their owners, and from a C function with a full stack
+([#1149](https://github.com/Tencent/xLua/issues/1149)); the old walker failed
+it under `sanitize.sh` (crash-inventory.md, item 11). `check_exports.py` also fails when `build/xlua_exports.txt`, the export
 list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 `python3 Test/Native/managed_imports.py --write` regenerates it.
 `native_regression.py` also calls exports that `LuaDLL.cs` does not import
@@ -1101,7 +1105,7 @@ puts the built `lua` first on `PATH` because `files.lua` starts a plain `lua`
 through the shell. The runs get an empty stdin pipe (`files.lua` expects
 `io.stdin:seek` to fail) and `LC_ALL=C`.
 
-Three xLua patches change what the suites see, and the script adjusts for them
+Four xLua patches change what the suites see, and the script adjusts for them
 (`OS_EXECUTE_SHIM` and `ADJUST` in the script; nothing else in the suites
 changes):
 
@@ -1118,6 +1122,11 @@ changes):
   format 1 and no `sizeof(size_t)` byte. `all.lua` runs most test files
   through `string.dump` and `load`, so this mode also exercises the custom
   format on the whole suite.
+- **Errors in `__gc` are reported, not raised** (5.3.6, since 2026-10-28;
+  build/LUA_PATCHES.md): `gc.lua` expects `collectgarbage()` to fail when a
+  finalizer raises, and `api.lua` (internal mode) counts ten such failures.
+  The script expects the collection to succeed, every finalizer to have run
+  and no failure.
 
 On macOS the script also skips four platform differences that stock Lua
 shows too: `main.lua` (macOS readline is libedit, whose REPL does not echo
@@ -1670,7 +1679,9 @@ accept only numbers and numeric strings, and integer fields only those with
 an integer value) and
 arguments that are not structs (with the tag-checking accessors of
 `xlua_check_struct_accessors` when the last input byte is odd, which also
-refuse a struct header without the tag), and the type id helpers; and dotted-path,
+refuse a struct header without the tag; since 2026-10-28 also a userdata whose
+header claims more bytes than its block and one shorter than the header),
+and the type id helpers with `xlua_tostructbuffer`; and dotted-path,
 single-key and global table access, also on values that are not tables. The Lua
 chunk target also calls the memory snapshot walk from the fuzzed chunk
 (`snapshot()`) and after it, and checks the layout of the result. The `core`

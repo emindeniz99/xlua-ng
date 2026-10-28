@@ -1956,15 +1956,14 @@ namespace XLua
             if (update != null) custom_update_funcs.Add(type, update);
         }
 
-#if XLUA_NO_REFLECTION
         // The generated reader of a packable [GCOptimize] struct
         // (RegisterPushAndGetAndUpdate), which takes a Lua table too: the table
-        // conversion of ObjectCasters uses it under XLUA_NO_REFLECTION.
+        // conversions of ObjectCasters use it in every build (owner decisions
+        // 2026-10-28, docs/design/presets.md Q31 and Q48).
         internal bool TryGetGeneratedReader(Type type, out GetCSObject get)
         {
             return custom_get_funcs.TryGetValue(type, out get);
         }
-#endif
 
         public bool HasCustomOp(Type type)
         {
@@ -2159,12 +2158,13 @@ namespace XLua
             LuaTypes lua_type = LuaAPI.lua_type(L, index);
             if (lua_type == LuaTypes.LUA_TUSERDATA)
             {
-                if (LuaAPI.xlua_gettypeid(L, index) != decimal_type_id)
+                // Zero for a userdata of another type, or one that only has the
+                // metatable of decimal (UnPack then fails).
+                IntPtr buff = LuaAPI.xlua_tostructbuffer(L, index, decimal_type_id);
+                if (buff == IntPtr.Zero && LuaAPI.xlua_gettypeid(L, index) != decimal_type_id)
                 {
                     throw new Exception("invalid userdata for decimal!");
                 }
-
-                IntPtr buff = LuaAPI.lua_touserdata(L, index);
 
                 if (!CopyByValue.UnPack(buff, 0, out val))
                 {

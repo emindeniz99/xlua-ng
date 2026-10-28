@@ -157,6 +157,18 @@ they follow the build type in every preset, as `XLUA_BRIDGE_CHECKS`
    release players. Comparing `len` with `lua_rawlen` would make it a
    class (c) fix like the reader's; not measured (one more C API call per
    struct field access in generated code).
+
+   **Decided 2026-10-28 (owner) and implemented:** a bounds check in every
+   build, no flag; `XLUA_BRIDGE_CHECKS` (the tag check) stays as it is. The
+   accessors require `lua_rawlen >= 8 + offset + width` before they read the
+   header, `xlua.structclone` and the new `xlua_tostructbuffer` require
+   `8 + len <= lua_rawlen`, and C# and generated code read a struct argument
+   through `xlua_tostructbuffer` (type id and length in one native call)
+   instead of `xlua_gettypeid` and `lua_touserdata`. Bridge version 111.
+   Measured: +0.5 ns per accessor call (14.1 and 16.5 ns get and set), and
+   a `[GCOptimize]` struct argument 4 to 6 ns faster (one P/Invoke fewer).
+   Details and tests in
+   [crash-inventory.md](../research/crash-inventory.md#10-struct-accessors-and-foreign-userdata).
 4. The owner-thread check that
    [crash-inventory.md](../research/crash-inventory.md) proposes for
    `LuaEnv.L` (items 5 and 6: two threads in one `LuaEnv`, finalizers that
