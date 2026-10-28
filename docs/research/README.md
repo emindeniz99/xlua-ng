@@ -26,6 +26,7 @@ build docs; decisions live in [design](../design/).
 | [crash-inventory.md](crash-inventory.md) | Every known way a script or ordinary C# use can crash LuaEnv or LuaScript, with reproductions; fixed: bridges after Dispose (#999), Dispose from a running call, table traversal and `__len` raising from C#; owner questions for the rest |
 | [descriptor-wrappers.md](descriptor-wrappers.md) | Spike: descriptor ("ultra") wrappers against the source generator's GCM mode, measured in IL2CPP players (-443 to -447 KB APK at game size); generic virtual methods and auto-properties in xLua's players |
 | [core-stop-latency.md](core-stop-latency.md) | Why `TimeLimit` and `Interrupt` stopped seconds late under an `InstructionLimit` (a lost `hookcount` store), the line-event fix, and `Interrupt` without limits; why stops seemed lost under load (an `Interrupt` before the call, a stop during LuaEnv's compile, LuaEnv callbacks from coroutines) |
+| [binding-mode-parity.md](binding-mode-parity.md) | The four binding modes (reflection, CodeEmit, source generator plain and GCM) compared call by call: the differences found and fixed, a reflection event crash, owner questions |
 
 Measurements:
 

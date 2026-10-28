@@ -424,6 +424,22 @@ error path that left `L->ci` on a dead frame (core-luascript.md:3638-3670);
 the finalizer deadlock under `HOTFIX_ENABLE` (#1127) and the WebGL GC queue
 (#741). `sanitize.sh` and the fuzz targets run clean on them (Test/README.md).
 
+## Found later
+
+- **An event handler that is not a function, in reflection wrappers**
+  (2026-10-28, fixed). `MethodWrapsCache.GetEventWrap` passed the handler to
+  `ObjectTranslator.CreateDelegateBridge` without a check, which uses the
+  value as a registry key: `o:Ev("+")` (nil) raised "table index is nil" from
+  `lua_rawset` inside the C# wrapper, a Lua error unwinding through managed
+  frames; `o:Ev("+", 5)` threw `KeyNotFoundException` or could find the
+  bridge of another Lua function under that integer key. After the nil case,
+  the next C# exception thrown inside a reflection call crashed Mono 6.14.1
+  while unwinding (SIGSEGV in `mono_arch_unwind_frame`) or hung in its crash
+  handler, in the source-generator pass of the managed suite, Lua 5.5.1,
+  macOS arm64. [C] The wrapper now converts the handler first and raises
+  "#3 need T!" as generated code does (`CaseParityEvents`,
+  [binding-mode-parity.md](binding-mode-parity.md)).
+
 ## Reproduction results
 
 `python3 Test/Native/crash_repro.py --plugin <libxlua> --output <dir>`,
