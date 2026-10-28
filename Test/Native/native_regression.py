@@ -1215,7 +1215,10 @@ def check_traceback_levels(state):
     'level++' in luaL_traceback overflowed an int (undefined behaviour, which
     UBSan reports in sanitize.sh; found by Test/Fuzz/fuzz_bridge.c, item 24 of
     docs/research/crash-inventory.md). Lua 5.3.6, 5.4.9 and 5.5.1 clamp the level
-    (build/LUA_PATCHES.md); a level outside the stack still shows no frame."""
+    (build/LUA_PATCHES.md); a level outside the stack still shows no frame.
+    LuaJIT's lj_debug_frame counted such a level past INT_MIN or INT_MAX for
+    every user of a level (getinfo, getlocal, error, getfenv); it clamps too
+    (owner decision Q57), and sanitize.sh checks its C files for signed overflow."""
     run(state, """
         local function deep(n, f) if n == 0 then return f() end return (deep(n - 1, f)) end
         for _, level in ipairs({-2147483648, -2147483647, -1000001, -1, 2147483647, 2147483646, 1000001}) do
@@ -1227,6 +1230,12 @@ def check_traceback_levels(state):
             coroutine.resume(co)
             t = debug.traceback(co, "m", level)
             assert(t == "m\\nstack traceback:", level .. " (thread): " .. t)
+            -- The other users of a level (lua_getstack, LuaJIT's lj_debug_frame).
+            assert(debug.getinfo(level) == nil and deep(30, function() return debug.getinfo(level) end) == nil, level)
+            assert(not pcall(debug.getlocal, level, 1), level)
+            local ok, e = pcall(error, "x", level)
+            assert(not ok and e == "x", level .. ": " .. tostring(e))
+            if jit and getfenv then assert(not pcall(getfenv, level), level) end
         end
         -- Levels inside the stack are unchanged, the skipped middle of a deep one too.
         local t = deep(30, function() return debug.traceback("m", 1) end)

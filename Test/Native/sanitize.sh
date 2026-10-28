@@ -179,8 +179,11 @@ for version in ${VERSIONS:-5.3.6 5.4.9 5.5.1 luajit}; do
     fi
     if [[ "$version" == luajit || "$version" == luajit-uint ]]; then
         make -C "$repo/build/luajit-2.1" clean >/dev/null
-        # LuaJIT compiles its API checks into libluajit.a.
-        make -C "$repo/build/luajit-2.1" BUILDMODE=static XCFLAGS="-fPIC -DLUA_USE_APICHECK" >/dev/null
+        # LuaJIT compiles its API checks into libluajit.a, and its C files with UBSan's
+        # signed overflow check only (since 2026-10-28, traceback_levels: the stack
+        # level in lj_debug.c); the other sanitizers stay off for LuaJIT's code.
+        make -C "$repo/build/luajit-2.1" BUILDMODE=static XCFLAGS="-fPIC -DLUA_USE_APICHECK" \
+            TARGET_FLAGS="-fsanitize=signed-integer-overflow" >/dev/null
         uint=OFF
         if [[ "$version" == luajit-uint ]]; then uint=ON; fi
         cmake -S "$repo/build" -B "$build" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSING_LUAJIT=ON -DUINT_ESPECIALLY="$uint" \
