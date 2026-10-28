@@ -2564,32 +2564,29 @@ def check_memory_snapshot_out_of_memory(state):
     # error through the caller, and leaves a usable state.
     if not snapshot_built():
         return
-    # The C runtime's realloc and free: the process itself on POSIX, the
-    # Universal CRT on Windows (CDLL(None) is POSIX only).
-    libc = C.CDLL("ucrtbase") if sys.platform == "win32" else C.CDLL(None)
-    libc.realloc.argtypes = [P, C.c_size_t]
-    libc.realloc.restype = P
-    libc.free.argtypes = [P]
-    fail = [False]
+    # The state's own allocator, wrapped so that growths fail on demand. Until
+    # 2026-10-28 the test made the state with lua_newstate and the C runtime's
+    # realloc, which LuaJIT refused under sanitize.sh: the preloaded ASan
+    # realloc returns addresses above 2^47, where a GC64 lua_newstate places no
+    # state (checkptrGC in lj_state.c). LuaJIT's own allocator maps its memory
+    # below that, and wrapping it keeps every block where the runtime wants it.
     Alloc = C.CFUNCTYPE(P, P, P, C.c_size_t, C.c_size_t)
+    lib.lua_getallocf.argtypes = [P, C.POINTER(P)]
+    lib.lua_getallocf.restype = P
+    lib.lua_setallocf.argtypes = [P, P, P]
+    s = lib.luaL_newstate()
+    assert s
+    own_ud = P()
+    own = Alloc(lib.lua_getallocf(s, C.byref(own_ud)))
+    fail = [False]
 
     def alloc(ud, ptr, osize, nsize):
-        if nsize == 0:
-            libc.free(ptr)
-            return None
         if fail[0] and nsize > (osize if ptr else 0):
             return None
-        return libc.realloc(ptr, nsize)
+        return own(own_ud, ptr, osize, nsize)
 
     allocator = Alloc(alloc)
-    lib.lua_newstate.restype = P
-    if hasattr(lib, "luaL_openselectedlibs"):  # Lua 5.5: lua_newstate(f, ud, seed)
-        lib.lua_newstate.argtypes = [P, P, C.c_uint]
-        s = lib.lua_newstate(C.cast(allocator, P), None, 0)
-    else:
-        lib.lua_newstate.argtypes = [P, P]
-        s = lib.lua_newstate(C.cast(allocator, P), None)
-    assert s, "lua_newstate with a custom allocator returned NULL"
+    lib.lua_setallocf(s, C.cast(allocator, P), None)
     try:
         lib.luaopen_xlua(s)
         run(s, "big = {} for i = 1, 1000 do big[i] = {} end")
