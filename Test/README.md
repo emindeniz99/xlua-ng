@@ -1404,6 +1404,22 @@ kept on), like the fuzz targets, and `sanitize.sh` adds
 The API check inside `api_incr_top` adds one more untaken branch to the leak
 checker (2026-10-17, Linux arm64: 2 of 46 on 5.5.1, 3 of 46 on 5.3.6, 4 of 48
 on 5.4.9); `xlua.c` stays at 100% of branches (390, 390 and 404).
+
+**Coverage gate (since 2026-10-28):** `coverage.sh` fails when a file's branch
+coverage is below `MIN_BRANCH_COVERAGE`, default `xlua.c=99` (more files:
+`MIN_BRANCH_COVERAGE="xlua.c=99 xlua_core.c=95"`; empty turns it off). It
+measures every runtime first and prints an `XLUA_COVERAGE_GATE` line per
+runtime and file (`Test/Native/coverage_gate.py` reads llvm-cov's
+`summary.json`); the analysis workflow's `coverage` job runs it with the
+default and uploads `branches.txt` and `summary.json` as well. The threshold
+is slightly below the value of 2026-10-28 (arm64 container, reflection only,
+no .NET SDK): `xlua.c` 348 of 348 branches on 5.3.6 and 361 of 362 (99.72%)
+on 5.4.9 and 5.5.1. The untaken branch is the `entry.stop != 0` side of
+`lua_pcall`'s check for a state stopped after its last instruction
+(`xlua.c:343`). With a .NET SDK the source generator's passes run too. Since
+`build/CMakeLists.txt` records sources as `build/...`
+([reproducible builds](../build/README.md#reproducible-builds)),
+`coverage.sh` passes `-path-equivalence=build,<checkout>/build` to llvm-cov.
 `Test/Fuzz/run.sh
 <seconds>` builds four libFuzzer targets (five on Lua 5.4 and 5.5) with ASan and UBSan: Lua chunks loaded
 through `xluaL_loadbuffer` in a sandbox env that also exposes the native path,
