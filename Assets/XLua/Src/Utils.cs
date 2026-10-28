@@ -1765,11 +1765,34 @@ namespace XLua
 			if (!IsPublic(type))
 			{
 				return subject + name + " is not public, so it has no generated bindings" + off
-					+ ". Reach it through a public base class or interface with [LuaCallCSharp], or define XLUA_REFLECTION";
+					+ ". Reach it through a public base class or interface with [LuaCallCSharp], or define XLUA_REFLECTION"
+					+ objectOrTypeHint(type, member);
 			}
 			return subject + name + " has no generated bindings" + off + ". Mark it [LuaCallCSharp], or add [assembly: XLua.LuaCallCSharp(typeof("
 				+ csharpName(type) + "))] for a type you cannot change (XLua > Migrate Configuration to Attributes converts "
-				+ "configuration lists), or define XLUA_REFLECTION";
+				+ "configuration lists), or define XLUA_REFLECTION" + objectOrTypeHint(type, member);
+		}
+
+		// The minimal preset binds neither System.Object nor System.Type (owner
+		// decision 2026-10-28, docs/design/presets.md): obj:ToString() and
+		// typeof(CS.T).Name raise, but tostring() works without bindings
+		// (StaticLuaCallbacks.ToString, the __tostring of every C# object).
+		static string objectOrTypeHint(Type type, string member)
+		{
+			if (member == null)
+			{
+				return "";
+			}
+			if (type == typeof(object))
+			{
+				return ". Without bindings, tostring(obj) gives obj:ToString() followed by ': ' and the hash code";
+			}
+			if (typeof(Type).IsAssignableFrom(type))
+			{
+				return ". Without bindings, tostring(typeof(CS.T)) gives the type's name followed by ': ' and the hash code;"
+					+ " to use the members of types, bind System.Type: [assembly: XLua.LuaCallCSharp(typeof(System.Type))]";
+			}
+			return "";
 		}
 
 		// The hint after "This type must add to CSharpCallLua" under XLUA_NO_REFLECTION,

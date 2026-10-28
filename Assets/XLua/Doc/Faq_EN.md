@@ -81,7 +81,13 @@ In the editor without generated bindings, xLua emits the bridges for `CSharpCall
 
 ## What does "T has no generated bindings" mean?
 
-The project uses the minimal preset (`XLUA_PRESET_MINIMAL`), which turns off xLua's reflection fallback (`XLUA_NO_REFLECTION`), and Lua used a member of a C# type that the source generator did not bind. Mark the type `[LuaCallCSharp]`, or add `[assembly: XLua.LuaCallCSharp(typeof(T))]` for a type you cannot change; **XLua > Migrate Configuration to Attributes** converts old configuration lists. If the type is configured, check with **XLua > Validate Setup** that the generator ran for its assembly. `obj:ToString()` and `obj:GetType()` need `System.Object` bound. To keep reflection in the preset, define `XLUA_REFLECTION`. See [MIGRATING.md](../../../docs/MIGRATING.md#reflection-off-in-the-minimal-preset).
+The project uses the minimal preset (`XLUA_PRESET_MINIMAL`), which turns off xLua's reflection fallback (`XLUA_NO_REFLECTION`), and Lua used a member of a C# type that the source generator did not bind. Mark the type `[LuaCallCSharp]`, or add `[assembly: XLua.LuaCallCSharp(typeof(T))]` for a type you cannot change; **XLua > Migrate Configuration to Attributes** converts old configuration lists. If the type is configured, check with **XLua > Validate Setup** that the generator ran for its assembly. To keep reflection in the preset, define `XLUA_REFLECTION`. See [MIGRATING.md](../../../docs/MIGRATING.md#reflection-off-in-the-minimal-preset).
+
+The preset does not bind `System.Object` and `System.Type` for you, so `obj:ToString()`, `obj:GetType()`, `obj:Equals(x)` and `typeof(CS.T).Name` raise this error, with a hint. `tostring()` needs no bindings: `tostring(obj)` gives `obj.ToString()` followed by `: ` and the hash code, and `tostring(typeof(CS.T))` the type's name in the same form. To call their members, bind them once in a player assembly:
+
+```csharp
+[assembly: XLua.LuaCallCSharp(typeof(object), typeof(System.Type))]
+```
 
 ## What does the Unity 5.5 .NET runtime warning mean?
 
@@ -213,7 +219,7 @@ Yes, but overload resolution is less precise than C#. Both `int` and `short` map
 An overload is a candidate when its parameters accept the arguments. An integer parameter (`int`, `long`, `byte` and the other integer types) accepts only a number with an integer value, as Lua 5.3's `math.tointeger` defines it: `3` and `3.0` match it, `2.75`, NaN and the infinities do not. When several candidates match, xLua calls the best match, as C# would choose for the Lua value's natural type, whatever the declaration order:
 
 - A Lua integer prefers `int`, then `long`, then the other integer types, then `double`, `float` and `decimal`. An integer outside the `int` range prefers `long`. So `Foo(3)` calls `Foo(int)` and `Mathf.Max(3, 5)` calls `Max(int, int)`.
-- A float prefers `double`, then `float`, then `decimal`: `Foo(2.75)` calls `Foo(double)`. On Lua 5.3 and later `3.0` (and `6 / 2`) is a float, so it prefers `Foo(double)` too; use `math.tointeger` or `//` for an integer. LuaJIT has no integer subtype and treats `3.0` as `3`.
+- A float prefers `double`, then `float`, then `decimal`: `Foo(2.75)` calls `Foo(double)`. On Lua 5.3 and later `3.0` (and `6 / 2`) is a float even though its value is an integer, so it prefers `Foo(double)` too; `Foo(math.tointeger(6 / 2))` or `Foo(6 // 2)` calls `Foo(int)`. LuaJIT has no integer subtype and treats `3.0` as `3`, so there `Foo(6 / 2)` calls `Foo(int)`.
 - A string prefers `string` over `byte[]`. A C# object prefers its own class, then the nearest base class, then an interface. `object` is the last choice for any value, and `T` comes before `T?`.
 - An overload that needs a `params` array or a default value loses to one that matches the arguments as well without it.
 - For `nil`, tables and functions the first matching overload is called.

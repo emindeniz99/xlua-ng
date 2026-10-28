@@ -2862,6 +2862,33 @@ function CMyTestCaseLuaCallCS.CaseNoReflectionBridges(self)
 	end
 end
 
+-- System.Object and System.Type have no bindings in the suite, as in a minimal
+-- project that does not add them (owner decision 2026-10-28): tostring() works
+-- through __tostring for objects and types, and without reflection the error for
+-- their members says so.
+function CMyTestCaseLuaCallCS.CaseNoReflectionObjectAndType(self)
+    self.count = 1 + self.count
+	local api = CS.NoReflection.Api
+	local Unbound = CS.NoReflection.Unbound
+	local u = api.MakeUnbound()
+	ASSERT_EQ(tostring(u):match("^NoReflection%.Unbound: %-?%d+$") ~= nil, true)
+	ASSERT_EQ(tostring(typeof(Unbound)):match("^NoReflection%.Unbound: %-?%d+$") ~= nil, true)
+	if not CS.LuaTestCommon.NoReflection() then
+		ASSERT_EQ(u:ToString(), "NoReflection.Unbound")
+		ASSERT_EQ(typeof(Unbound).Name, "Unbound")
+		return
+	end
+	local err = noBindingsError(function() return u:ToString() end)
+	has(err, "cannot use System.Object.ToString: System.Object has no generated bindings")
+	has(err, "tostring(obj) gives obj:ToString()")
+	-- typeof gives a System.RuntimeType, which is not public; its Name or the
+	-- one of a public base class.
+	err = noBindingsError(function() return typeof(Unbound).Name end)
+	has(err, ".Name: ")
+	has(err, "tostring(typeof(CS.T)) gives the type's name")
+	has(err, "[assembly: XLua.LuaCallCSharp(typeof(System.Type))]")
+end
+
 -- xlua.private_accessible (without XLUA_RESTRICT_PRIVATE_ACCESS, or with
 -- HOTFIX_ENABLE) asks for reflection on one type: under XLUA_NO_REFLECTION a
 -- type without bindings then gets its public and private members and its

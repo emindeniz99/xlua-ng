@@ -196,10 +196,14 @@ alike:
 - **Enums without bindings:** values pass and numbers convert, but `CS.E.Name`
   and `CS.E.__CastFrom` raise; mark the enum `[LuaCallCSharp]`.
 - **`obj:ToString()`, `obj:GetType()`, `obj:Equals()`** come from
-  `System.Object`, and `t.Name` from `System.Type`: bind them
-  (`[assembly: XLua.LuaCallCSharp(typeof(object))]`, as the examples do) if
-  your Lua code uses them. `xlua.util` helpers that use C# types, such as
-  `util.createdelegate`, need those types bound too.
+  `System.Object`, and `t.Name` from `System.Type`, which the preset does not
+  bind for you (owner decision, 2026-10-28): bind them
+  (`[assembly: XLua.LuaCallCSharp(typeof(object), typeof(System.Type))]`; the
+  examples bind `object`) if your Lua code uses them. Without bindings their
+  error ends with a hint: `tostring(obj)` and `tostring(typeof(CS.T))` work
+  without bindings and give `ToString()` followed by `: ` and the hash code.
+  `xlua.util` helpers that use C# types, such as `util.createdelegate`, need
+  those types bound too.
 - **Delegates and interfaces:** the Editor no longer emits bridges for
   `[CSharpCallLua]` types without generated ones, so a missing bridge fails in
   the Editor as it does on the device: `This type must add to CSharpCallLua: T.
