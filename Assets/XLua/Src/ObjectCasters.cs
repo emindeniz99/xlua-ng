@@ -1369,6 +1369,16 @@ namespace XLua
                         return null;
                     }
 
+                    // A packable [GCOptimize] struct reads a table through its
+                    // generated reader, as a generated parameter does, so its
+                    // [AdditionalProperties] are set on every path (owner
+                    // decision 2026-10-28, docs/design/presets.md Q48).
+                    ObjectTranslator.GetCSObject generated;
+                    if (translator.TryGetGeneratedReader(type, out generated))
+                    {
+                        return generated(L, idx);
+                    }
+
                     obj = target == null ? Activator.CreateInstance(type) : target;
 
                     int n = LuaAPI.lua_gettop(L);
@@ -1449,7 +1459,8 @@ namespace XLua
         // class or struct that is not packable replaces this caster
         // (ObjectTranslator.RegisterCaster); a packable [GCOptimize] struct has a
         // generated reader that takes tables too (RegisterPushAndGetAndUpdate),
-        // which this caster calls. Any other type raises an error that names it
+        // which this caster calls, as the reflection caster does in the other
+        // builds. Any other type raises an error that names it
         // and the fix (Utils.NoTableConverterMessage). A C# object of the type
         // and values that are not tables convert as before.
         ObjectCast genGeneratedTableCaster(Type type, ObjectCast fixTypeGetter)
