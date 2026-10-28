@@ -12,7 +12,10 @@ of Validate Setup that stand for an assembly the generator did not compile.
    definitions from the manifest into <output>/sample/LuaTypes, then compares them with
    Test/LuaCATS/expected and the .luarc.json written next to them with
    Test/LuaCATS/expected-luarc.json (--update rewrites the expected files
-   instead).
+   instead). Then compiles Sample.cs again with LUACATS_NO_REF_READONLY at C# 9,
+   without its C# 12 `ref readonly` members, as Unity 2021.3 to 6000.3 (Roslyn
+   4.3.1) compile it, and compares those definitions with the overlay
+   Test/LuaCATS/expected-no-ref-readonly (Lua 5.x plugins only).
 2. Options and determinism: strict CS mode (Test/LuaCATS/expected-strict), the
    file suffix, the .luarc.json ownership rules, Clear and Generate, and
    byte-identical output when generating twice, under the tr-TR culture and
@@ -102,6 +105,8 @@ overlays = {
     "default": uint64 + [case_dir / "expected-luajit"] if a.luajit else [],
     "strict": (strict_uint64 + [case_dir / "expected-strict-luajit"] + uint64 + [case_dir / "expected-luajit"]
                if a.luajit else [case_dir / "expected-strict"]),
+    # Sample.cs without its `ref readonly` members (LUACATS_NO_REF_READONLY); not checked on LuaJIT.
+    "no-ref-readonly": [case_dir / "expected-no-ref-readonly"],
 }
 
 
@@ -218,14 +223,14 @@ builder = source_gen_build.Builder(out / "source-gen-build", a.mono, a.mono_api)
 FROM_MANIFEST = "comes from the xLua source generator's manifest"
 
 
-def source_gen_sample(name, extra):
+def source_gen_sample(name, extra, defines=(), langversion="12"):
     """Sample.cs compiled with the source generator and extra sources, as tools/<name>/LuaCATSSample.dll."""
     folder = tools / name
     shutil.rmtree(folder, ignore_errors=True)
     dll = folder / "LuaCATSSample.dll"
     log = builder.compile(dll, roslyn_sources([case_dir / "Sample.cs"], repo, folder / "roslyn-fixtures") + list(extra),
-                          refs=[tools / "XLua.Mini.dll"], defines=["XLUA_GENERAL"], library=True, langversion="12",
-                          allow_warnings=True)
+                          refs=[tools / "XLua.Mini.dll"], defines=["XLUA_GENERAL"] + list(defines), library=True,
+                          langversion=langversion, allow_warnings=True)
     if not list(builder.generated(dll).rglob("XLua.Manifest.g.cs")):
         raise SystemExit("the source generator wrote no manifest for " + str(dll))
     return [dll], log
@@ -245,6 +250,19 @@ else:
     expect((sample.parent / ".luarc.json").read_text() == luarc_text,
            ".luarc.json differs from %s:\n%s" % (expected_luarc, (sample.parent / ".luarc.json").read_text()))
     print("LUACATS_LUARC_PASS: runtime.version %s" % runtime)
+
+# The same fixture as Roslyn 4.3.1 (Unity 2021.3 to 6000.3) compiles it: without the C# 12 `ref readonly`
+# members (the Gauge delegate, Circle.Gauger and Circle.Stretch, Point.Angle's ref readonly overload), at C# 9,
+# the language version of those editors. Test/UnityMatrix/luacats_unity.py compares Unity's output with the
+# same files. LuaJIT's overlays would need a variant of their own; its definitions differ in number types only.
+if a.luajit:
+    print("LUACATS_GOLDEN_SKIP: no-ref-readonly (Lua 5.x plugins only)")
+else:
+    narrow_dll, narrow_log = source_gen_sample("sample-no-ref-readonly", [case_dir / "SampleAttributes.cs"],
+                                               defines=["LUACATS_NO_REF_READONLY"], langversion="9")
+    expect(not re.search(r"(error|warning) XLSG", narrow_log), "the narrow sample gives generator warnings:\n" + narrow_log)
+    narrow, _ = generate(narrow_dll, out / "sample-no-ref-readonly")
+    check_golden(narrow, "no-ref-readonly")
 
 # 2. Options and determinism.
 strict, _ = generate(sample_dll, out / "strict", ["--strict"])

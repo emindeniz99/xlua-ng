@@ -24,12 +24,24 @@ XLUA_SG_SKIP_REGISTER, so that nothing registers, as when the generator did not
 run: the suite must pass through reflection and CodeEmit.
 --coverage compiles everything with -debug and runs each Mono process under
 Mono's coverage profiler; Test/Native/coverage_cs.py turns the result into a report.
+--timeout bounds every process the script starts (a compiler, a Mono run of the
+suite, a tool): each runs in its own process group, and on a timeout the whole
+group is killed and the run fails with the last lines of its output, which name
+the test that hung. No test host is left running.
 
 --define XLUA_PRESET_MINIMAL turns reflection off (XLUA_NO_REFLECTION, unless
 --define XLUA_REFLECTION): only the source-gen passes then run that way. The
 first pass binds through reflection, and --source-gen-fallback registers
 nothing, so both add XLUA_REFLECTION; their xLua and test assemblies are
 compiled apart from the source-gen passes'.
+
+--runtime netfx runs the first pass on the .NET Framework of a Windows host
+instead of Mono (windows-host.yml): --compiler is then a Roslyn csc.exe (the
+one of Visual Studio or its Build Tools), which runs as it is and gets the
+fixtures rewritten for Roslyn (roslyn_fixtures.py), and the test program runs
+without a host. The .NET Framework marshals string parameters in the ANSI code
+page, unlike Mono and .NET on macOS and Linux (Tencent/xLua#1081). The
+source generator passes and --coverage need Mono.
 """
 import argparse
 import json
@@ -37,6 +49,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -45,6 +58,8 @@ p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--plugin", type=Path, required=True)
 p.add_argument("--output", type=Path, required=True)
 p.add_argument("--mono", default="mono")
+p.add_argument("--runtime", choices=["mono", "netfx"], default="mono",
+               help="mono, or netfx: the .NET Framework on Windows, with --compiler a Roslyn csc.exe (first pass only)")
 p.add_argument("--compiler", default="mcs")
 p.add_argument("--mono-version", default="6.14.1",
                help="required Mono version, or 'any' to skip the check")
@@ -72,18 +87,62 @@ p.add_argument("--native-modules", default=None,
 p.add_argument("--coverage", action="store_true",
                help="compile with -debug and run every Mono process under Mono's coverage "
                     "profiler; writes coverage/*.xml and coverage/runs.json (see coverage_cs.py)")
+p.add_argument("--timeout", type=int, default=1800,
+               help="seconds each process this script starts may run; on a timeout its process group is killed "
+                    "and the run fails (default %(default)s)")
 a = p.parse_args()
+
+
+def kill_group(proc):
+    """Kill the child's whole process group (Mono, csc, the tools and anything they started)."""
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def run(cmd, check=False, capture=False, **kwargs):
+    """subprocess.run with a hard timeout (--timeout). The child runs in a new session, so that on a timeout, an
+    error or Ctrl-C here its whole process group is killed and no test host outlives the run (the xctest leak of
+    docs/research/puerts-js.md). capture: return stdout and stderr together as text."""
+    pipe = {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT, "text": True, "errors": "backslashreplace"} \
+        if capture else {}
+    proc = subprocess.Popen([str(c) for c in cmd], start_new_session=True, **pipe, **kwargs)
+    try:
+        out, _ = proc.communicate(timeout=a.timeout)
+    except subprocess.TimeoutExpired:
+        kill_group(proc)
+        out, _ = proc.communicate()
+        if out:
+            print("\n".join(out.splitlines()[-40:]))
+        raise SystemExit("timed out after %d s (--timeout) and killed with its process group: %s%s"
+                         % (a.timeout, " ".join(str(c) for c in cmd[:3]), " ..." if len(cmd) > 3 else ""))
+    except BaseException:
+        kill_group(proc)
+        raise
+    result = subprocess.CompletedProcess(cmd, proc.returncode, out)
+    if check:
+        result.check_returncode()
+    return result
+
+
 if a.gen_code or a.gen_code_minimize or a.gen_assembly:
     p.error("--gen-code, --gen-code-minimize and --gen-assembly were removed with the legacy generator (source generator "
             "milestone M11); use --source-gen, --source-gen-minimize and --source-gen-fallback")
-if a.mono_version != "any":
-    banner = subprocess.run([a.mono, "--version"], stdout=subprocess.PIPE, text=True, check=True).stdout
+netfx = a.runtime == "netfx"
+if netfx and (a.source_gen or a.source_gen_minimize or a.source_gen_fallback or a.coverage or a.update_surface):
+    p.error("--runtime netfx runs the first pass only; the source generator passes and --coverage need Mono")
+if a.mono_version != "any" and not netfx:
+    banner = run([a.mono, "--version"], capture=True, check=True).stdout
     found = re.search(r"version (\S+)", banner)
     if not found or found.group(1) != a.mono_version:
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 494
+EXPECTED_TESTS = 508
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -91,7 +150,11 @@ def sources(name):
     tree = ET.parse(project)
     return [str((project.parent / x.attrib["Include"].replace("\\", "/")).resolve())
             for x in tree.iter() if x.tag.endswith("}Compile")]
-compiler = [a.mono, a.compiler] if a.compiler.endswith(".exe") else [a.compiler]
+compiler = [a.mono, a.compiler] if a.compiler.endswith(".exe") and not netfx else [a.compiler]
+# Roslyn's csc: C# 12 for the ref readonly fixtures (roslyn_fixtures.py), and no logo. The .NET
+# Framework has no Span<T> (only the System.Memory package): XLUA_TEST_NO_SPAN leaves the test
+# fixtures' Span members out.
+roslyn = ["-nologo", "-langversion:12", "-define:XLUA_TEST_NO_SPAN"] if netfx else []
 # The minimal preset turns reflection off unless XLUA_REFLECTION is defined
 # (Tools/presets.py); XLUA_NO_REFLECTION can also be given alone. The passes
 # that bind through reflection (the first and --source-gen-fallback) bring it
@@ -110,6 +173,8 @@ if a.coverage:
 
 def mono(name, assemblies):
     """The Mono command for one process; with --coverage it also records a profile."""
+    if netfx:
+        return []
     if not a.coverage:
         return [a.mono]
     xml = coverage_dir / (name + ".xml")
@@ -120,11 +185,17 @@ def mono(name, assemblies):
 
 if strict:
     print("Reflection is off in this build (XLUA_NO_REFLECTION); the reflection pass and --source-gen-fallback add XLUA_REFLECTION")
-subprocess.run(compiler + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug + [
+test_sources = sources("XLuaUnitTest")
+if netfx:
+    # Roslyn rejects the attributes that the fixtures spell out for mcs.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from roslyn_fixtures import roslyn_sources
+    test_sources = [str(f) for f in roslyn_sources(test_sources, repo, out / "roslyn-fixtures")]
+run(compiler + roslyn + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug + [
     "-out:" + str(out / "XLua.Mini.dll")] + sources("XLua.Mini"), check=True)
-subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug + [
+run(compiler + roslyn + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug + [
     "-r:" + str(out / "XLua.Mini.dll"), "-out:" + str(out / "XLuaUnitTest.exe")]
-    + sources("XLuaUnitTest"), check=True)
+    + test_sources, check=True)
 shutil.copy2(a.plugin, out / a.plugin.name)
 # Preserve the relative layout expected by LuaTestCommon without writing to the checkout.
 shutil.copytree(repo / "Test/UnitTest", out / "Test/UnitTest", dirs_exist_ok=True)
@@ -151,8 +222,7 @@ for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
 
 def run_suite(exe, log_name, assemblies):
     # Lua's print writes the raw bytes of strings, which need not be UTF-8.
-    result = subprocess.run(mono(Path(log_name).stem, assemblies) + [str(exe)], cwd=out / "General",
-        env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="backslashreplace")
+    result = run(mono(Path(log_name).stem, assemblies) + [str(exe)], cwd=out / "General", env=env, capture=True)
     (out / log_name).write_text(result.stdout)
     print(result.stdout)
     result.check_returncode()
@@ -171,7 +241,7 @@ def build_tools(defines, suffix):
     """XLuaGenerate and the other tools (Tools/build_tools.py), with the native plugin next to them;
     returns their folder and the environment to run XLuaGenerate in."""
     tools = out / ("tools" + suffix)
-    subprocess.run([sys.executable, str(repo / "Tools/build_tools.py"), "--output", str(tools),
+    run([sys.executable, str(repo / "Tools/build_tools.py"), "--output", str(tools),
                     "--compiler", a.compiler] + ["--define=" + d for d in defines]
                    + (["--debug"] if a.coverage else []), check=True)
     # XLuaGenerate starts a LuaEnv, so it needs the native plugin next to it.
@@ -199,10 +269,10 @@ def migrated_config(sg):
     tools, gen_env = built_tools[0]
     migrated = sg / "migrated"
     shutil.rmtree(migrated, ignore_errors=True)
-    result = subprocess.run(mono("xluagenerate-migrate", [tools / "XLua.Mini.dll", tools / "XLuaGenerate.exe"])
+    result = run(mono("xluagenerate-migrate", [tools / "XLua.Mini.dll", tools / "XLuaGenerate.exe"])
                             + [str(tools / "XLuaGenerate.exe"), "--migrate", "--group", "--output", str(migrated), "--bindings-host",
                                "XLuaUnitTest", "--source-root", str(repo / "Test/UnitTest"), str(out / "XLuaUnitTest.exe")],
-                            cwd=tools, env=gen_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                 cwd=tools, env=gen_env, capture=True)
     print(result.stdout)
     if result.returncode != 0:
         raise SystemExit("XLuaGenerate --migrate failed; see " + str(migrated / "XLuaMigrationReport.md"))
@@ -254,7 +324,7 @@ def source_gen_pass(defines=(), suffix="", surface=True, reflection=False):
     pass_defines = (reflection_defines if reflection or not strict else a.define) + list(defines)
     mini = sg / "XLua.Mini.dll"
     if "GEN_CODE_MINIMIZE" in defines or (strict and not reflection):
-        subprocess.run(compiler + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"]
+        run(compiler + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"]
                        + ["-define:" + d for d in pass_defines] + debug + ["-out:" + str(mini)] + sources("XLua.Mini"), check=True)
     else:
         shutil.copy2(out / "XLua.Mini.dll", mini)
@@ -272,8 +342,7 @@ def source_gen_pass(defines=(), suffix="", surface=True, reflection=False):
         + [str(config), str(repo / "Test/Native/SourceGenFallback.cs")]
     generated.mkdir()
     rsp.write_text("\n".join('"%s"' % l if " " in l else l for l in lines) + "\n")
-    result = subprocess.run([dotnet, str(cscs[-1]), "@" + str(rsp)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, env=build_source_generator.dotnet_environment())
+    result = run([dotnet, str(cscs[-1]), "@" + str(rsp)], capture=True, env=build_source_generator.dotnet_environment())
     (sg / "csc.log").write_text(result.stdout)
     print(result.stdout)
     if result.returncode != 0:
@@ -289,8 +358,8 @@ def source_gen_pass(defines=(), suffix="", surface=True, reflection=False):
     if surface:
         manifest = next(generated.rglob("XLua.Manifest.g.cs"))
         if a.update_surface:
-            subprocess.run([sys.executable, str(repo / "Test/Native/surface_diff.py"), "--write", str(EXPECTED_SURFACE),
-                            str(manifest)], check=True)
+            run([sys.executable, str(repo / "Test/Native/surface_diff.py"), "--write", str(EXPECTED_SURFACE),
+                 str(manifest)], check=True)
         # SourceGenFallback.cs is compiled only here (mcs has no init accessors), so the frozen legacy surface
         # lacks it.
         allow = sg / "surface-allow.json"
@@ -309,9 +378,8 @@ def source_gen_pass(defines=(), suffix="", surface=True, reflection=False):
                                                  "CountObjectsWithoutGc", "NativeSnapshot", "NativeSnapshotStatus",
                                                  "PathOfHeldStringBuilder", "Take"]
                                        if "XLUA_MEMORY_DIAGNOSTICS" in a.define]))
-        diff = subprocess.run([sys.executable, str(repo / "Test/Native/surface_diff.py"), str(EXPECTED_SURFACE), str(manifest),
-                               "--allow", str(allow)],
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        diff = run([sys.executable, str(repo / "Test/Native/surface_diff.py"), str(EXPECTED_SURFACE), str(manifest),
+                    "--allow", str(allow)], capture=True)
         diff_log = out / ("surface-diff%s.log" % suffix)
         diff_log.write_text(diff.stdout)
         print(diff.stdout)
@@ -319,7 +387,7 @@ def source_gen_pass(defines=(), suffix="", surface=True, reflection=False):
             raise SystemExit("the binding surface or the bridge sets differ from " + str(EXPECTED_SURFACE.relative_to(repo))
                              + "; see " + str(diff_log) + " (--update-surface writes the manifest there after a fixture change)")
     launcher = sg / "SourceGenLauncher.exe"
-    subprocess.run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + ["-define:" + d for d in pass_defines] + debug
+    run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + ["-define:" + d for d in pass_defines] + debug
                    + ["-r:" + str(sg / "XLua.Mini.dll"), "-r:" + str(tests), "-r:System.Xml.dll", "-out:" + str(launcher),
                       str(repo / "Test/Native/SourceGenLauncher.cs")], check=True)
     log = "managed-suite-source-gen" + suffix + ".log"

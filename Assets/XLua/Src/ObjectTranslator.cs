@@ -91,6 +91,8 @@ namespace XLua
         internal MethodWrapsCache methodWrapsCache;
         internal ObjectCheckers objectCheckers;
         internal ObjectCasters objectCasters;
+        // The overload selection's costs per pair of object and parameter type.
+        internal readonly OverloadScore.Distances overloadDistances = new OverloadScore.Distances();
 
         internal readonly ObjectPool objects = new ObjectPool();
         internal readonly Dictionary<object, int> reverseMap = new Dictionary<object, int>(new ReferenceEqualsComparer());

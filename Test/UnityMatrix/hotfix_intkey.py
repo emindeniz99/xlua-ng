@@ -17,7 +17,10 @@ Game. Then it launches the editor twice, one launch at a time:
    patch and restore both types. HotfixIntKeyLocal's methods with a `ref`, an
    `in` and a virtual `in` parameter (modreq(InAttribute)) are patched with a
    function that returns an extra result, which must reach the `ref`
-   argument only; --csharp12 adds two with `ref readonly` parameters.
+   argument only; --csharp12 adds two with `ref readonly` parameters. In
+   the asmdef and package layouts Game's [Hotfix] type, Inline type and
+   generic method (Game/GameShapes.cs) are patched and restored as well
+   (HotfixShapes.cs).
 
 The default is the asmdef layout (xLua in XLua.dll); --package installs xLua
 as the UPM package (also XLua.dll). In both, Game.asmdef references XLua and
@@ -98,8 +101,10 @@ if a.no_asmdef:
 else:
     shutil.copy2(fixture / "Game/Game.asmdef", a.project / "Assets/Game/Game.asmdef")
     shutil.copy2(fixture / "Game/GameHotfix.cs", a.project / "Assets/Game/GameHotfix.cs")
+    shutil.copy2(fixture / "Game/GameShapes.cs", a.project / "Assets/Game/GameShapes.cs")
 shutil.copy2(fixture / "HotfixIntKeyLocal.cs", a.project / "Assets/HotfixIntKeyLocal.cs")
 shutil.copy2(fixture / "LocalHotfix.cs", a.project / "Assets/LocalHotfix.cs")
+shutil.copy2(fixture / "HotfixShapes.cs", a.project / "Assets/HotfixShapes.cs")
 shutil.copy2(fixture / "HotfixIntKeySteps.cs", a.project / "Assets/Editor/HotfixIntKeySteps.cs")
 shutil.copy2(fixture / "HotfixIntKeyTests.cs", a.project / "Assets/Tests/Editor/HotfixIntKeyTests.cs")
 

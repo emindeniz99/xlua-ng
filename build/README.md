@@ -209,10 +209,11 @@ headers do not report warnings in xLua's files. The set and its reasons are in
 - **GCC and Clang:** `-Wall -Wextra -Wpedantic -Wformat=2 -Wshadow -Wundef
   -Wstrict-prototypes -Wold-style-definition -Wcast-qual -Wwrite-strings
   -Wcast-align -Wconversion -Wno-sign-conversion`, plus `-Wvla
-  -Wimplicit-fallthrough -Wdouble-promotion -Wnull-dereference -Wc++-compat
-  -Wdate-time` where the compiler knows them. `-Werror=return-type`,
+  -Wimplicit-fallthrough -Wdouble-promotion -Wnull-dereference -Wc++-compat`
+  where the compiler knows them. `-Werror=return-type`,
   `implicit-function-declaration`, `int-conversion` and
-  `incompatible-pointer-types` are always errors.
+  `incompatible-pointer-types` are always errors. `-Werror=date-time` applies
+  to every file of the library ([reproducible builds](#reproducible-builds)).
 - **MSVC:** `/W4 /utf-8`, with C4013, C4024, C4047, C4133 and C4716 as errors.
 
 CMake options (all `OFF` by default except `XLUA_CHEAP_HARDEN`):
@@ -222,7 +223,7 @@ CMake options (all `OFF` by default except `XLUA_CHEAP_HARDEN`):
 | `XLUA_WERROR` | Warnings in xLua's own files become errors (`-Werror`, `/WX`). CI turns it on. |
 | `XLUA_CHEAP_HARDEN` | `ON` in every preset (since 2026-10-18): the cheap hardening set, see below. |
 | `XLUA_HARDEN` | Hardening for the whole library, see below. |
-| `XLUA_APICHECK` | Lua's C API argument checks (`LUA_USE_APICHECK`, with `NDEBUG` removed so that `assert` stays on). For test builds; `sanitize.sh` and `coverage.sh` use it. LuaJIT compiles its checks into `libluajit.a`: also build it with `XCFLAGS=-DLUA_USE_APICHECK`. With `USING_LUAJIT`, configure stops when `LUAJIT_STATIC_LIB` has no `lj_assert_fail`, that is, was made without the checks. |
+| `XLUA_APICHECK` | Lua's C API argument checks (`LUA_USE_APICHECK`, with `NDEBUG` removed so that `assert` stays on). For test builds; `sanitize.sh` and `coverage.sh` use it. LuaJIT compiles its checks into `libluajit.a`: also build it with `XCFLAGS=-DLUA_USE_APICHECK`. With `USING_LUAJIT`, configure stops when `LUAJIT_STATIC_LIB` has no `lj_assert_fail`, that is, was made without the checks. With MSVC it also adds `xlua_apicheck_msvc.c`, which sends a failed check to stderr instead of a message box (the static C runtime does not know the host is a console program); with `msvcbuild_mt.bat`, set `CL=/DLUA_USE_APICHECK` for `lua51.lib`. `Test/Native/apicheck_probe.py` checks that a build has the checks. |
 | `XLUA_SANITIZE`, `XLUA_COVERAGE` | Sanitizer and coverage test builds, see [Test/README.md](../Test/README.md). |
 
 Size options ([size flags](#android-size-flags) below):
@@ -294,6 +295,66 @@ The check accepts BTI alone for LuaJIT. The size and speed cost is in
 [FLAGS.md](FLAGS.md#xlua_harden), together with a cheaper set measured for
 the default (`-fno-delete-null-pointer-checks` everywhere and zeroed locals in
 xLua's own three files), which is not applied.
+
+## Reproducible builds
+
+The same sources and options give the same bytes in any checkout and any
+build directory (since 2026-10-28). `build/CMakeLists.txt` adds, for every
+target and every C file, vendored ones included:
+
+| Flag | Compilers | Why |
+|---|---|---|
+| `-ffile-prefix-map=<build/ of the checkout>=build` and `-ffile-prefix-map=<build directory>=.` | GCC 8+, Clang 10+ (older ones: `-fdebug-prefix-map` and `-fmacro-prefix-map`) | Debug information, `__FILE__` and assertion messages name `build/lua-5.5.1/src/lvm.c` instead of the absolute path. The build directory's mapping comes last, so it wins when the directory lies inside `build/`, as the `make_*` scripts put it. |
+| `-Werror=date-time` | GCC, Clang | `__DATE__`, `__TIME__` and `__TIMESTAMP__` stop the build. No file uses them. |
+| `-Wl,-oso_prefix,<build directory>/` | Apple's linker | Relative object paths in the OSO entries that a library with debug information carries for `dsymutil`. |
+| `/Brepro` (compiler and linker), `/pathmap:<dir>=build` | MSVC, where `cl.exe` and `link.exe` take them | No time stamps in objects and DLLs; mapped paths. Not built or checked yet. |
+
+A debugger finds the sources from the repository root (`build/...`); the
+build directory itself is `.` (LLDB: `settings set target.source-map build
+/path/to/xlua-ng/build`). Release builds for Linux and the Apple platforms
+carry no debug information, so their bytes did not change; Android's do,
+because the NDK compiles with `-g`.
+
+`python3 Test/Native/repro_check.py --work DIR [-- CMAKE_ARGS]` copies
+`build/` (and `Assets/XLua/Src`) to two checkouts whose paths differ in name
+and length, builds the same configuration in each (one build directory inside
+`build/`, one outside the checkout) and compares the libraries' SHA-256; with
+`--script make_android_lua55.sh` it runs a release script in each copy and
+compares every file of the `plugin_*` folder it writes. On a difference it
+lists the object files that differ and the GNU build IDs. Each configure,
+build or script run has a timeout (`--timeout`, default 1800 s) and is killed
+with its process group.
+
+Measured on 2026-10-28 (Apple clang 21 on macOS 27 arm64 with Xcode 27.1 and
+NDK r30 30.0.16248370; GCC 15.2 and Clang 21.1.8 in the arm64
+`xlua-analysis:26.04` container), all for Lua 5.5.1 unless noted, two
+checkouts each:
+
+| Build | Before | After |
+|---|---|---|
+| `make_android_lua55.sh`, four ABIs, stripped plugins and `symbols/` | all 8 files differ (208 of 212 objects) | same bytes (`arm64-v8a` `5472d106...`) |
+| `make_android_lua55.sh` with `XLUA_VARIANT=minimal XLUA_PRESET=minimal`, and with `core` | not run | same bytes |
+| `make_osx_lua55.sh` (Xcode, universal bundle), `make_osx_silicon_lua55.sh`, `make_ios_lua55.sh` (device and `XLUA_IOS_SDK=simulator`) | same bytes in the earlier check ([release.md](../docs/design/release.md#reproducibility)) | same bytes |
+| macOS arm64 dylib, Ninja, `RelWithDebInfo` | differs (objects and dylib) | objects the same; the dylib differs only by the object times in its OSO entries, and is the same with `ZERO_AR_DATE=1` in the environment |
+| Linux, GCC, `Release`; `make_linux_lua55.sh` | same bytes (`2ed2e3d9...`, unchanged by the flags) | same bytes (`2ed2e3d9...`) |
+| Linux, GCC and Clang, `RelWithDebInfo` | differs (all 51 objects with GCC, 50 with Clang; different GNU build IDs) | same bytes |
+| Linux, GCC: `Debug` with `XLUA_APICHECK`, Lua 5.3.6, `XLUA_BYTECODE_ONLY`; `make_linux64_luajit.sh` | not run | same bytes |
+
+Apple's linker writes each object file's modification time into the OSO
+entries of a library linked with debug information; `ZERO_AR_DATE=1` in the
+environment makes it write 0. The release scripts build Apple plugins without
+debug information, so they do not need it. LuaJIT's `libluajit.a` comes from
+its own Makefile, which compiles without `-g` and with relative paths, so the
+LuaJIT plugin was the same without any change there.
+
+`publish.yml`'s `reproducibility-linux` and `reproducibility-apple` jobs
+([release.md](../docs/design/release.md#reproducibility)) rebuild the release
+plugins on a second runner and compare them with
+`.github/scripts/compare-builds.sh`; they need no change. The same checkout
+path on both runners is no longer required, and the Android build ID that
+differed between build directories no longer does. `compare-builds.sh` was run
+locally on two `make_osx_silicon_lua55.sh` checkouts (same, exit 0); the jobs
+themselves have not run on hosted runners yet. Windows (MSVC) is not checked.
 
 ## LuaSocket and mime
 
@@ -1155,7 +1216,14 @@ LuaJIT libraries:
   (Linux, macOS, iOS, Android arm64-v8a and x86_64, Windows ARM64). It still
   uses the Visual Studio 2017 generator.
 
-The bridge itself does not depend on the mode. The CMake `GC64` option, which
+The bridge itself does not depend on the mode. Until 2026-10-28 it did:
+`xlua_gl` read `lua_State` through LuaJIT's `lj_obj.h`, which `xlua.c` was
+compiled with in GC64 mode whatever the library's mode, so with a non-GC64
+library it got a different value from call to call and the first `LuaEnv`
+failed (`NullReferenceException` in `ImportType`; windows-host.yml run
+40642149114). It now takes the registry's address (`lua_topointer`), about
+2.5 ns more per call on LuaJIT (Apple M2 Pro). `xlua_libs.c` still includes
+`lj_arch.h`, for `LJ_HASFFI` only. The CMake `GC64` option, which
 defined `LUAJIT_ENABLE_GC64` for `xlua.c`, was removed: nothing in LuaJIT 2.1
 or the bridge reads that macro. Bytecode depends on the mode: a GC64 runtime
 rejects non-GC64 bytecode and the reverse (`lj_bcread.c:403`, the

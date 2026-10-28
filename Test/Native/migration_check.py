@@ -182,7 +182,9 @@ analyzer = build_source_generator.build(out / "source-gen-build")
 
 ui = csc("UnityEngine.UI.dll", sorted(ugui.rglob("*.cs")), editor,
          ["PACKAGE_PHYSICS", "PACKAGE_PHYSICS2D", "PACKAGE_TILEMAP", "PACKAGE_ANIMATION", "PACKAGE_UITOOLKIT"])
-game = csc("Assembly-CSharp.dll", runtime_sources + user_runtime, [ui])
+# Unity compiles Assembly-CSharp in the Editor with UnityEditor.dll and UNITY_EDITOR, which the
+# SignatureLoader example uses (aa39b15f).
+game = csc("Assembly-CSharp.dll", runtime_sources + user_runtime, [ui] + editor)
 game_editor = csc("Assembly-CSharp-Editor.dll", user_editor, [game, ui] + editor)
 default_dll = csc("XLuaDefaultConfig.dll", default_config, [game] + editor)
 sample_dll = csc("Sample.dll", [sample], [game, ui])
@@ -244,7 +246,7 @@ def check(name, inputs, lists_in, extra_sources, compare=None, expect_files=("As
     # The source generator, from the attributes.
     generated = out / ("source-gen-" + name)
     shutil.rmtree(generated, ignore_errors=True)
-    csc("Assembly-CSharp." + name + ".sg.dll", runtime_sources + user_runtime + list(extra_sources) + files, [ui],
+    csc("Assembly-CSharp." + name + ".sg.dll", runtime_sources + user_runtime + list(extra_sources) + files, [ui] + editor,
         analyzer=analyzer, generated=generated)
     manifest = next(generated.rglob("XLua.Manifest.g.cs"))
     manifests[name] = manifest

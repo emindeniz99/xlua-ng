@@ -51,6 +51,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | LuaSocket (`socket`, `socket.core`) and `mime` | `LuaEnv` registered `socket` and `socket.core` as C# built-in libraries (`AddBuildin`) that called the `luaopen_socket_core` import, except in Switch and WebGL players. `mime.c` was compiled (and exported on Android and desktop) but `require "mime"` failed | `luaopen_xlua` puts `socket.core`, `socket`, `mime.core` and `mime` into `package.preload` when the native library contains them (CMake `XLUA_LUASOCKET` and `XLUA_MIME`, both on by default; see Native plugins below). C# imports nothing for them, so a library built without LuaSocket links on iOS with the same C#. `require "socket"` returns the same core module as before; `require "mime"` now works. `package.preload` lists the four names, and since the preload searcher runs before the built-in one, `AddBuildin` with one of those names no longer takes effect (upstream's `AddBuildin("socket", ...)` threw for the duplicate name); set `package.preload[name] = nil` first or build without the module. `LuaDLL.Lua.luaopen_socket_core` stays, as a C# method that runs the preload entry and pushes the module; without LuaSocket it raises `LuaSocket is not compiled into the xlua native library`. Which platforms have LuaSocket now depends only on the native build: the WebGL source build and the Switch build do not compile it, the Editor's library does | `feat(native): register LuaSocket and mime in package.preload`, `refactor(runtime): drop the C# LuaSocket registration and import` |
 | An error inside an `xlua.util.cs_generator` coroutine | `coroutine.wrap` passed on the message only (with `util.lua`'s position in front on Lua 5.3+); the coroutine's frames were lost ([#1082](https://github.com/Tencent/xLua/pull/1082)) | A string error ends with the coroutine's traceback (`debug.traceback(co)`) and has no `util.lua` position in front; an error value of another type is raised unchanged, as before | `fix(runtime): keep the coroutine traceback in cs_generator errors` |
 | String parameters of the native bridge imports outside Unity (`XLUA_GENERAL`): chunk names, global names, `LuaTable.GetInPath`/`SetInPath` paths, C# error messages | Marshalled by the runtime: UTF-8 on Mono and on .NET outside Windows, the ANSI code page on .NET Framework and .NET on Windows, where non-ASCII names and messages reached Lua garbled ([#1081](https://github.com/Tencent/xLua/issues/1081)) | Passed as UTF-8 bytes on every runtime, as Unity's Mono and IL2CPP already do. Unity builds are unchanged | `fix(runtime): pass UTF-8 strings to the native imports outside Unity` |
+| The metatable of a C# type whose name is not ASCII (`luaL_newmetatable`), outside Unity (`XLUA_GENERAL`) on the .NET Framework and .NET on Windows | The import marshalled the type's name in the ANSI code page, while `luaL_getmetatable` looks it up as UTF-8, so the bridge did not find the metatable it had made and used `nil` as a table: undefined behaviour in the native library, an abort with `XLUA_APICHECK` ("table expected"); two types whose names differ only outside the code page could share one metatable ([#1081](https://github.com/Tencent/xLua/issues/1081)) | The name is passed as UTF-8 bytes, as the other imports are since the row above. Unity builds and ASCII names are unchanged | `fix(runtime): pass metatable names to luaL_newmetatable as UTF-8 outside Unity` |
 | A Lua table where a `UnityEngine.Object` type is expected (`GameObject`, `Component`, `Transform`, `MonoBehaviour`, `ScriptableObject`...): parameters, `ref` arguments, fields, properties, fields of a table converted to a class, `params` elements, delegate and interface results, `LuaTable.Get` and `Cast` | A class with a default constructor was made from the table field by field, so `SetPosition({}, 0, 0, 0)` added a new, empty GameObject to the scene, and a `MonoBehaviour` or `ScriptableObject` came out unusable (Unity warns); a type without a public constructor, such as `Transform`, got `null`. The overload check accepted the table, so it could pick the `UnityEngine.Object` overload over the intended one ([#918](https://github.com/Tencent/xLua/issues/918)) | A table raises, in every preset and on every binding path (reflection, emitted, generated, `GEN_CODE_MINIMIZE`, source generator): `bad argument #1 to 'SetPosition' (UnityEngine.GameObject expected, got table)` for a parameter, field or property that Lua sets (inside the wrapper's `c# exception:` error), `InvalidCastException: UnityEngine.GameObject expected, got table` for a value C# reads from Lua and for a `params` element of a generated or emitted wrapper (reflection wrappers name the argument). The overload check no longer takes a table for such a parameter, so `Pick({})` with `Pick(GameObject)` and `Pick(LuaTable)` calls the second. `nil` and C# objects pass as before, other classes still convert from tables, and a `List<GameObject>` leaves a table element out, as it does other values of the wrong type. The base class is found by its name, `UnityEngine.Object`. Generated code reads such parameters with the new `ObjectTranslator.GetUnityObjectArg`: regenerate code | `fix(runtime): refuse Lua tables for UnityEngine.Object types`, `fix(generator): read UnityEngine.Object arguments with GetUnityObjectArg` |
 | `require` through xLua's searchers: custom loaders (`LuaEnv.AddLoader`, `SignatureLoader`), `Resources`, StreamingAssets, the embedded `xlua.util`, `perf.profiler` and `xlua.memory`, `AddBuildin` libraries | The searchers returned only the loader, so on Lua 5.4 and 5.5 `require` returned `nil` as its second value, and on Lua 5.3 and later the module's `...` was `(name, nil)` ([#1182](https://github.com/Tencent/xLua/pull/1182)) | The searchers return loader data, as Lua's own searchers do: the path a custom loader set through its `ref` argument (the chunk name without `@`), the `Resources` or StreamingAssets path (`a/b.lua`), the embedded module's file name (`xlua/util.lua`), and `":preload:"` for an `AddBuildin` library, as Lua 5.4 gives for `package.preload`. On Lua 5.4 and 5.5 `require` returns it as its second value and passes it to the module as its second argument; Lua 5.3's `require` passes it but returns only the module; LuaJIT's `require` passes only the name, so nothing changes there. Code that counts `select('#', ...)` in a module, or collects `require`'s results in a table constructor (`{require 'm'}`) or an argument list (`f(require 'm')`), sees the extra value | `fix(runtime): return the loader data from xLua's require searchers` |
 | `perf.profiler` and `xlua.sethook` | On Lua 5.3, 5.4 and 5.5 every C# function's return reached the hook twice: from Lua's own return hook (with no third argument) and from the bridge's own report for LuaJIT (with `"[C#]"`). perf.profiler's report showed each C# function with twice its real CALLED count and half its real AVERAGE(MS). On every runtime, a C# return after `debug.sethook` had replaced the hook of `xlua.sethook` still called the `xlua.sethook` function and put its hook back | One call and one return event per C# call, the return with `"[C#]"` as the third argument, on every runtime; perf.profiler's counts and averages for C# functions are the real ones, and the source column still says `[C#]`. LuaJIT's events are unchanged. A hook set by `debug.sethook` stays in place. Code that halved the counts of C# functions to make up for the old output, or that counted returns without a third argument, must stop doing so | `fix(native): report each C# return once to the xlua.sethook profiler` |
@@ -69,6 +70,19 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | An error in Lua code that C# called (`DoString`, `LuaFunction.Call`, delegates) after a script set the global `debug` or `debug.traceback` to something that is not a table or function | LuaEnv's message handler raised while it looked up `debug.traceback`, so C# got "error in error handling" instead of the error. On LuaJIT, with a hook that makes a protected call (`debug.sethook(function() pcall(f) end, 'c')`), the handler re-entered itself until the C stack overflowed | The handler builds the traceback itself (`luaL_traceback`, the same text as `debug.traceback`) when `debug.traceback` is not a function; a script's own `debug.traceback` is still called | `fix(native): keep the error message when a script replaced debug.traceback` |
 | `LuaEnv.AddLoader` (`AddSearcher`) after a script set the global `package` to nil or another value, or gave `_G` an `__index` that raises | Looking up `package.searchers` raised with no handler: Lua's panic, a `LuaException` thrown through native frames (a crash where the runtime does not unwind them, IL2CPP) | The lookup runs under a protected call; `AddLoader` throws `Exception("Can not set searcher!")`, as it did for a `package.searchers` that is not a table | `fix(native): look up package.searchers under a protected call` |
 | A `__len` metamethod that raises or returns a non-integer, for `LuaTable.Length`, `LuaEnv.AddSearcher` and a table passed for a C# array or `List<T>` (Lua 5.3 and later) | `Length` failed as above; a conversion raised across the converter's managed frames | `Length` throws a `LuaException` with the error; a conversion inside a call from Lua raises a Lua error with the C# exception's text. Lengths without an error are unchanged; LuaJIT keeps reading the raw length | same commit |
+| Operators and indexers of `[LuaCallCSharp]` types in generated code (the source generator, plain and `GEN_CODE_MINIMIZE`) | `[BlackList]` (on the member, or an entry with the operator's parameter types) and `[Obsolete]` did not leave them out, while the emitted and reflection wrappers did | Left out in every binding mode. An entry `{type, "Item"}` names an indexer and `{type, "get_Item"}` its get accessor, also of a string-keyed indexer (its `get_Item` and `set_Item` methods), which a `[BlackList]` indexer now takes along in emitted wrappers too | `fix(generator): leave out blacklisted and obsolete operators, indexers and lazy members` |
+| A member in both `[DoNotGen]` and `[BlackList]` (or `[Obsolete]`), in generated code | Registered as a lazy member, so Lua could call it; a lazy method also took the overloads `[BlackList]` names | Left out, as in the emitted wrappers; a lazy method takes only the overloads the other wrappers take | same commit |
+| A public readonly field (`readonly`, not `static readonly` or `const`) in emitted and reflection wrappers: types without generated code | `o.F = v` wrote the field; generated code raised "cannot set F, no such field" | Raises as generated code does. `xlua.private_accessible` still writes non-public readonly fields | `fix(runtime): bind emitted and reflection wrappers as generated code` |
+| Indexers in reflection wrappers: a private setter, `[BlackList]` on one accessor, two or more keys | A private setter was called, so `o[k] = v` wrote; a blacklisted accessor stayed; an indexer with two keys got one and threw `TargetParameterCountException`. Emitted wrappers also bound two-key indexers | As generated code: public accessors that `[BlackList]` leaves in, indexers with one key only | same commit |
+| A binary operator with one overload in emitted and reflection wrappers, given an operand of another type (`a + 1` where only `T + T` exists) | The operand reached the operator as null (a `NullReferenceException` inside it, or a wrong result) | Raises "invalid arguments to right hand of + operator, need T!" (or "left hand"), as generated code does | same commit |
+| An instance method called with something other than an object of its class as `self` (`o.Method({}, 1)` where `o:Method(1)` was meant) | Emitted wrappers made a new object from the Lua table and called the method on it; reflection wrappers raised `TargetException` | `NullReferenceException` for no object and `InvalidCastException` for an object of another class, as generated code raises | same commit |
+| An event in reflection wrappers given a handler that is neither a function nor a delegate (`o:Changed("+")`, `o:Changed("+", 5)`) | nil raised "table index is nil" from inside C#, a Lua error through the managed frames after which Mono could crash on a later exception; a number could name the bridge of another Lua function or threw `KeyNotFoundException` | "#3 need System.Action!" as in generated code; an operator other than `+` or `-` raises "invalid arguments to T.Changed!". Emitted wrappers' "#3, need System.Action" reads the same now | same commit |
+| Error texts of the reflection wrappers (IL2CPP players without generated code, types without `[LuaCallCSharp]`) | "invalid arguments to Method", "invalid arguments to .ctor", "c# exception:" with the message and ",stack:" and the trace, "try to get T.Item throw a exception:" for indexers, "c# exception in FixCSFunction:" for fields | The texts of generated code: "invalid arguments to T.Method!", "invalid arguments to T constructor!", "c# exception:" followed by the exception (its type, message and trace) | same commit |
+| A missing argument for a `Nullable<T>` parameter (`o:F()` for `F(int? x)`) in generated and emitted wrappers | Read as 0 (`has 0`), while nil gave null | null, as nil gives and as in reflection wrappers | same commit |
+| `XLUA_JUST_EXCLUDE_ERROR` in emitted wrappers and lazy members | Ignored: emitted wrappers left out every `[Obsolete]` member | Only `[Obsolete(..., true)]` members are left out, as in generated code | same commit |
+| A `BaseType` chain that does not end, in the closures of a C# object's or class's `__index` and `__newindex` (only with the `debug` library: `debug.setupvalue` puts a table whose `BaseType` leads back to itself into the closure) | The walk looped in C, where the instruction hook (`LuaOptions.InstructionLimit`, `TimeLimit`) cannot stop it | Stops after 1000 types with "the BaseType chain is longer than 1000 types (a cycle?)"; real type chains are far shorter | `fix(native): bound the BaseType walk of the indexer closures` |
+| A `LuaEnv` used from a thread other than its owner, in the Editor, in Development Builds and outside Unity (`XLUA_GENERAL`), without `THREAD_SAFE` or `HOTFIX_ENABLE`: a second thread, or a C# finalizer that calls Lua | No check: two threads in one env corrupted the Lua heap, and the process aborted or got odd errors | Throws `InvalidOperationException` that names both thread IDs and the fixes. The owner is the thread that created the env; the new `LuaEnv.SetOwnerThread()` (and `LuaScript.SetOwnerThread()`) hands it to the calling thread, and `LuaOptions.CheckThread = false` turns the check off for one env. `Interrupt()` and the statistics (`MemoryUsed`, `MemoryPeak`, the limits' getters) work from any thread; the finalizers of `LuaTable`, `LuaFunction` and the bridges only queue a release, as before. One of the [bridge checks](#opt-in-defines-no-change-unless-defined): release players leave it out unless they define `XLUA_BRIDGE_CHECKS`, and `XLUA_NO_BRIDGE_CHECKS` removes it. Where it runs it costs about 1 to 2 ns per call into Lua (one more thread-static read; CodeEmit bridges read it several times per call, about 4 to 8 ns). An env created on one thread and used on another, such as one made in a `MonoBehaviour` field initializer, which Unity may run off the main thread, needs `SetOwnerThread()` or creating it in `Awake` | `feat(runtime): check the owner thread of a LuaEnv in debug builds` |
+| Nested calls between Lua and C# on LuaJIT (a Lua function calls C#, which calls Lua, which calls C# ...) | No limit: the C stack overflowed at about 10,240 levels and the process crashed (SIGSEGV). PUC Lua raised `C stack overflow` | LuaJIT raises the same `C stack overflow` Lua error at the same depth as Lua 5.3 to 5.5: when a 200th C# function would start while 199 run on the thread (the count is per thread, so C# functions of other `LuaEnv`s running on it count too). Every build, no define; about 2.5 ns per call from Lua into C# on LuaJIT, a thread-local counter in the trampoline (macOS arm64; below the noise of the bridge benchmarks) | `fix(native): stop deep C# and Lua recursion on LuaJIT as PUC Lua does` |
 
 ## Opt-in defines (no change unless defined)
 
@@ -198,10 +212,14 @@ alike:
 - **Enums without bindings:** values pass and numbers convert, but `CS.E.Name`
   and `CS.E.__CastFrom` raise; mark the enum `[LuaCallCSharp]`.
 - **`obj:ToString()`, `obj:GetType()`, `obj:Equals()`** come from
-  `System.Object`, and `t.Name` from `System.Type`: bind them
-  (`[assembly: XLua.LuaCallCSharp(typeof(object))]`, as the examples do) if
-  your Lua code uses them. `xlua.util` helpers that use C# types, such as
-  `util.createdelegate`, need those types bound too.
+  `System.Object`, and `t.Name` from `System.Type`, which the preset does not
+  bind for you (owner decision, 2026-10-28): bind them
+  (`[assembly: XLua.LuaCallCSharp(typeof(object), typeof(System.Type))]`; the
+  examples bind `object`) if your Lua code uses them. Without bindings their
+  error ends with a hint: `tostring(obj)` and `tostring(typeof(CS.T))` work
+  without bindings and give `ToString()` followed by `: ` and the hash code.
+  `xlua.util` helpers that use C# types, such as `util.createdelegate`, need
+  those types bound too.
 - **Delegates and interfaces:** the Editor no longer emits bridges for
   `[CSharpCallLua]` types without generated ones, so a missing bridge fails in
   the Editor as it does on the device: `This type must add to CSharpCallLua: T.
@@ -268,6 +286,15 @@ alike:
   `Plugins/iOS/xlua-variants/simulator/libxlua.a`, so the release archives
   carry it. The plugin selector takes it only for a Target SDK = Simulator SDK
   build; device players are unchanged. LuaJIT has no simulator build.
+- **LuaJIT without GC64 (2026-10-28):** `xlua_gl` read LuaJIT's `lua_State`
+  in GC64 layout whatever the library's mode, so a library from
+  `build/make_win64_luajit.bat` (non-GC64, the upstream Windows x64
+  default) failed the first `LuaEnv` (`NullReferenceException` in
+  `ImportType`). On LuaJIT `xlua_gl` now returns the registry table's
+  address, still an opaque key per Lua state; native code that compared it
+  with a `global_State` pointer must stop. About 2.5 ns more per C# call from
+  Lua on LuaJIT. See
+  [windows-host.md](research/windows-host.md#luajit-without-gc64).
 - **Parts of `os`, `package` and the base library as options:** the CMake
   options `XLUA_OS_FULL`, `XLUA_LOADLIB` and `XLUA_DOFILE` (on by default, off
   in the minimal preset, also read from the environment) build `os` with only
@@ -518,6 +545,29 @@ alike:
   LuaJIT 2.1 ignores, so it never changed a build. The LuaJIT GC mode comes
   from how LuaJIT itself is built (`msvcbuild_mt.bat nogc64` or not); passing
   `-DGC64=ON` now only gives CMake's unused-variable warning.
+- **Desktop plugin import settings (2026-10-28):** upstream's `.meta` files
+  enabled `Plugins/x86_64/libxlua.so` for Windows x64 players,
+  `Plugins/x86/libxlua.so` for Windows x86 players, `Plugins/x86_64/xlua.dll`
+  for Linux x64 (and 64-bit Intel macOS) players and `Plugins/x86/xlua.dll`
+  for 32-bit Linux and macOS players, so those players carried a second
+  library they cannot load. Each plugin is now enabled only for its own OS;
+  the Editor loads `libxlua.so` on Linux only (was any OS) and
+  `arm64/libxlua.dylib` on macOS only (was any OS). Players and editors on
+  the plugin's own OS are unchanged. `Assets/Plugins/arm64.meta` is new.
+  `Tools/check_meta.py` checks these settings (Test/README.md, "Unity .meta
+  files"). Not checked in a Unity editor or player yet.
+- **Reproducible native builds (2026-10-28):** `build/CMakeLists.txt` maps
+  the checkout's `build/` folder to `build` and the build directory to `.`
+  in debug information and `__FILE__` (`-ffile-prefix-map`; MSVC `/pathmap`
+  and `/Brepro`), so two checkouts give the same bytes. The Android
+  libraries and their `symbols/` files change once: the DWARF names
+  `build/lua-5.5.1/src/lvm.c` instead of the absolute path of the machine
+  that built it, so a debugger that shows source lines needs a source map to
+  the checkout (LLDB: `settings set target.source-map build
+  /path/to/xlua-ng/build`). Symbol names and line numbers are unchanged, and
+  the Linux and Apple release libraries keep their bytes. `__DATE__`,
+  `__TIME__` and `__TIMESTAMP__` are now errors in every C file of the
+  library. See [build/README.md](../build/README.md#reproducible-builds).
 
 ## Tooling
 
@@ -1311,6 +1361,18 @@ See [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.
   (`ConfigMigrationMenu.MigrateGrouped`) and `XLuaGenerate --migrate --group`
   instead write the types of a list that share an attribute, flags and
   namespace into one attribute, one `typeof` per line (2026-10-18).
+- **Without asmdefs** (xLua in Assembly-CSharp), the menu took
+  Assembly-CSharp for xLua's own assembly until 2026-10-28: it copied the
+  `[LuaCallCSharp]`, `[CSharpCallLua]` and `[GCOptimize]` attributes on the
+  project's types into `Assets/XLuaConfig/XLuaConfig.cs`, where the source
+  generator already reads them, and reported the types of `[Hotfix]` lists as
+  "not one the tool writes into". It now writes the lists of Assembly-CSharp's
+  types there and leaves attributes on types alone, as in the asmdef layout.
+  Running the menu a second time also no longer stops with "was not rewritten
+  because it was converted from [...] on the types of ..., which no longer
+  exists" for a file converted from the attributes of a precompiled DLL. A
+  file the old menu wrote is kept as it is (it names lists that are gone);
+  delete it and run the menu again to drop the copied attributes.
 - **xLua's examples** now also carry their converted configuration,
   `Assets/XLua/Examples/XLuaConfig.cs`, next to the lists. The tool leaves
   lists that such a file already converts out of its own output.

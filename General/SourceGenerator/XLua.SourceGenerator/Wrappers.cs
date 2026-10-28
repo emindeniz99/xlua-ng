@@ -698,7 +698,11 @@ namespace XLua.SourceGenerator
             string name = Full(t, c);
             string i = idx.ToString();
             string body;
-            if (name == "System.String" || name == "System.Byte[]")
+            // translator.Assignable<object> in one call: true for every value
+            // unless a checker was registered for object.
+            if (name == "System.Object")
+                body = "global::XLua.Binding.BindingApi.ObjectCheck(translator, L, " + i + ")";
+            else if (name == "System.String" || name == "System.Byte[]")
                 body = "(" + LuaAPI + ".lua_isnil(L, " + i + ") || " + LuaAPI + ".lua_type(L, " + i + ") == " + LuaTypes + ".LUA_TSTRING)";
             else if (name == "System.Int64")
                 body = "(" + LuaAPI + ".xlua_isinteger_number(L, " + i + ") || " + LuaAPI + ".lua_isint64(L, " + i + "))";
@@ -1192,7 +1196,7 @@ namespace XLua.SourceGenerator
         // OverloadScore's, on Roslyn symbols.
         sealed class Candidate
         {
-            public string Cond;                  // the count and type checks
+            public string Head;                  // the checks before Types': the count or the self, or null
             public int Start;                    // the Lua stack position of the first type
             public List<ITypeSymbol> Types = new List<ITypeSymbol>();   // checked types by position from Start
             public bool[] Scored;                // which of Types are scored
@@ -1356,7 +1360,7 @@ namespace XLua.SourceGenerator
             return ks.Count > 1 && NeedsScore(ks, c);
         }
 
-        // Whether Dispatch's scores need the translator: for C# objects.
+        // Whether Dispatch's scores need the translator: for C# objects and object.
         static bool ScoresNeedTranslator(List<Candidate> ks, Compilation c)
         {
             if (!Scores(ks, c)) return false;
@@ -1364,10 +1368,85 @@ namespace XLua.SourceGenerator
             {
                 for (int t = 0; t < k.Types.Count; t++)
                 {
-                    if (k.Scored[t] && (ScoreKind(k.Types[t], c) & (KindNullable - 1)) == KindOther) return true;
+                    int kind = ScoreKind(k.Types[t], c) & (KindNullable - 1);
+                    if (k.Scored[t] && (kind == KindOther || kind == KindObject)) return true;
                 }
             }
             return false;
+        }
+
+        // A candidate's checks: Head, then each of Types at its position.
+        // scored: in a scored group, where the checks of the scored positions
+        // read what the costs need anyway (ScoredCheck).
+        static string CondFor(Candidate k, Compilation c, bool scored)
+        {
+            var parts = new List<string>();
+            if (k.Head != null) parts.Add(k.Head);
+            for (int t = 0; t < k.Types.Count; t++)
+            {
+                bool isParams = k.ParamsElement && t == k.Types.Count - 1;
+                parts.Add((scored && k.Scored[t] && !isParams ? ScoredCheck(k.Types[t], k.Start + t, c) : null) ?? Check(k.Types[t], k.Start + t, isParams, c));
+            }
+            return string.Join(" && ", parts);
+        }
+
+        // Whether a scored C# object parameter is checked and costed in one
+        // call (BindingApi.CheckedArgScore): object, or a type that Check
+        // tests with translator.Assignable and the costs see as itself (kind
+        // 0, not Nullable<>).
+        static bool CheckedObject(ITypeSymbol t, Compilation c)
+        {
+            int kind = ScoreKind(t, c);
+            return kind == KindObject || (kind == KindOther && Check(t, 0, false, c) == "translator.Assignable<" + Cs(t, c) + ">(L, 0)");
+        }
+
+        // Check in a scored group, or null where Check stays: a number's
+        // check from its number kind (gen_n<idx>, read here at the first
+        // use), which NumberScore needs anyway, and a C# object's check from
+        // CheckedArgScore, whose cost it keeps in gen_s<idx>. Each replaces
+        // Check's exact test: xlua_number_kind is 0 for anything but a number,
+        // 1 for a number without an integer value (xlua_isinteger_number
+        // false), 2 to 5 for one with an integer value.
+        static string ScoredCheck(ITypeSymbol t, int idx, Compilation c)
+        {
+            string i = idx.ToString(), n = "gen_n" + i;
+            string number = "(" + n + " < 0 ? (" + n + " = " + LuaAPI + ".xlua_number_kind(L, " + i + ")) : " + n + ")";
+            string check = Check(t, idx, false, c);
+            switch (ScoreKind(t, c))
+            {
+                case KindInt32:
+                case KindSmallInteger:
+                    if (check == LuaAPI + ".xlua_isinteger_number(L, " + i + ")") return number + " >= 2";
+                    break;
+                case KindInt64:
+                case KindUInt64:
+                    string big = ScoreKind(t, c) == KindInt64 ? "lua_isint64" : "lua_isuint64";
+                    if (check == "(" + LuaAPI + ".xlua_isinteger_number(L, " + i + ") || " + LuaAPI + "." + big + "(L, " + i + "))")
+                        return "(" + number + " >= 2 || " + LuaAPI + "." + big + "(L, " + i + "))";
+                    break;
+                case KindDouble:
+                case KindSingle:
+                    if (check == LuaTypes + ".LUA_TNUMBER == " + LuaAPI + ".lua_type(L, " + i + ")") return number + " != 0";
+                    break;
+                case KindDecimal:
+                    if (check == "(" + LuaTypes + ".LUA_TNUMBER == " + LuaAPI + ".lua_type(L, " + i + ") || translator.IsDecimal(L, " + i + "))")
+                        return "(" + number + " != 0 || translator.IsDecimal(L, " + i + "))";
+                    break;
+                case KindObject:
+                case KindOther:
+                    if (CheckedObject(t, c))
+                        return "(gen_s" + i + " = global::XLua.Binding.BindingApi.CheckedArgScore(translator, L, " + i + ", typeof(" + Cs(t, c) + "), ref gen_t" + i + ")) >= 0";
+                    break;
+            }
+            return null;
+        }
+
+        // Whether ScoredCheck passes only for a number: an int, a smaller
+        // integer type, double or float, whose number kind it read.
+        static bool NumberFound(ITypeSymbol t, int idx, Compilation c)
+        {
+            int kind = ScoreKind(t, c);
+            return (kind == KindInt32 || kind == KindSmallInteger || kind == KindDouble || kind == KindSingle) && ScoredCheck(t, idx, c) != null;
         }
 
         static void Dispatch(Writer w, List<Candidate> ks, Compilation c)
@@ -1376,23 +1455,29 @@ namespace XLua.SourceGenerator
             {
                 foreach (var k in ks)
                 {
-                    w.Open("if (" + k.Cond + ")");
+                    w.Open("if (" + CondFor(k, c, false) + ")");
                     k.Body();
                     w.Close();
                 }
                 return;
             }
             w.Line("int gen_pick = -1, gen_best = int.MaxValue, gen_score;");
-            // The number kind of an argument, read once for all candidates.
+            // The number kind of an argument, read once for all candidates,
+            // and the cost of a C# object, which its check returns.
             var numbers = new SortedSet<int>();
+            var objects = new SortedSet<int>();
             foreach (var k in ks)
             {
                 for (int t = 0; t < k.Types.Count; t++)
                 {
-                    if (k.Scored[t] && !(k.ParamsElement && t == k.Types.Count - 1) && IsNumericKind(ScoreKind(k.Types[t], c))) numbers.Add(k.Start + t);
+                    if (!k.Scored[t] || (k.ParamsElement && t == k.Types.Count - 1)) continue;
+                    if (IsNumericKind(ScoreKind(k.Types[t], c))) numbers.Add(k.Start + t);
+                    else if (CheckedObject(k.Types[t], c)) objects.Add(k.Start + t);
                 }
             }
             if (numbers.Count > 0) w.Line("int " + string.Join(", ", numbers.Select(n => "gen_n" + n + " = -1")) + ";");
+            // A C# object's cost (gen_s) and the lua_type its checks read once (gen_t).
+            if (objects.Count > 0) w.Line("int " + string.Join(", ", objects.Select(n => "gen_s" + n + " = 0, gen_t" + n + " = -2")) + ";");
             w.Open("do");
             for (int i = 0; i < ks.Count; i++)
             {
@@ -1403,7 +1488,14 @@ namespace XLua.SourceGenerator
                     if (!k.Scored[t]) continue;
                     if (k.ParamsElement && t == k.Types.Count - 1) parts.Add(ScoreCall(k.Types[t], k.Start + t, c, k.Top));
                     else if (IsNumericKind(ScoreKind(k.Types[t], c)))
-                        parts.Add("global::XLua.Binding.BindingApi.NumberScore(L, " + (k.Start + t) + ", " + ScoreKind(k.Types[t], c) + ", ref gen_n" + (k.Start + t) + ")");
+                    {
+                        int kind = ScoreKind(k.Types[t], c);
+                        string n = "gen_n" + (k.Start + t);
+                        // A number its check found (ScoredCheck): the number kind is not 0.
+                        if (NumberFound(k.Types[t], k.Start + t, c)) parts.Add("global::XLua.Binding.BindingApi.NumberCost(" + n + ", " + kind + ")");
+                        else parts.Add("global::XLua.Binding.BindingApi.NumberScore(L, " + (k.Start + t) + ", " + kind + ", ref " + n + ")");
+                    }
+                    else if (CheckedObject(k.Types[t], c)) parts.Add("gen_s" + (k.Start + t));
                     else parts.Add(ScoreCall(k.Types[t], k.Start + t, c));
                 }
                 // An argument the call leaves out costs 100, as a value of the wrong type.
@@ -1411,7 +1503,7 @@ namespace XLua.SourceGenerator
                 string sum = parts.Count == 0 ? "" : (parts.Count == 1 ? parts[0] : "(" + string.Join(" + ", parts) + ")") + " * 4";
                 int penalty = Penalty(k);
                 string expr = sum.Length == 0 ? penalty.ToString() : (penalty == 0 ? sum : sum + " + " + penalty);
-                w.Open("if (" + k.Cond + ")");
+                w.Open("if (" + CondFor(k, c, true) + ")");
                 w.Line("gen_score = " + expr + ";");
                 w.Open("if (gen_score < gen_best)");
                 w.Line("gen_best = gen_score;");
@@ -1442,8 +1534,7 @@ namespace XLua.SourceGenerator
                 Start = offset + 1, HasParams = hasParams, DefaultUsed = o.DefaultCount > 0, Top = top,
                 ParamsElement = hasParams && real == ps.Length, IgnoresExtra = hasParams && real < ps.Length,
             };
-            var cond = new StringBuilder(top + " " + (hasParams ? ">=" : "==") + " " + (inNum + offset - o.DefaultCount - (hasParams ? 1 : 0)));
-            int inPos = 0;
+            k.Head = top + " " + (hasParams ? ">=" : "==") + " " + (inNum + offset - o.DefaultCount - (hasParams ? 1 : 0));
             var scored = new List<bool>();
             for (int pi = 0; pi < real; pi++)
             {
@@ -1452,15 +1543,13 @@ namespace XLua.SourceGenerator
                 var t = isV ? ((IArrayTypeSymbol)p.Type).ElementType : p.Type;
                 if (p.RefKind != RefKind.Out)
                 {
-                    inPos++;
-                    cond.Append(" && ").Append(Check(t, inPos + offset, isV, c));
+                    // checked at position Start + Types.Count, a params element when isV (ParamsElement)
                     k.Types.Add(t);
                     scored.Add(true);
                 }
             }
             k.Scored = scored.ToArray();
             k.Required = inNum - o.DefaultCount - (hasParams ? 1 : 0);
-            k.Cond = cond.ToString();
             return k;
         }
 
@@ -1547,7 +1636,7 @@ namespace XLua.SourceGenerator
                 var key = indexer.Parameters[0];
                 candidates.Add(new Candidate
                 {
-                    Cond = Check(type, 1, false, c) + " && " + Check(key.Type, 2, false, c),
+                    Head = Check(type, 1, false, c),
                     Start = 2, Types = { key.Type }, Scored = new[] { true }, Required = 1,
                     Body = () =>
                     {
@@ -1581,7 +1670,7 @@ namespace XLua.SourceGenerator
                 // Chosen by the key, as reflection does; the value is only checked.
                 candidates.Add(new Candidate
                 {
-                    Cond = Check(type, 1, false, c) + " && " + Check(key.Type, 2, false, c) + " && " + Check(valueType, 3, false, c),
+                    Head = Check(type, 1, false, c),
                     Start = 2, Types = { key.Type, valueType }, Scored = new[] { true, false }, Required = 2,
                     Body = () =>
                     {
@@ -1624,7 +1713,6 @@ namespace XLua.SourceGenerator
                     var right = o.Parameters[1].Type;
                     candidates.Add(new Candidate
                     {
-                        Cond = Check(left, 1, false, c) + " && " + Check(right, 2, false, c),
                         Start = 1, Types = { left, right }, Scored = new[] { true, true }, Required = 2,
                         Body = () =>
                         {

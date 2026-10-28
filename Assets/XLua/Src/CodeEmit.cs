@@ -1214,6 +1214,11 @@ namespace XLua
         private static readonly MethodInfo BindingApi_ArgScore = typeof(XLua.Binding.BindingApi).GetMethod("ArgScore");
         private static readonly MethodInfo BindingApi_ArgScores = typeof(XLua.Binding.BindingApi).GetMethod("ArgScores");
         private static readonly MethodInfo BindingApi_NumberScore = typeof(XLua.Binding.BindingApi).GetMethod("NumberScore");
+        private static readonly MethodInfo BindingApi_FastGetCSObj = typeof(XLua.Binding.BindingApi).GetMethod("FastGetCSObj");
+        private static readonly MethodInfo BindingApi_InvalidOperatorArguments = typeof(XLua.Binding.BindingApi).GetMethod("InvalidOperatorArguments");
+        private static readonly MethodInfo BindingApi_NumberCheck = typeof(XLua.Binding.BindingApi).GetMethod("NumberCheck");
+        private static readonly MethodInfo BindingApi_CheckedArgScore = typeof(XLua.Binding.BindingApi).GetMethod("CheckedArgScore",
+            new Type[] { typeof(ObjectTranslator), typeof(RealStatePtr), typeof(int), typeof(Type), typeof(int).MakeByRefType() });
         private static readonly MethodInfo ObjectTranslator_Assignable = typeof(ObjectTranslator).GetMethod("Assignable", new Type[] { typeof(RealStatePtr),
                typeof(int), typeof(Type)});
 
@@ -1451,7 +1456,7 @@ namespace XLua
             if (mb is PropertyInfo && (mb as PropertyInfo).GetIndexParameters().Any(p => Utils.IsUnsupportedType(p.ParameterType))) return true;
             if (mb is MethodBase && Utils.HasUnsupportedType(mb as MethodBase)) return true;
 
-            if (mb.IsDefined(typeof(ObsoleteAttribute), false)) return true;
+            if (Utils.IsLeftOutObsolete(mb)) return true;
 
             // [BlackList] on the member, entries and filters, as in the generator.
             return BlackListRules.IsListed(mb);
@@ -1461,9 +1466,18 @@ namespace XLua
         {
             if (Utils.HasUnsupportedType(mb)) return true;
 
-            if (mb.IsDefined(typeof(ObsoleteAttribute), false)) return true;
+            if (Utils.IsLeftOutObsolete(mb)) return true;
 
             return BlackListRules.IsListedMethod(mb);
+        }
+
+        // An accessor of an indexer goes with its indexer, and matches
+        // [BlackList] by name as property accessors do (BlackListRules.IsListed),
+        // also when its string key makes it a method for Lua (get_Item).
+        static bool isIndexerAccessorInBlackList(PropertyInfo indexer, MethodInfo accessor)
+        {
+            return isMemberInBlackList(indexer) || Utils.HasUnsupportedType(accessor) || Utils.IsLeftOutObsolete(accessor)
+                || BlackListRules.IsListed(accessor);
         }
 
         public Type EmitTypeWrap(Type toBeWrap)
@@ -1503,8 +1517,21 @@ namespace XLua
             var instanceFields = toBeWrap.GetFields(instanceFlag).Where(m => !isMemberInBlackList(m));
             var instanceProperties = toBeWrap.GetProperties(instanceFlag).Where(m => !isMemberInBlackList(m));
             extensionMethods = (extensionMethods == null) ? Enumerable.Empty<MethodInfo>() : extensionMethods.Where(m => !isMethodInBlackList(m));
+            var indexerOf = new Dictionary<MethodInfo, PropertyInfo>();
+            foreach (var prop in toBeWrap.GetProperties(instanceFlag))
+            {
+                if (prop.GetIndexParameters().Length == 0) continue;
+                foreach (var accessor in prop.GetAccessors())
+                {
+                    indexerOf[accessor] = prop;
+                }
+            }
             var instanceMethods = toBeWrap.GetMethods(instanceFlag)
-                .Where(m => !isMethodInBlackList(m))
+                .Where(m =>
+                {
+                    PropertyInfo indexer;
+                    return indexerOf.TryGetValue(m, out indexer) ? !isIndexerAccessorInBlackList(indexer, m) : !isMethodInBlackList(m);
+                })
                 .Concat(extensionMethods)
                 .Where(m => Utils.IsSupportedMethod(m))
                 .Where(m => !m.IsSpecialName
@@ -1533,7 +1560,11 @@ namespace XLua
             foreach(var field in instanceFields)
             {
                 emitRegisterFunc(il, emitFieldWrap(wrapTypeBuilder, field, true), Utils.GETTER_IDX, field.Name);
-                emitRegisterFunc(il, emitFieldWrap(wrapTypeBuilder, field, false), Utils.SETTER_IDX, field.Name);
+                // A readonly field has no setter, as in generated code.
+                if (!field.IsInitOnly)
+                {
+                    emitRegisterFunc(il, emitFieldWrap(wrapTypeBuilder, field, false), Utils.SETTER_IDX, field.Name);
+                }
             }
 
             List<MethodBase> itemGetter = new List<MethodBase>();
@@ -1546,7 +1577,9 @@ namespace XLua
                 {
                     if (prop.GetIndexParameters().Length > 0)
                     {
-                        if (!prop.GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string)))
+                        // One key, as in generated code: Lua's t[k] passes one.
+                        if (prop.GetIndexParameters().Length == 1 && !prop.GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string))
+                            && !isIndexerAccessorInBlackList(prop, getter))
                         {
                             itemGetter.Add(getter);
                         }
@@ -1562,7 +1595,8 @@ namespace XLua
                 {
                     if (prop.GetIndexParameters().Length > 0)
                     {
-                        if (!prop.GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string)))
+                        if (prop.GetIndexParameters().Length == 1 && !prop.GetIndexParameters()[0].ParameterType.IsAssignableFrom(typeof(string))
+                            && !isIndexerAccessorInBlackList(prop, setter))
                         {
                             itemSetter.Add(setter);
                         }
@@ -1581,7 +1615,10 @@ namespace XLua
 
             foreach (var group in supportOperators)
             {
-                emitRegisterFunc(il, emitMethodWrap(wrapTypeBuilder, group.Cast<MethodBase>().ToList(), false, toBeWrap), Utils.OBJ_META_IDX, InternalGlobals.supportOp[group.Key]);
+                // A binary operator checks its operands as in generated code, also
+                // with one overload: a value of another type is not passed as null.
+                bool binary = group.Key != "op_UnaryNegation" && group.Key != "op_OnesComplement";
+                emitRegisterFunc(il, emitMethodWrap(wrapTypeBuilder, group.Cast<MethodBase>().ToList(), false, toBeWrap, null, binary), Utils.OBJ_META_IDX, InternalGlobals.supportOp[group.Key]);
             }
 
             foreach (var ev in toBeWrap.GetEvents(instanceFlag).Where(m => !isMemberInBlackList(m)))
@@ -1744,7 +1781,8 @@ namespace XLua
             il.Emit(OpCodes.Brtrue, ifBlock);
 
             il.Emit(OpCodes.Ldarg_0);
-            il.Emit(OpCodes.Ldstr, string.Format("#{0}, need {1}", isStatic ? 2 : 3, ev.EventHandlerType));
+            // The text of generated code.
+            il.Emit(OpCodes.Ldstr, string.Format("#{0} need {1}!", isStatic ? 2 : 3, ev.EventHandlerType));
             il.Emit(OpCodes.Call, LuaAPI_luaL_error);
             il.Emit(OpCodes.Stloc, wrapRet);
             il.Emit(OpCodes.Leave, retPoint);
@@ -1856,8 +1894,11 @@ namespace XLua
         }
 
         // The argument count and type checks of one overload; jumps to fail
-        // when the arguments do not match.
-        void emitOverloadCheck(ILGenerator il, MethodBase method, LocalBuilder translator, LocalBuilder top, Label endOfBlock)
+        // when the arguments do not match. In a scored group, numbers,
+        // objects and luaTypes hold the positions whose checks read what the
+        // costs need (emitScoredCheck).
+        void emitOverloadCheck(ILGenerator il, MethodBase method, LocalBuilder translator, LocalBuilder top, Label endOfBlock,
+            Dictionary<int, LocalBuilder> numbers = null, Dictionary<int, LocalBuilder> objects = null, Dictionary<int, LocalBuilder> luaTypes = null)
         {
             bool isStatic = method.IsStatic;
             var paramInfos = method.GetParameters();
@@ -1910,20 +1951,70 @@ namespace XLua
                     {
                         rawParamType = rawParamType.GetElementType();
                     }
-                    checkType(il, rawParamType, translator, argPos++, endOfBlock, 
-                        hasParams && (j == paramInfos.Length - 1), paramInfo.IsOptional);
+                    bool isVParam = hasParams && (j == paramInfos.Length - 1);
+                    if (!emitScoredCheck(il, rawParamType, translator, argPos, endOfBlock, isVParam || paramInfo.IsOptional, numbers, objects, luaTypes))
+                    {
+                        checkType(il, rawParamType, translator, argPos, endOfBlock, isVParam, paramInfo.IsOptional);
+                    }
+                    argPos++;
                 }
             }
+        }
+
+        // checkType in a scored group, for an argument that is neither a
+        // params element nor optional (other): a number type's check from the
+        // argument's number kind in numbers[argPos] (BindingApi.NumberCheck),
+        // or a C# object's or object's check and cost in one call, the cost
+        // kept in objects[argPos] for emitOverloadScore and the lua_type in
+        // luaTypes[argPos] for the next check (BindingApi.CheckedArgScore).
+        // False when checkType stays.
+        bool emitScoredCheck(ILGenerator il, Type type, LocalBuilder translator, int argPos, Label endOfBlock, bool other,
+            Dictionary<int, LocalBuilder> numbers, Dictionary<int, LocalBuilder> objects, Dictionary<int, LocalBuilder> luaTypes)
+        {
+            if (other) return false;
+            int kind = OverloadScore.KindOf(type);
+            LocalBuilder local;
+            if (numbers != null && OverloadScore.IsNumeric(kind) && kind < OverloadScore.KindNullable && numbers.TryGetValue(argPos, out local))
+            {
+                il.Emit(OpCodes.Ldloc, translator);
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldc_I4, argPos);
+                il.Emit(OpCodes.Ldtoken, type);
+                il.Emit(OpCodes.Call, Type_GetTypeFromHandle);
+                il.Emit(OpCodes.Ldc_I4, kind);
+                il.Emit(OpCodes.Ldloca, local);
+                il.Emit(OpCodes.Call, BindingApi_NumberCheck);
+                il.Emit(OpCodes.Brfalse, endOfBlock);
+                return true;
+            }
+            if (objects != null && (kind == OverloadScore.KindOther || kind == OverloadScore.KindObject) && objects.TryGetValue(argPos, out local))
+            {
+                il.Emit(OpCodes.Ldloc, translator);
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldc_I4, argPos);
+                il.Emit(OpCodes.Ldtoken, type);
+                il.Emit(OpCodes.Call, Type_GetTypeFromHandle);
+                il.Emit(OpCodes.Ldloca, luaTypes[argPos]);
+                il.Emit(OpCodes.Call, BindingApi_CheckedArgScore);
+                il.Emit(OpCodes.Dup);
+                il.Emit(OpCodes.Stloc, local);
+                il.Emit(OpCodes.Ldc_I4_0);
+                il.Emit(OpCodes.Blt, endOfBlock);
+                return true;
+            }
+            return false;
         }
 
         // Leaves the cost of the arguments for this overload on the stack
         // (OverloadScore): BindingApi.ArgScore per scored argument, as
         // OverloadMethodWrap.Score adds them up. A numeric argument's number
         // kind is read once per call into numbers[position]
-        // (BindingApi.NumberScore); with collect, the method only adds those
-        // positions to it and emits nothing.
+        // (BindingApi.NumberScore), and a C# object's cost is the one its
+        // check left in objects[position] (emitScoredCheck); with collect, the
+        // method only adds those positions to collect and collectObjects and
+        // emits nothing.
         void emitOverloadScore(ILGenerator il, MethodBase method, bool isIndexer, Type declaringType, LocalBuilder translator, LocalBuilder top,
-            Dictionary<int, LocalBuilder> numbers, HashSet<int> collect = null)
+            Dictionary<int, LocalBuilder> numbers, Dictionary<int, LocalBuilder> objects, HashSet<int> collect = null, HashSet<int> collectObjects = null)
         {
             bool isStatic = method.IsStatic;
             var paramInfos = method.GetParameters();
@@ -1961,6 +2052,19 @@ namespace XLua
                         il.Emit(OpCodes.Ldc_I4, kind);
                         il.Emit(OpCodes.Ldloca, numbers[argPos]);
                         il.Emit(OpCodes.Call, BindingApi_NumberScore);
+                        il.Emit(OpCodes.Add);
+                    }
+                }
+                else if (scoreIt && !isVParam && !paramInfo.IsOptional && (kind == OverloadScore.KindOther || kind == OverloadScore.KindObject))
+                {
+                    // checked and costed by emitScoredCheck
+                    if (collect != null)
+                    {
+                        collectObjects.Add(argPos);
+                    }
+                    else
+                    {
+                        il.Emit(OpCodes.Ldloc, objects[argPos]);
                         il.Emit(OpCodes.Add);
                     }
                 }
@@ -2093,7 +2197,17 @@ namespace XLua
 
             if (!isStatic && (!method.IsConstructor || method.DeclaringType.IsValueType))
             {
-                if (!method.IsConstructor)
+                if (!method.IsConstructor && !method.DeclaringType.IsValueType)
+                {
+                    // The object itself, as generated code reads it: a Lua
+                    // table is not made into a new object to call the method on.
+                    il.Emit(OpCodes.Ldloc, translator);
+                    il.Emit(OpCodes.Ldloc, L);
+                    il.Emit(OpCodes.Ldc_I4_1);
+                    il.Emit(OpCodes.Call, BindingApi_FastGetCSObj);
+                    il.Emit(OpCodes.Castclass, method.DeclaringType);
+                }
+                else if (!method.IsConstructor)
                 {
                     EmitGetObject(il, 1, method.DeclaringType, L, translator, null);
                 }
@@ -2195,13 +2309,13 @@ namespace XLua
             //il.Emit(OpCodes.Ret);
         }
 
-        MethodBuilder emitMethodWrap(TypeBuilder typeBuilder, List<MethodBase> methodsToCall, bool isIndexer, Type declaringType, string methodDesciption = null)
+        MethodBuilder emitMethodWrap(TypeBuilder typeBuilder, List<MethodBase> methodsToCall, bool isIndexer, Type declaringType, string methodDesciption = null, bool binaryOperator = false)
         {
             string wrapName = (methodsToCall.Count > 0 ? methodsToCall[0].Name : "Constructor");
             var methodBuilder = typeBuilder.DefineMethod(wrapName + (genID++), MethodAttributes.Static, typeof(int), parameterTypeOfWrap);
             methodBuilder.DefineParameter(1,  ParameterAttributes.None, "L");
 
-            bool needCheckParameterType = (methodsToCall.Count > 1)  || isIndexer;
+            bool needCheckParameterType = (methodsToCall.Count > 1)  || isIndexer || binaryOperator;
 
             if (methodsToCall.Count == 0 || methodsToCall[0].IsConstructor)
             {
@@ -2259,9 +2373,10 @@ namespace XLua
                 LocalBuilder score = il.DeclareLocal(typeof(int));
                 Label dispatch = il.DefineLabel();
                 var numberPositions = new HashSet<int>();
+                var objectPositions = new HashSet<int>();
                 for (int i = 0; i < methods.Count; i++)
                 {
-                    emitOverloadScore(null, methods[i], isIndexer, declaringType, translator, top, null, numberPositions);
+                    emitOverloadScore(null, methods[i], isIndexer, declaringType, translator, top, null, null, numberPositions, objectPositions);
                 }
                 var numbers = new Dictionary<int, LocalBuilder>();
                 foreach (int position in numberPositions)
@@ -2270,6 +2385,15 @@ namespace XLua
                     il.Emit(OpCodes.Ldc_I4_M1);
                     il.Emit(OpCodes.Stloc, numbers[position]);
                 }
+                var objects = new Dictionary<int, LocalBuilder>();
+                var luaTypes = new Dictionary<int, LocalBuilder>();
+                foreach (int position in objectPositions)
+                {
+                    objects[position] = il.DeclareLocal(typeof(int));
+                    luaTypes[position] = il.DeclareLocal(typeof(int));
+                    il.Emit(OpCodes.Ldc_I4, OverloadScore.TypeUnread);
+                    il.Emit(OpCodes.Stloc, luaTypes[position]);
+                }
                 il.Emit(OpCodes.Ldc_I4_M1);
                 il.Emit(OpCodes.Stloc, pick);
                 il.Emit(OpCodes.Ldc_I4, int.MaxValue);
@@ -2277,8 +2401,8 @@ namespace XLua
                 for (int i = 0; i < methods.Count; i++)
                 {
                     Label next = il.DefineLabel();
-                    emitOverloadCheck(il, methods[i], translator, top, next);
-                    emitOverloadScore(il, methods[i], isIndexer, declaringType, translator, top, numbers);
+                    emitOverloadCheck(il, methods[i], translator, top, next, numbers, objects, luaTypes);
+                    emitOverloadScore(il, methods[i], isIndexer, declaringType, translator, top, numbers, objects);
                     il.Emit(OpCodes.Stloc, score);
                     il.Emit(OpCodes.Ldloc, score);
                     il.Emit(OpCodes.Ldloc, best);
@@ -2345,6 +2469,16 @@ namespace XLua
                     il.Emit(OpCodes.Ldc_I4_0);
                     il.Emit(OpCodes.Call, LuaAPI_lua_pushboolean);
                     il.Emit(OpCodes.Ldc_I4_1);
+                    il.Emit(OpCodes.Ret);
+                }
+                else if (binaryOperator)
+                {
+                    il.Emit(OpCodes.Ldloc, translator);
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldtoken, declaringType);
+                    il.Emit(OpCodes.Call, Type_GetTypeFromHandle);
+                    il.Emit(OpCodes.Ldstr, methodsToCall[0].Name);
+                    il.Emit(OpCodes.Call, BindingApi_InvalidOperatorArguments);
                     il.Emit(OpCodes.Ret);
                 }
                 else

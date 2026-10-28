@@ -17,15 +17,16 @@ Each item says what is left and where the runs that passed are recorded.
   hotfix player on 2021.3.45f2 and 6000.6.6f1 (owner's decision of
   2026-10-18, for [#1064](https://github.com/Tencent/xLua/issues/1064)).
 - **The Unity editor suite without Generate Code** (source generator
-  milestone M11): passed on 2021.3.45f2 and 6000.3.21f1, with and without
-  asmdefs, with `--hotfix` and with `GEN_CODE_MINIMIZE`
-  ([Test/README.md](Test/README.md#without-the-legacy-generator-milestone-m11-2026-10-18));
-  the 2022.3.62f3 and 6000.0.85f1 runs recorded there are from before M11.
-  Left: the suite on 2022.3, 6000.0 and 6000.6; `--package`, `--roslyn-sdk`,
-  `--build-target`, and on 6000.6 `--csharp12` and `--langversion latest`;
-  `compile_time.py`; the device examples (`Test/Examples`); the Linux and
-  Windows editors. On macOS arm64, 2021.3 and 2022.3 need Rosetta 2, because
-  their Package Manager server is x86_64 only.
+  milestone M11): passed on 2021.3.45f2, 2022.3.62f3, 6000.0.85f1,
+  6000.3.21f1 and 6000.6.6f1 in modes `sourcegen` and `reflection`, on
+  6000.3 also with `--package`, `--roslyn-sdk`, `--build-target iOS`, the
+  strict minimal preset and the minimal preset with `XLUA_REFLECTION`, on
+  6000.6 with `--csharp12` and `--langversion latest` (2026-10-28,
+  [Test/README.md](Test/README.md#after-m11-on-every-local-editor-2026-10-28)).
+  Left: `compile_time.py`; the device examples (`Test/Examples`);
+  `--build-target WebGL` (no local WebGL module for 6000.3 or 6000.6); the
+  Linux and Windows editors. On macOS arm64, 2021.3 and 2022.3 need Rosetta 2,
+  because their Package Manager server is x86_64 only.
 - **iOS on an iPhone** (development signing): waits for the hardware. The
   iOS players from the current sources ran only in the iOS 27.1 Simulator,
   from Unity 6000.3.21f1: legacy, minimal Development and release, the source
@@ -44,14 +45,6 @@ Each item says what is left and where the runs that passed are recorded.
   ran only on the Android 16 emulator (`xlua16k`); the phone runs (moto g
   play 2024, Android 14) have 4 KB pages
   ([Test/MobileSmoke/README.md](Test/MobileSmoke/README.md#recorded-validation)).
-- **The reduced `debug` library in a player** (`XLUA_REDUCED_DEBUG`,
-  `traceback` and `getinfo` only, the default of minimal release players
-  since 2026-10-18, `8065f36e`): no player has run it. The minimal players in
-  [Test/MobileSmoke/README.md](Test/MobileSmoke/README.md#2026-10-18-the-minimal-preset-in-players)
-  were built at `35165d02`, before it. The host suite is an `XLUA_GENERAL`
-  tool and keeps the whole library; the reduced table itself is tested
-  through `LuaOptions.Libraries` (`CaseLuaOptionsLibraries`). Needs a minimal
-  release player on the emulator, no hardware.
 - **Player modules that are not installed locally**: Android for
   6000.3.26f1, and WebGL for 6000.6.6f1, 2022.3.62f3 and 2021.3.45f2. The
   2026-10-18 Android and WebGL players used 6000.3.21f1 and 6000.6.4f1.
@@ -64,7 +57,11 @@ Each item says what is left and where the runs that passed are recorded.
   sizes in [build/SIZE.md](build/SIZE.md)). Left: a release player on a
   phone, players from other Unity versions, an iPhone (a Development player
   passed in the iOS Simulator), WebGL, and the GCM mode on iOS, WebGL and a
-  phone.
+  phone. The strict minimal preset (no reflection fallback, the generator
+  binding everything the smoke uses) passed in a release and a Development
+  player on the emulator on 2026-10-28
+  ([Test/MobileSmoke/README.md](Test/MobileSmoke/README.md#2026-10-28-strict-minimal-players));
+  left for it: High stripping, iOS, WebGL and a phone.
 - **UPM package** (`Tools/make_upm_package.py`, source generator M6): the
   editor suite, hotfix players, the IL2CPP smoke and a Development WebGL
   player in headless Chrome pass from it
@@ -85,37 +82,36 @@ Each item says what is left and where the runs that passed are recorded.
   [source-generator.md](docs/design/source-generator.md#m8-as-implemented-2026-10-18).
   The host check passes: `obfuscation_check.py` renames the generated
   assembly with Cecil and runs it with Lua 5.5.1 and LuaJIT.
-- **LuaCATS and Validate Setup with the source generator** (M10): in the M11
-  editor suite runs on 2021.3.45f2 and 6000.3.21f1, LuaCATS read
-  Assembly-CSharp's manifest (`LuaCATSDefinitionsAreGenerated`) and Validate
-  Setup found no problem (`ValidateSetupAcceptsThePlugin`, and
-  `hotfix_intkey.py`'s first launch). Left of M10's Unity steps
-  ([source-generator.md](docs/design/source-generator.md#m10-as-implemented-2026-10-18)):
-  6000.6, the comparison with `Test/LuaCATS/expected` in a project with
-  `Sample.cs`, and Validate Setup's problems for a missing `RoslynAnalyzer`
-  label and leftover Generate Code output. The host checks pass
-  (`luacats_check.py --source-gen`, Lua 5.5.1 and LuaJIT).
-- **Configuration migration** (M9): **XLua > Migrate Configuration to
-  Attributes** ran in Unity once, for the size report's game-sized
-  configuration (6000.3.21f1, `Test/MobileSmoke/SizeGameSgConfig.cs`). Left:
-  M9's steps 1 and 2, the default layout with the examples and the asmdef
-  layout with `XLuaBindings.asmdef`
-  ([source-generator.md](docs/design/source-generator.md#m9-as-implemented-2026-10-18)).
-  Step 3 (the editor suite with lists converted by the tool) no longer
-  applies: the suite has had no lists since M11. The host check passes
-  (`migration_check.py`).
+- **LuaCATS with the source generator in the editor** (M10): M10's Unity
+  steps passed on 6000.6.6f1 on 2026-10-28 (`LuaTypes/` equal to
+  `Test/LuaCATS/expected`, Validate Setup's label and Generate Code problems;
+  [Test/README.md](Test/README.md#after-m11-on-every-local-editor-2026-10-28)),
+  and M9's steps 1 and 2 on 2021.3.45f2. The comparison is a script since
+  then (`Test/UnityMatrix/luacats_unity.py`) and passed on 2021.3.45f2 and
+  6000.3.21f1 with `Sample.cs` without its `ref readonly` members
+  (`LUACATS_NO_REF_READONLY`, `Test/LuaCATS/expected-no-ref-readonly`) and
+  on 6000.6.6f1 with them
+  ([Test/README.md](Test/README.md#luacats-from-the-editor-and-the-strict-minimal-player-2026-10-28)).
+  Left: 2022.3 and 6000.0, the Linux and Windows editors, and adding the
+  script to `unity-matrix.yml`.
 - **Windows ARM64**: load `Plugins/arm64/xlua.dll` in a Unity 2023.1+ Windows
   ARM64 player (and the Windows on Arm Editor), and run the `windows-arm64`
   job of `build.yml` once. `native-build.yml` built the Lua 5.3.6, 5.4.9,
   5.5.1 and LuaJIT plugins on `windows-11-arm` and passed the native checks on
   2026-10-17 (run 39059626940); no Unity process has loaded them yet.
-- **Windows .NET Framework** (an `XLUA_GENERAL` host): run the suite there for
-  [#1081](https://github.com/Tencent/xLua/issues/1081) and
-  [#1179](https://github.com/Tencent/xLua/issues/1179). It marshals `string`
-  P/Invoke parameters with the ANSI code page; the bridge imports in
-  `LuaDLLBridge.cs` pass UTF-8 bytes under `XLUA_GENERAL` since 2026-10-18,
-  and Mono and .NET on macOS marshal UTF-8 either way. `Core/LuaDLL.cs`
-  (`luaL_newmetatable`, ASCII names only) is unchanged.
+- **Windows hosts** (`windows-host.yml`, since 2026-10-28): the managed suite
+  on the .NET Framework and on Mono 6.12.0 for Windows, the MSVC
+  `XLUA_APICHECK` builds of Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT (GC64 and
+  not) and errors through C# callbacks on LuaJIT Win64 pass (run
+  40645581045; [windows-host.md](docs/research/windows-host.md)). The runs
+  confirmed [#1081](https://github.com/Tencent/xLua/issues/1081) on the .NET
+  Framework and fixed `luaL_newmetatable`'s ANSI import and `xlua_gl` on
+  LuaJIT without GC64. Left: owner questions 1 to 3 in windows-host.md (the
+  `[CSharpCallLua]` scan and dynamic assemblies, the cost of the `xlua_gl`
+  fix, `NATIVE_LUA_PUSHSTRING`); the source generator passes, .NET (Core)
+  and the console code page of #1179 on Windows; and a `gh workflow run` of
+  the workflow from `main` (until the merge it ran from pushes to
+  `ci/windows-host`).
 
 ## Upcoming Unity versions
 
@@ -132,10 +128,10 @@ ships Roslyn 4.10.0 (C# 12).
   CoreCLR editor and players, native callbacks (`MonoPInvokeCallback`, and
   whether function pointers or `UnmanagedCallersOnly` are needed), the
   `NET_*` defines that guard emit, and that `Hotfix` injection still works.
-- Projects that raise the C# version with `csc.rsp`: run the editor tests with
-  `-langversion:latest` in 6000.6 (`prepare.py --langversion latest`; not run
-  yet) so generated code is known to compile with newer language rules, and
-  check C# 13/14 member shapes (for example `params` spans and extension
+- Projects that raise the C# version with `csc.rsp`: the editor tests with
+  `-langversion:latest` passed in 6000.6.6f1 with the source generator
+  (`prepare.py --langversion latest`, 2026-10-28). Left: check C# 13/14
+  member shapes (for example `params` spans and extension
   members) in the generator and LuaCATS.
 
 ## Dependencies and tooling
@@ -151,8 +147,9 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
 - Lua's C API checks (`XLUA_APICHECK`) are clean on Lua 5.3.6, 5.4.9, 5.5.1
   and LuaJIT, in the legacy, minimal and core presets and with
   `XLUA_LUASCRIPT=ON`, on macOS and under ASan and UBSan on Linux
-  ([apicheck-runs.md](docs/research/apicheck-runs.md)). Left: a Windows
-  (MSVC) run. Decided 2026-10-18 by the owner: a second CI sanitizer job
+  ([apicheck-runs.md](docs/research/apicheck-runs.md)), and with MSVC on
+  Windows since 2026-10-28 (`windows-host.yml`, legacy preset only).
+  Decided 2026-10-18 by the owner: a second CI sanitizer job
   (`sanitizers-extra`) runs the core, minimal, `XLUA_LUASCRIPT` and
   `luajit-uint` runs, and a `webgl` job compiles the WebGL source with
   Emscripten 4.0.20 (`.github/CI.md`). Both sanitizer jobs failed in their
@@ -174,9 +171,9 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
 - The P2 rows of UPSTREAM.md that are not closed:
   [#741](https://github.com/Tencent/xLua/issues/741) (fixed, needs a WebGL
   player that runs finalizers during an allocation),
-  [#1081](https://github.com/Tencent/xLua/issues/1081) and
-  [#1179](https://github.com/Tencent/xLua/issues/1179) (need the Windows .NET
-  Framework run above), [#1149](https://github.com/Tencent/xLua/issues/1149)
+  [#1179](https://github.com/Tencent/xLua/issues/1179) (its console code page
+  part; the ANSI imports are fixed and checked on the .NET Framework,
+  2026-10-28), [#1149](https://github.com/Tencent/xLua/issues/1149)
   (not reproduced; a likely cause and fix in
   [crash-inventory.md](docs/research/crash-inventory.md#11-the-old-walker-1149)).
   [#999](https://github.com/Tencent/xLua/issues/999) is fixed (2026-10-19).
@@ -192,12 +189,11 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   (`hotfix_intkey.py --csharp12`;
   [Test/README.md](Test/README.md#in-and-ref-readonly-parameters-2026-10-19)).
   Injecting the virtual ones failed before
-  ([MIGRATING.md](docs/MIGRATING.md#tooling)). Left: the editor suite with
-  `--csharp12` and `--roslyn-sdk` (above), `hotfix_intkey.py` on an editor
-  with Roslyn 4.3.1 (`in` only), and the reflection fallback of `ref readonly`
-  methods whose parameters carry `modreq`, which needs a Roslyn before 4.10:
-  Unity 2021.3 to 6000.3 with `--roslyn-sdk`
-  ([source-generator.md](docs/design/source-generator.md#m5-as-implemented-2026-10-18)).
+  ([MIGRATING.md](docs/MIGRATING.md#tooling)). The editor suite with
+  `--csharp12` (6000.6.6f1), and with `--roslyn-sdk` on 6000.3.21f1, where
+  `ref readonly` methods with `modreq` parameters go through reflection,
+  passed on 2026-10-28. Left: `hotfix_intkey.py` on an editor with Roslyn
+  4.3.1 (`in` only).
 - Done (2026-10-19, owner decisions): emitted delegate and interface
   bridges (`CodeEmit`) lock the env under `THREAD_SAFE` or `HOTFIX_ENABLE`,
   as the generated and source-generated ones do (`CaseBridgesOnThreads`); a

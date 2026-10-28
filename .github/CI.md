@@ -3,6 +3,8 @@
 Use **Native build and test (no release)** (`native-build.yml`) for native trial
 builds. Use **Unity editor matrix** (`unity-matrix.yml`) for the real Unity
 editor checks.
+Use **Windows host checks** (`windows-host.yml`) for what only a Windows host
+shows (below).
 Use **docs** (`docs.yml`) to build the Starlight site and deploy it to GitHub
 Pages; set the Pages source to "GitHub Actions" first. **Renovate**
 (`renovate.yml`) opens dependency update PRs; it needs the `RENOVATE_TOKEN`
@@ -11,7 +13,8 @@ Since the repository went public (2026-10-19), `build.yml` runs on pushes that
 touch `build/`, `native-build.yml` on pull requests, `codeql.yml` on pushes to
 `main`, pull requests and weekly, `unity-matrix.yml` on matching pushes, pull
 requests and weekly (its Unity steps skip without the licence secrets), and
-`docs.yml` on documentation pushes. `analysis.yml`, `publish.yml` and
+`docs.yml` on documentation pushes, `windows-host.yml` (since 2026-10-28) on
+pull requests that change what it reads. `analysis.yml`, `publish.yml` and
 `renovate.yml` stay manual (Renovate needs the `RENOVATE_TOKEN` secret first).
 Every workflow can also be started from **Actions → Run workflow**.
 It has `workflow_dispatch`, read-only repository permissions, and no tag or
@@ -172,12 +175,43 @@ the repository went public; it now runs on pushes to `main`, pull requests
 and weekly, and uploads its results to code scanning. **Native analysis** (`analysis.yml`, manual) runs
 `Test/Native/analyze.sh`, `Test/Native/coverage.sh` and `Test/Fuzz/run.sh`
 (seconds per target as an input) and uploads logs, coverage HTML and crash
-reproducers. Its `lua-tests` job runs lua.org's official test suites through
+reproducers. Its `coverage` job fails when `xlua.c`'s branch coverage drops
+below `coverage.sh`'s `MIN_BRANCH_COVERAGE` (99%, Test/README.md). Its `lua-tests` job runs lua.org's official test suites through
 `Test/Native/lua_tests.py` for Lua 5.3.6 (also with `LUAC_COMPATIBLE_FORMAT`),
 5.4.9 and 5.5.1, plain and under ASan and UBSan; the script downloads the
 pinned archives and checks their SHA-256. Check workflow changes with
 `mise exec zizmor@latest -- zizmor --offline .github/workflows/`, which must
 report no findings.
+
+**Windows host checks** (`windows-host.yml`, since 2026-10-28;
+[docs/research/windows-host.md](../docs/research/windows-host.md)). Five legs
+on `windows-2022` (Lua 5.3.6, 5.4.9, 5.5.1, LuaJIT GC64 and LuaJIT without
+GC64, the mode of `build/make_win64_luajit.bat`), 45 minutes each, about 2 to
+3 minutes in practice. Each builds `xlua.dll` with MSVC and `XLUA_APICHECK`
+(for LuaJIT, `lua51.lib` from `msvcbuild_mt.bat` with `CL=/DLUA_USE_APICHECK`,
+checked for `lj_assert_fail`), runs `apicheck_probe.py`, `check_exports.py`,
+`profiler_smoke.py` (Lua 5.x) and `native_regression.py`, then the managed
+suite's first pass on the .NET Framework (`run_managed.py --runtime netfx`,
+Visual Studio's Roslyn csc) and on Mono 6.12.0.206 for Windows (`mcs`), each
+check with its own 15-minute timeout and run even after another failed. On
+5.5.1, `ansi_control.py` turns the UTF-8 imports of `LuaDLLBridge.cs`, then of
+`LuaDLL.cs`, back to ANSI and requires the matching UTF-8 case to fail, which
+shows that the .NET Framework run exercised the ANSI marshalling of
+[Tencent/xLua#1081](https://github.com/Tencent/xLua/issues/1081). The logs are
+uploaded as `windows-host-<lua>`. Runs (all from pushes to `ci/windows-host`,
+since `gh workflow run` refuses a workflow that is not on `main` yet):
+[40641746628](https://github.com/emindeniz99/xlua-ng/actions/runs/40641746628)
+(Roslyn rejected the fixtures: Windows paths in `roslyn_fixtures.py`, `Span`),
+[40642149114](https://github.com/emindeniz99/xlua-ng/actions/runs/40642149114)
+(LuaJIT without GC64 failed in `LuaEnv`, two scan-cache cases and a LuaJIT
+`require` assumption in the tests), [40645040895](https://github.com/emindeniz99/xlua-ng/actions/runs/40645040895)
+(the .NET Framework passed on all legs; Mono's version string and the
+control's check failed), [40645581045](https://github.com/emindeniz99/xlua-ng/actions/runs/40645581045)
+(everything passed), [40646541080](https://github.com/emindeniz99/xlua-ng/actions/runs/40646541080)
+(after merging `main`: configure stopped at the `/pathmap` check of the
+reproducible builds, an invalid CMake escape, fixed in `build/CMakeLists.txt`)
+and [40646848333](https://github.com/emindeniz99/xlua-ng/actions/runs/40646848333)
+(everything passed again).
 
 The Unity editor matrix does not run mobile players. Device tests, UWP, OHOS,
 Windows x86, macOS Intel and old iOS deployment targets are outside this new
@@ -237,21 +271,30 @@ it.
 - `build.yml` (pushes) runs for `build/`, the NDK and OpenHarmony SDK
   installers, the checks of its jobs (`check_android_elf.py` with
   `managed_imports.py` and the C# it reads, `check_apple_minos.py`,
-  `ohos_check.sh` and its C files) and the workflow itself.
+  `ohos_check.sh` and its C files), and the workflow itself.
+- `meta.yml` (pushes and pull requests) runs `Tools/check_meta.py` for
+  `.meta` files, `Assets/`, `Test/UnitTest`, `Test/PrefTest`,
+  `check_meta.py`, `make_upm_package.py` and itself (Test/README.md "Unity
+  .meta files"). It takes seconds, so a `.meta`-only change does not start
+  `build.yml`'s multi-platform build.
 - `unity-matrix.yml` runs for everything `prepare.py` and `hotfix_il2cpp.py`
   copy or build: `Assets/` except the guides in `Assets/XLua/Doc`, `General/`,
   `Tools/`, `Test/`, `build/`, `mise.toml` and the NDK installer.
 - `codeql.yml` skips pushes and pull requests that change only Markdown,
   `docs/` or `Assets/XLua/Doc`; it analyzes C, C++ and C# only, and its weekly
   run covers everything.
+- `windows-host.yml` (pull requests) runs for `build/`, `Assets/XLua/` except
+  the guides, `General/`, `Test/UnitTest/`, `Test/Native/`,
+  `Tools/presets.py` (run_managed.py imports it), its Mono installer and
+  itself.
 - `docs.yml` keeps its list of page sources. Pages also link to other files
   in the repository; `sync.mjs` only checks that the targets exist, so a
   deleted or renamed link target shows up in the next docs run, not in the
   push that removed it.
 
-**Concurrency.** `native-build.yml`, `codeql.yml`, `build.yml` and
-`unity-matrix.yml` cancel the older run of the same pull request or branch.
-They never cancel a run on `main`. Manual `native-build.yml` runs get a group
+**Concurrency.** `native-build.yml`, `codeql.yml`, `build.yml`,
+`unity-matrix.yml` and `windows-host.yml` cancel the older run of the same pull request or branch.
+They never cancel a run on `main`. Manual `native-build.yml` and `windows-host.yml` runs get a group
 of their own, so they are neither cancelled nor queued.
 `docs.yml` (Pages) and `publish.yml` (releases) never cancel.
 
@@ -269,6 +312,7 @@ content that is checked again:
 | ccache (`$RUNNER_TEMP/ccache`, 300 MB) | both sanitizer jobs, the core jobs | job, platform, Lua version, a hash of the compilers' `--version`, hash of `build/**` (and `sanitize.sh`) | ccache hashes the compiler, flags and preprocessed source of every object; a failed compile is never cached, and cached warnings are replayed, so `XLUA_WERROR` works as without it |
 | Unity `Library` | `unity-matrix.yml` editor legs | editor version, variant, hash of the prepared `Packages`/`ProjectSettings`, the xLua sources, the source generator and `Test/UnityMatrix` | Unity reimports what changed |
 | pnpm store | `docs.yml` | hash of `docs/source/pnpm-lock.yaml` | pnpm checks every package against the lock file's integrity |
+| Mono for Windows MSI (169 MB) | `windows-host.yml` | hash of `.github/scripts/install-mono-windows.ps1`, which pins the version and SHA-256 | the script checks the MSI's SHA-256 on every use and deletes a wrong file |
 
 ccache 4.14.1 comes from the official release archive. The installer
 `.github/scripts/install-ccache.sh` checks its SHA-256 and sets
@@ -277,6 +321,8 @@ LuaJIT's own `make` builds do not use it.
 
 These were left out on purpose:
 
+- **ccache in `windows-host.yml`.** The MSVC builds take about 20 s (LuaJIT
+  about 25 s more), and ccache needs extra setup for MSVC.
 - **ccache in the native matrix and `build.yml`.** Their CMake builds take 4
   to 5 s on Linux, so restoring and saving a cache costs about as much as it
   saves. The iOS builds take 62 to 126 s, but they use the Xcode generator.

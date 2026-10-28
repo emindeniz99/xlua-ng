@@ -205,8 +205,23 @@ namespace XLua
 
         public void AddChecker(Type type, ObjectCheck oc)
         {
+            if (type.IsPrimitive() || type == typeof(decimal))
+            {
+                defaultNumberChecks = false;
+            }
+            if (type == typeof(object))
+            {
+                defaultObjectCheck = false;
+            }
             checkersMap[type] = oc;
         }
+
+        // Whether the number types still have the checkers above, whose result
+        // for a number OverloadScore.NumberCheck reads from its number kind.
+        internal bool defaultNumberChecks = true;
+        // Whether object still has objectCheck: Assignable is then true for
+        // every value and type object (OverloadScore.CheckedArg).
+        internal bool defaultObjectCheck = true;
 
         public ObjectCheck GetChecker(Type type)
         {
@@ -315,9 +330,7 @@ namespace XLua
             }
             else if (kind == KindObject)
             {
-                LuaTypes t = LuaAPI.lua_type(L, idx);
-                return t == LuaTypes.LUA_TNIL || t == LuaTypes.LUA_TNONE || t == LuaTypes.LUA_TTABLE
-                    || t == LuaTypes.LUA_TFUNCTION || t == LuaTypes.LUA_TTHREAD ? 0 : Worst;
+                return ObjectCost(LuaAPI.lua_type(L, idx));
             }
             switch (LuaAPI.lua_type(L, idx))
             {
@@ -333,7 +346,7 @@ namespace XLua
                     switch (kind)
                     {
                         case KindOther:
-                            return type == null ? nullable : Distance(translator.UserdataType(L, idx), type) + nullable;
+                            return type == null ? nullable : Distance(translator, translator.UserdataType(L, idx), type) + nullable;
                         case KindInt64:
                         case KindUInt64:
                         case KindDecimal:
@@ -347,13 +360,64 @@ namespace XLua
             }
         }
 
+        // A cached lua_type not read yet (LUA_TNONE is -1).
+        internal const int TypeUnread = -2;
+
+        // Arg for an object parameter, from the value's Lua type.
+        internal static int ObjectCost(LuaTypes t)
+        {
+            return t == LuaTypes.LUA_TNIL || t == LuaTypes.LUA_TNONE || t == LuaTypes.LUA_TTABLE
+                || t == LuaTypes.LUA_TFUNCTION || t == LuaTypes.LUA_TTHREAD ? 0 : Worst;
+        }
+
         // Arg for a numeric kind, with the argument's xlua_number_kind cached in
         // number (negative until read): the candidates of one call share it.
         internal static int NumberArg(RealStatePtr L, int idx, int kind, ref int number)
         {
             if (number < 0) number = LuaAPI.xlua_number_kind(L, idx);
-            if (number != 0) return Number(number, kind & (KindNullable - 1)) + ((kind & KindNullable) != 0 ? 1 : 0);
+            if (number != 0) return NumberCosts[(kind & (KindNullable - 1)) * 6 + number] + ((kind & KindNullable) != 0 ? 1 : 0);
             return Arg(null, L, idx, kind, null);
+        }
+
+        // Number as a table, at kind * 6 + number for the numeric kinds and
+        // the number kinds 1 to 5: one array read where the number kind is
+        // known (NumberArg, BindingApi.NumberCost).
+        internal static readonly int[] NumberCosts = BuildNumberCosts();
+
+        static int[] BuildNumberCosts()
+        {
+            var costs = new int[(KindDecimal + 1) * 6];
+            for (int kind = KindInt32; kind <= KindDecimal; kind++)
+            {
+                for (int number = 1; number <= 5; number++)
+                {
+                    costs[kind * 6 + number] = Number(number, kind);
+                }
+            }
+            return costs;
+        }
+
+        // translator.Assignable(L, idx, type) for a number type of this kind
+        // (not Nullable<>), from the argument's number kind, cached in number
+        // as in NumberArg: for a number, the checkers of ObjectCheckers test
+        // what the kind tells (0 not a number, 1 no integer value, 2 to 5 an
+        // integer value); anything else goes through Assignable.
+        internal static bool NumberCheck(ObjectTranslator translator, RealStatePtr L, int idx, Type type, int kind, ref int number)
+        {
+            if (number < 0) number = LuaAPI.xlua_number_kind(L, idx);
+            if (number != 0 && translator.objectCheckers.defaultNumberChecks)
+            {
+                return NumberMatches(number, kind);
+            }
+            return translator.Assignable(L, idx, type);
+        }
+
+        // The built-in check of a number type for a number of this
+        // xlua_number_kind (1 to 5): an integer type takes a value with an
+        // integer representation, the others any number.
+        internal static bool NumberMatches(int number, int kind)
+        {
+            return number >= 2 || kind == KindDouble || kind == KindSingle || kind == KindDecimal;
         }
 
         internal static bool IsNumeric(int kind)
@@ -408,17 +472,104 @@ namespace XLua
         }
 
         // From the object's type to the parameter type.
-        static int Distance(Type objType, Type type)
+        static int Distance(ObjectTranslator translator, Type objType, Type type)
         {
             if (objType == null || objType == type) return 0;
-            if (!type.IsAssignableFrom(objType)) return Mismatch;
-            if (type.IsInterface()) return 62;
-            int d = 0;
-            for (Type b = objType; b != null; b = b.BaseType(), d++)
+            return translator.overloadDistances.Get(objType, type);
+        }
+
+        // Distance for two different types, cached per pair: the
+        // IsAssignableFrom test and the base class walk cost more than a
+        // lookup. A small table with one entry per slot, by the two types'
+        // hash codes; a pair that lands on a taken slot replaces its entry.
+        // Each translator has its own, as the env's calls are not concurrent.
+        internal sealed class Distances
+        {
+            const int Size = 64;
+            readonly Type[] from = new Type[Size], to = new Type[Size];
+            readonly int[] costs = new int[Size];
+
+            internal int Get(Type objType, Type type)
             {
-                if (b == type) return Math.Min(2 * d, 60);
+                int slot = (objType.GetHashCode() * 31 + type.GetHashCode()) & (Size - 1);
+                if (ReferenceEquals(from[slot], objType) && ReferenceEquals(to[slot], type)) return costs[slot];
+                int cost = Compute(objType, type);
+                from[slot] = objType;
+                to[slot] = type;
+                costs[slot] = cost;
+                return cost;
             }
-            return 60;
+
+            static int Compute(Type objType, Type type)
+            {
+                if (!type.IsAssignableFrom(objType)) return Mismatch;
+                if (type.IsInterface()) return 62;
+                int d = 0;
+                for (Type b = objType; b != null; b = b.BaseType(), d++)
+                {
+                    if (b == type) return Math.Min(2 * d, 60);
+                }
+                return 60;
+            }
+        }
+
+        // translator.Assignable(L, idx, type) ? Arg(translator, L, idx, KindOther, type) : -1
+        // in one pass, which looks the object up once: the check and the cost
+        // of a parameter of kind KindOther that is not Nullable<>. The steps
+        // are Assignable's, in its order.
+        internal static int CheckedArg(ObjectTranslator translator, RealStatePtr L, int idx, Type type)
+        {
+            int luaType = TypeUnread;
+            return CheckedArg(translator, L, idx, type, ref luaType);
+        }
+
+        // luaType: the argument's lua_type, cached for the candidates of one
+        // call (TypeUnread until read).
+        // For type object, Arg's kind is KindObject.
+        internal static int CheckedArg(ObjectTranslator translator, RealStatePtr L, int idx, Type type, ref int luaType)
+        {
+            if (luaType == TypeUnread) luaType = (int)LuaAPI.lua_type(L, idx);
+            LuaTypes t = (LuaTypes)luaType;
+            if (type == typeof(object))
+            {
+                return translator.objectCheckers.defaultObjectCheck || translator.Assignable(L, idx, type) ? ObjectCost(t) : -1;
+            }
+            if (t == LuaTypes.LUA_TUSERDATA)
+            {
+                int udata = LuaAPI.xlua_tocsobj_safe(L, idx);
+                object obj;
+                if (udata != -1 && translator.objects.TryGetValue(udata, out obj))
+                {
+                    RawObject rawObject = obj as RawObject;
+                    if (rawObject != null)
+                    {
+                        obj = rawObject.Target;
+                    }
+                    if (obj == null)
+                    {
+                        return type.IsValueType() ? -1 : 0;
+                    }
+                    Type objType = obj.GetType();
+                    return objType == type ? 0 : AssignableDistance(translator, objType, type);
+                }
+                Type structType = translator.GetTypeOf(L, idx);
+                if (structType != null)
+                {
+                    return structType == type ? 0 : AssignableDistance(translator, structType, type);
+                }
+                // A userdata of no known type costs 0 (UserdataType is null).
+                return translator.objectCheckers.GetChecker(type)(L, idx) ? 0 : -1;
+            }
+            if (!translator.objectCheckers.GetChecker(type)(L, idx)) return -1;
+            // Arg's costs for KindOther.
+            return t == LuaTypes.LUA_TNUMBER || t == LuaTypes.LUA_TSTRING || t == LuaTypes.LUA_TBOOLEAN ? Mismatch : 0;
+        }
+
+        // Distance when type.IsAssignableFrom(objType) is the check: -1 when not.
+        static int AssignableDistance(ObjectTranslator translator, Type objType, Type type)
+        {
+            int cost = translator.overloadDistances.Get(objType, type);
+            return cost == Mismatch ? -1 : cost;
         }
 
         internal static int Total(int sum, bool hasParams, bool defaultUsed)
@@ -1209,7 +1360,9 @@ namespace XLua
         {
             return (RealStatePtr L, int idx, object target) =>
             {
-                if (LuaAPI.lua_isnil(L, idx))
+                // A missing argument is nil too, as for the reflection wrappers;
+                // it read as 0 (none is not LUA_TNIL).
+                if (LuaAPI.lua_type(L, idx) <= LuaTypes.LUA_TNIL)
                 {
                     return null;
                 }

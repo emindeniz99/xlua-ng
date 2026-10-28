@@ -398,7 +398,8 @@ All of them derive from `LuaException`.
 A `LuaScript` belongs to the thread that created it: with
 `LuaOptions.CheckThread` (the default) every other member throws
 `InvalidOperationException` on another thread, except `Interrupt()`,
-`IsDisposed` and the statistics. Two scripts on two threads run in parallel.
+`IsDisposed` and the statistics. `SetOwnerThread()` hands the script to the
+thread that calls it, once the previous owner is done with it. Two scripts on two threads run in parallel.
 `Dispose` inside a call of the same script throws; the finalizer closes a
 script that was not disposed.
 

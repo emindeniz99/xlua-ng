@@ -632,6 +632,39 @@
    ]
   },
   {
+   "type": "Coverage.LazyListed",
+   "kind": "class",
+   "constructors": [
+    "Coverage.LazyListed::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Kept",
+     "static": false,
+     "overloads": [
+      "Coverage.LazyListed::Kept()"
+     ]
+    },
+    {
+     "name": "Last",
+     "static": false,
+     "overloads": [
+      "Coverage.LazyListed::Last()"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": [
+    "SETTER_IDX GetterListed PropertySet",
+    "METHOD_IDX Mixed Method"
+   ]
+  },
+  {
    "type": "Coverage.ListedArrays",
    "kind": "class",
    "constructors": [],
@@ -939,6 +972,32 @@
    "lazy": []
   },
   {
+   "type": "Coverage.ObsoleteOperator",
+   "kind": "class",
+   "constructors": [
+    "Coverage.ObsoleteOperator::.ctor(System.Int32)"
+   ],
+   "methods": [],
+   "getters": [
+    "Value"
+   ],
+   "setters": [
+    "Value"
+   ],
+   "operators": [
+    {
+     "name": "op_Addition",
+     "overloads": [
+      "Coverage.ObsoleteOperator::op_Addition(Coverage.ObsoleteOperator,Coverage.ObsoleteOperator)"
+     ]
+    }
+   ],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
    "type": "Coverage.PackedPoint",
    "kind": "class",
    "constructors": [
@@ -952,6 +1011,382 @@
    "setters": [
     "X",
     "Y"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.Parity",
+   "kind": "class",
+   "constructors": [
+    "Coverage.Parity::.ctor()",
+    "Coverage.Parity::.ctor(System.Int32)"
+   ],
+   "methods": [
+    {
+     "name": "Add",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Add(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "Arr",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Arr()"
+     ]
+    },
+    {
+     "name": "Day",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Day(System.DayOfWeek)"
+     ]
+    },
+    {
+     "name": "Def",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Def(System.Int32,System.Int32)",
+      "Coverage.Parity::Def(System.Int32,System.Int32) -1"
+     ]
+    },
+    {
+     "name": "Describe",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Describe(System.Object)"
+     ]
+    },
+    {
+     "name": "Fire",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Fire()"
+     ]
+    },
+    {
+     "name": "Name",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Name(System.String)"
+     ]
+    },
+    {
+     "name": "Nothing",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Nothing()"
+     ]
+    },
+    {
+     "name": "Nul",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Nul(System.Nullable`1[System.Int32])"
+     ]
+    },
+    {
+     "name": "OutRef",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::OutRef(System.Int32,System.Int32&,System.Int32&)"
+     ]
+    },
+    {
+     "name": "Over",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Over(System.Int32)",
+      "Coverage.Parity::Over(System.Double)",
+      "Coverage.Parity::Over(System.String)",
+      "Coverage.Parity::Over(System.Object)"
+     ]
+    },
+    {
+     "name": "Overload2",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Overload2(System.Int32)",
+      "Coverage.Parity::Overload2(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "RunTransform",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::RunTransform(System.Int32)"
+     ]
+    },
+    {
+     "name": "Self",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Self()"
+     ]
+    },
+    {
+     "name": "StaticAdd",
+     "static": true,
+     "overloads": [
+      "Coverage.Parity::StaticAdd(System.Int32,System.Int32)"
+     ]
+    },
+    {
+     "name": "StaticOverload",
+     "static": true,
+     "overloads": [
+      "Coverage.Parity::StaticOverload(System.Int32)",
+      "Coverage.Parity::StaticOverload(System.String)"
+     ]
+    },
+    {
+     "name": "Sum",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Sum(System.Int32[])"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::ToString()"
+     ]
+    }
+   ],
+   "getters": [
+    "Any",
+    "BigConst static readonly",
+    "Callback",
+    "Const static readonly",
+    "Money static",
+    "PrivateSetProp",
+    "ReadOnlyField readonly",
+    "ReadOnlyProp",
+    "StaticField static",
+    "StaticPrivateSet static",
+    "StaticReadOnly static readonly",
+    "Transform",
+    "Value"
+   ],
+   "setters": [
+    "Any",
+    "Callback",
+    "Money static",
+    "PrivateGetProp",
+    "StaticField static",
+    "Transform",
+    "Value",
+    "WriteOnlyProp"
+   ],
+   "operators": [
+    {
+     "name": "op_Addition",
+     "overloads": [
+      "Coverage.Parity::op_Addition(Coverage.Parity,Coverage.Parity)"
+     ]
+    },
+    {
+     "name": "op_LessThan",
+     "overloads": [
+      "Coverage.Parity::op_LessThan(Coverage.Parity,Coverage.Parity)"
+     ]
+    },
+    {
+     "name": "op_Multiply",
+     "overloads": [
+      "Coverage.Parity::op_Multiply(Coverage.Parity,Coverage.Parity)"
+     ]
+    },
+    {
+     "name": "op_UnaryNegation",
+     "overloads": [
+      "Coverage.Parity::op_UnaryNegation(Coverage.Parity)"
+     ]
+    }
+   ],
+   "indexers": [
+    "Coverage.Parity::get_Item(System.Double)"
+   ],
+   "newindexers": [],
+   "events": [
+    "Changed add remove",
+    "StaticChanged static add remove"
+   ],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.ParityDerived",
+   "kind": "class",
+   "constructors": [
+    "Coverage.ParityDerived::.ctor()"
+   ],
+   "methods": [
+    {
+     "name": "Hidden",
+     "static": false,
+     "overloads": [
+      "Coverage.ParityDerived::Hidden()"
+     ]
+    },
+    {
+     "name": "Virt",
+     "static": false,
+     "overloads": [
+      "Coverage.ParityDerived::Virt()"
+     ]
+    }
+   ],
+   "getters": [
+    "DerivedField"
+   ],
+   "setters": [
+    "DerivedField"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.ParityListedGetter",
+   "kind": "class",
+   "constructors": [
+    "Coverage.ParityListedGetter::.ctor()"
+   ],
+   "methods": [],
+   "getters": [
+    "Last"
+   ],
+   "setters": [
+    "Last"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [
+    "Coverage.ParityListedGetter::set_Item(System.Int32,System.Int32)"
+   ],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.ParityListedIndexer",
+   "kind": "class",
+   "constructors": [
+    "Coverage.ParityListedIndexer::.ctor()"
+   ],
+   "methods": [],
+   "getters": [
+    "Last"
+   ],
+   "setters": [
+    "Last"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.ParityListedStringIndexer",
+   "kind": "class",
+   "constructors": [
+    "Coverage.ParityListedStringIndexer::.ctor()"
+   ],
+   "methods": [],
+   "getters": [
+    "Last",
+    "Other"
+   ],
+   "setters": [
+    "Last",
+    "Other"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.ParityPrivateSetIndexer",
+   "kind": "class",
+   "constructors": [
+    "Coverage.ParityPrivateSetIndexer::.ctor()"
+   ],
+   "methods": [],
+   "getters": [
+    "Last"
+   ],
+   "setters": [
+    "Last"
+   ],
+   "operators": [],
+   "indexers": [
+    "Coverage.ParityPrivateSetIndexer::get_Item(System.Int32)"
+   ],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.ParityStruct",
+   "kind": "class",
+   "constructors": [
+    "Coverage.ParityStruct::.ctor(System.Int32)"
+   ],
+   "methods": [
+    {
+     "name": "Bump",
+     "static": false,
+     "overloads": [
+      "Coverage.ParityStruct::Bump()"
+     ]
+    },
+    {
+     "name": "Get",
+     "static": false,
+     "overloads": [
+      "Coverage.ParityStruct::Get()"
+     ]
+    },
+    {
+     "name": "Make",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityStruct::Make(System.Int32)"
+     ]
+    },
+    {
+     "name": "Read",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityStruct::Read(Coverage.ParityStruct)"
+     ]
+    },
+    {
+     "name": "ToString",
+     "static": false,
+     "overloads": [
+      "Coverage.ParityStruct::ToString()"
+     ]
+    }
+   ],
+   "getters": [
+    "Prop",
+    "R readonly",
+    "X"
+   ],
+   "setters": [
+    "Prop",
+    "X"
    ],
    "operators": [],
    "indexers": [],
@@ -2010,6 +2445,13 @@
     "LuaTestCommon::.ctor()"
    ],
    "methods": [
+    {
+     "name": "ConfiguredTypesUseReflection",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::ConfiguredTypesUseReflection()"
+     ]
+    },
     {
      "name": "DefaultHasFullDebug",
      "static": true,

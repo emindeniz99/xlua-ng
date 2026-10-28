@@ -21,11 +21,13 @@ build docs; decisions live in [design](../design/).
 | [puerts-js.md](puerts-js.md) | PuerTS JS side: watchdog, debugger in dev builds only, async import, .d.ts generator, one API for several backends |
 | [tdr.md](tdr.md) | Tencent TDR: what the shipped wrapper is, schema and wire format, alternatives |
 | [json-module.md](json-module.md) | Optional JSON module: yyjson, lua-cjson and forks, rapidjson, simdjson, jsmn/cJSON, pure Lua and C# options; measured size, 64-bit and limits fit, ranking for the bridge presets and core |
-| [apicheck-runs.md](apicheck-runs.md) | Lua's C API checks on 5.3.6, 5.4.9, 5.5.1 and LuaJIT, every preset, macOS and Linux ASan: no assertion; the LuaJIT library check |
+| [apicheck-runs.md](apicheck-runs.md) | Lua's C API checks on 5.3.6, 5.4.9, 5.5.1 and LuaJIT, every preset, macOS, Linux ASan and Windows MSVC: no assertion; the LuaJIT library check |
+| [windows-host.md](windows-host.md) | Windows host runs (windows-host.yml): the .NET Framework's ANSI marshalling (#1081, #1179) and a second ANSI import, LuaJIT without GC64, errors through C# callbacks on LuaJIT Win64, MSVC API checks |
 | [watchdog-lost-stop.md](watchdog-lost-stop.md) | Why the time-limit watchdog lost its stop on AArch64 (`lua_sethook` from another thread), the fix, and the frame-walk race left open |
 | [crash-inventory.md](crash-inventory.md) | Every known way a script or ordinary C# use can crash LuaEnv or LuaScript, with reproductions; fixed: bridges after Dispose (#999), Dispose from a running call, table traversal and `__len` raising from C#; owner questions for the rest |
 | [descriptor-wrappers.md](descriptor-wrappers.md) | Spike: descriptor ("ultra") wrappers against the source generator's GCM mode, measured in IL2CPP players (-443 to -447 KB APK at game size); generic virtual methods and auto-properties in xLua's players |
 | [core-stop-latency.md](core-stop-latency.md) | Why `TimeLimit` and `Interrupt` stopped seconds late under an `InstructionLimit` (a lost `hookcount` store), the line-event fix, and `Interrupt` without limits; why stops seemed lost under load (an `Interrupt` before the call, a stop during LuaEnv's compile, LuaEnv callbacks from coroutines) |
+| [binding-mode-parity.md](binding-mode-parity.md) | The four binding modes (reflection, CodeEmit, source generator plain and GCM) compared call by call: the differences found and fixed, a reflection event crash, owner questions |
 
 Measurements:
 

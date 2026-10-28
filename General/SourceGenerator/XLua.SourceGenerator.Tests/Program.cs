@@ -791,6 +791,69 @@ namespace Game
         }
     }
 
+    // [BlackList] and [Obsolete] leave out operators, indexers and lazy
+    // ([DoNotGen]) members as they leave out the other members, and as the
+    // emitted and reflection wrappers leave them out (2026-10-28; before, the
+    // operators and indexers were wrapped and the lazy members registered).
+    public static void BlackListLeavesOutOperatorsIndexersAndLazyMembers()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+[assembly: BlackList(typeof(Game.Ops), ""op_Multiply"", typeof(Game.Ops), typeof(int))]
+[assembly: BlackList(typeof(Game.ByName), ""Item"")]
+[assembly: BlackList(typeof(Game.ByAccessorName), ""get_Item"")]
+[assembly: DoNotGen(typeof(Game.Lazy), ""Both"", ""Mixed"", ""Field"", ""Prop"", ""Getter"", ""Ev"", ""Old"", ""Kept"")]
+namespace Game
+{
+    [LuaCallCSharp]
+    public class Ops
+    {
+        public static Ops operator +(Ops a, Ops b) { return a; }
+        [BlackList] public static Ops operator -(Ops a, Ops b) { return a; }
+        public static Ops operator *(Ops a, Ops b) { return a; }
+        public static Ops operator *(Ops a, int b) { return a; }
+        [Obsolete] public static Ops operator /(Ops a, Ops b) { return a; }
+        [BlackList] public int this[int i] { get { return i; } set { } }
+        public int this[long i] { [BlackList] get { return 0; } set { } }
+        [Obsolete] public int this[short i] { get { return i; } }
+        public int this[byte i] { get { return i; } }
+        [BlackList] public string this[string k] { get { return k; } set { } }
+    }
+    [LuaCallCSharp] public class ByName { public int this[int i] { get { return i; } } }
+    [LuaCallCSharp] public class ByAccessorName { public string this[string k] { get { return k; } set { } } }
+    [LuaCallCSharp]
+    public class Lazy
+    {
+        [BlackList] public void Both() { }
+        [BlackList] public void Mixed(string s) { }
+        public void Mixed(int x) { }
+        [BlackList] public int Field;
+        [BlackList] public int Prop { get; set; }
+        public int Getter { [BlackList] get { return 0; } set { } }
+        [BlackList] public event System.Action Ev { add { } remove { } }
+        [Obsolete] public void Old() { }
+        public void Kept() { }
+    }
+}");
+        // ByName's "Item" and ByAccessorName's "get_Item" name an indexer and an accessor: no XLSG003.
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+        var ops = ManifestType(run, "Game.Ops");
+        Assert.True(ops.GetProperty("operators").EnumerateArray().Select(o => o.GetProperty("name").GetString())
+            .SequenceEqual(new[] { "op_Addition", "op_Multiply" }), "the [BlackList] and [Obsolete] operators are left out");
+        var multiply = ops.GetProperty("operators").EnumerateArray().First(o => o.GetProperty("name").GetString() == "op_Multiply");
+        Same(new[] { "Game.Ops::op_Multiply(Game.Ops,Game.Ops)" }, Strings(multiply.GetProperty("overloads")), "op_Multiply(Ops, int) is listed by its parameter types");
+        Same(new[] { "Game.Ops::get_Item(System.Byte)" }, Strings(ops.GetProperty("indexers")), "indexers: [BlackList] on the indexer or its get accessor, [Obsolete]");
+        Same(new[] { "Game.Ops::set_Item(System.Int64,System.Int32)" }, Strings(ops.GetProperty("newindexers")), "newindexers");
+        Assert.True(Overloads(ops, "get_Item", false).Length == 0 && Overloads(ops, "set_Item", false).Length == 0,
+            "the accessors of a string-keyed indexer go with it");
+        Assert.True(Strings(ManifestType(run, "Game.ByName").GetProperty("indexers")).Length == 0, "an entry names an indexer Item");
+        var byAccessor = ManifestType(run, "Game.ByAccessorName");
+        Assert.True(Overloads(byAccessor, "get_Item", false).Length == 0, "an entry without parameter types names the accessor get_Item");
+        Same(new[] { "Game.ByAccessorName::set_Item(System.String,System.String)" }, Overloads(byAccessor, "set_Item", false), "set_Item stays");
+        Same(new[] { "SETTER_IDX Getter PropertySet", "METHOD_IDX Kept Method", "METHOD_IDX Mixed Method" },
+            Strings(ManifestType(run, "Game.Lazy").GetProperty("lazy")), "lazy members without what [BlackList] or [Obsolete] leaves out");
+    }
+
     // The wrappers are written again only for the type whose members changed.
     public static void WrapperOfAnEditedTypeIsWrittenAgain()
     {
@@ -1393,6 +1456,8 @@ namespace Game
         public static string Classes(Derived d) { return """"; }
         public static string Unrelated(Derived d) { return """"; }
         public static string Unrelated(Other o) { return """"; }
+        public static string Objects(object o) { return """"; }
+        public static string Objects(Base b) { return """"; }
         public string this[int i] { get { return """"; } }
         public string this[double d] { get { return """"; } }
         public static string operator +(Picker a, int b) { return """"; }
@@ -1408,13 +1473,27 @@ namespace Game
             int end = text.IndexOf("\n        }\n", start);
             return text.Substring(start, end - start);
         }
-        foreach (var scored in new[] { "_m_Num_xlua_st_", "_m_Classes_xlua_st_", "__CreateInstance", "__CSIndexer", "__AddMeta" })
+        foreach (var scored in new[] { "_m_Num_xlua_st_", "_m_Classes_xlua_st_", "_m_Objects_xlua_st_", "__CreateInstance", "__CSIndexer", "__AddMeta" })
         {
             Assert.True(Function(scored).Contains("gen_pick = -1"), scored + " scores:\n" + Function(scored));
         }
-        Assert.True(Function("_m_Num_xlua_st_").Contains("NumberScore(L, 1, 5, ref gen_n1)") && Function("_m_Num_xlua_st_").Contains("NumberScore(L, 1, 1, ref gen_n1)"),
-            "double and int kinds:\n" + Function("_m_Num_xlua_st_"));
-        Assert.True(Function("_m_Classes_xlua_st_").Contains("ArgScore(translator, L, 1, 0, typeof(global::Game.Derived))"), "class kind with its type");
+        // The checks of a scored group read what the costs need: a number's
+        // kind once (gen_n1), a C# object's check and cost in one call.
+        string num = Function("_m_Num_xlua_st_");
+        Assert.True(num.Contains("NumberCost(gen_n1, 5)") && num.Contains("NumberCost(gen_n1, 1)"), "double and int kinds:\n" + num);
+        Assert.True(num.Contains("(gen_n1 < 0 ? (gen_n1 = global::XLua.LuaDLL.Bridge.xlua_number_kind(L, 1)) : gen_n1) != 0")
+            && num.Contains("(gen_n1 < 0 ? (gen_n1 = global::XLua.LuaDLL.Bridge.xlua_number_kind(L, 1)) : gen_n1) >= 2")
+            && !num.Contains("xlua_isinteger_number") && !num.Contains("lua_type"), "number checks from the number kind:\n" + num);
+        string classes = Function("_m_Classes_xlua_st_");
+        Assert.True(classes.Contains("(gen_s1 = global::XLua.Binding.BindingApi.CheckedArgScore(translator, L, 1, typeof(global::Game.Derived), ref gen_t1)) >= 0")
+            && !classes.Contains("Assignable"), "class check and cost in one call:\n" + classes);
+        // object too, and both read the argument's lua_type once (gen_t1).
+        string objects = Function("_m_Objects_xlua_st_");
+        Assert.True(objects.Contains("CheckedArgScore(translator, L, 1, typeof(object), ref gen_t1)")
+            && objects.Contains("CheckedArgScore(translator, L, 1, typeof(global::Game.Base), ref gen_t1)") && !objects.Contains("Assignable"),
+            "object and class checks and costs in one call each:\n" + objects);
+        // Outside a scored group the checks stay.
+        Assert.True(Function("_m_Disjoint_xlua_st_").Contains("xlua_isinteger_number(L, 1)"), "plain int check");
         Assert.True(!Function("_m_Num_xlua_st_").Contains("ObjectTranslatorPool"), "numbers are scored without the translator");
         foreach (var plain in new[] { "_m_Disjoint_xlua_st_", "_m_Unrelated_xlua_st_" })
         {

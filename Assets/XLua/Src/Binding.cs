@@ -136,6 +136,25 @@ namespace XLua.Binding
             return translator.FastGetCSObj(L, index);
         }
 
+        static readonly Dictionary<string, string> operatorSymbols = new Dictionary<string, string>
+        {
+            { "op_Addition", "+" }, { "op_Subtraction", "-" }, { "op_Multiply", "*" }, { "op_Division", "/" }, { "op_Equality", "==" },
+            { "op_LessThan", "<" }, { "op_LessThanOrEqual", "<=" }, { "op_Modulus", "%" }, { "op_BitwiseAnd", "&" },
+            { "op_BitwiseOr", "|" }, { "op_ExclusiveOr", "^" }, { "op_LeftShift", "<<" }, { "op_RightShift", ">>" },
+        };
+
+        // The error of a binary operator whose operands no overload takes, as
+        // the generated operator wrappers raise it; the emitted and reflection
+        // wrappers call this (not generated code). Lua calls the metamethod of
+        // either operand, so it names the one that is not of the type.
+        public static int InvalidOperatorArguments(ObjectTranslator translator, RealStatePtr L, Type type, string methodName)
+        {
+            string symbol;
+            if (!operatorSymbols.TryGetValue(methodName, out symbol)) symbol = methodName;
+            return LuaAPI.luaL_error(L, "invalid arguments to " + (translator.Assignable(L, 1, type) ? "right" : "left")
+                + " hand of " + symbol + " operator, need " + type + "!");
+        }
+
         public static ObjectCast GetCaster(ObjectTranslator translator, Type type)
         {
             return translator.objectCasters.GetCaster(type);
@@ -193,6 +212,39 @@ namespace XLua.Binding
         public static int NumberScore(RealStatePtr L, int index, int kind, ref int number)
         {
             return OverloadScore.NumberArg(L, index, kind, ref number);
+        }
+
+        // NumberScore once the number kind is read and is not 0, for a
+        // numeric kind 1 to 7 (not Nullable<>): small enough to be inlined.
+        public static int NumberCost(int number, int kind)
+        {
+            return OverloadScore.NumberCosts[kind * 6 + number];
+        }
+
+        // translator.Assignable(L, index, type) for a number type of this
+        // kind (1 to 7), from the argument's number kind cached in number as
+        // for NumberScore. For emitted wrappers.
+        public static bool NumberCheck(ObjectTranslator translator, RealStatePtr L, int index, Type type, int kind, ref int number)
+        {
+            return OverloadScore.NumberCheck(translator, L, index, type, kind, ref number);
+        }
+
+        // translator.Assignable(L, index, type) and ArgScore(translator, L,
+        // index, 0, type) in one call, for a class, struct, interface, enum or
+        // delegate parameter type (not Nullable<>), or object (kind 8): the
+        // cost, or -1 when the value does not match. The argument's lua_type
+        // is cached in luaType, which starts at -2 and is shared by the
+        // candidates of one call.
+        public static int CheckedArgScore(ObjectTranslator translator, RealStatePtr L, int index, Type type, ref int luaType)
+        {
+            return OverloadScore.CheckedArg(translator, L, index, type, ref luaType);
+        }
+
+        // translator.Assignable(L, index, typeof(object)) in one call: true
+        // for every value unless a checker was registered for object.
+        public static bool ObjectCheck(ObjectTranslator translator, RealStatePtr L, int index)
+        {
+            return translator.objectCheckers.defaultObjectCheck || translator.Assignable(L, index, typeof(object));
         }
 
         // The sum of ArgScore for the arguments from first to last: the

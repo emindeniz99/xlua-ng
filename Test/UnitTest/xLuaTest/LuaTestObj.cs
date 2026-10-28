@@ -2230,6 +2230,8 @@ internal class IntegerSlotsReflect
 public interface IOverloadThing { }
 public class OverloadBase : IOverloadThing { }
 public class OverloadDerived : OverloadBase { }
+// Implements IOverloadThing without deriving from OverloadBase (CaseOverloadTypeCache).
+public class OverloadOther : IOverloadThing { }
 
 [LuaCallCSharp]
 public class OverloadPick

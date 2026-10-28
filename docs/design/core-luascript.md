@@ -664,7 +664,8 @@ public sealed class LuaInterruptedException : LuaLimitException { }
 - **One owner thread.** A `LuaScript` is used from the thread that created it.
   With `CheckThread` (default on) every member except `Interrupt`,
   `IsDisposed` and the statistics compares `Environment.CurrentManagedThreadId`
-  and throws on mismatch.
+  and throws on mismatch. `SetOwnerThread()` (added 2026-10-28) makes the
+  calling thread the owner, for a script handed from one thread to another.
 - **Several scripts, several threads:** independent `LuaScript` instances may
   run in parallel. Each has its own native state; the only process-wide
   native values are the dispatcher pointer, set once, and the watchdog.
@@ -2298,7 +2299,9 @@ Total: about 38 working days, roughly eight weeks for one agent. Milestones
     `ScriptDefaults` (a new object on every read). `Libraries` and `LuaLibs`
     came from main at the same time (the minimal preset's library selection for
     `LuaEnv`); LuaScript reads them with `Default` as `Safe` and refuses io, os,
-    debug, package and LuaJIT's bit, jit and ffi. `LuaEnv` has no thread check.
+    debug, package and LuaJIT's bit, jit and ffi. `LuaEnv` has no thread check
+    (since 2026-10-28 it has one in debug builds, which `CheckThread = false`
+    turns off too: [crash-inventory.md](../research/crash-inventory.md#5-6-two-threads-in-one-luaenv-finalizers-that-call-lua)).
   - **Not done (later milestones):** `Register` and `LuaCall` (7);
     `Globals`, `NewEnvironment`, the `env` overloads, `Compile`, handles,
     `LiveHandles`, `ErrorValue` and table and function arguments (8);
