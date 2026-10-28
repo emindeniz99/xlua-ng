@@ -1835,6 +1835,169 @@ namespace Upstream
             }
             return r;
         }
+
+        // Upstream's LuaBehaviour example: static LuaEnv luaEnv = new LuaEnv(),
+        // which Unity may run on a loading thread. The static constructor makes
+        // the class initialize on first access, on the thread that reads Env.
+        // The env lives for the process: the suite runs FirstUse twice.
+        static class StaticEnv
+        {
+            internal static readonly LuaEnv Env;
+            internal static readonly int CreatedOn;
+
+            static StaticEnv()
+            {
+                CreatedOn = Environment.CurrentManagedThreadId;
+                Env = new LuaEnv();
+            }
+        }
+
+        static LuaEnv MadeOnOtherThread(LuaOptions options)
+        {
+            LuaEnv made = null;
+            Exception e = OnOtherThread(() => made = new LuaEnv(options));
+            if (e != null) throw new InvalidOperationException("making the env on another thread: " + e.Message, e);
+            return made;
+        }
+
+        // The owner is the first thread that uses the env after the constructor
+        // (owner decision of 2026-10-28, crash-inventory.md items 5 and 6), not the
+        // thread that created it.
+        public static string FirstUse()
+        {
+            string r = "";
+            int main = Environment.CurrentManagedThreadId;
+
+            // Created on a worker thread (a static field initializer), then used
+            // only on this thread: allowed in every build.
+            LuaEnv env = null;
+            Exception e = OnOtherThread(() => env = StaticEnv.Env);
+            if (e != null) return "the static env on another thread: " + e.Message;
+            if (StaticEnv.CreatedOn == main) r += "the static env was made on this thread; ";
+            try
+            {
+                if (Convert.ToInt32(env.DoString("return 1 + 1")[0]) != 2) r += "the static env on the first user; ";
+                env.Global.Set("x", 3);
+                if (env.Global.Get<int>("x") != 3) r += "the static env's globals; ";
+            }
+            catch (Exception x)
+            {
+                r += "the static env made on another thread, used here: " + x.Message + "; ";
+            }
+            // After this thread's first use, another thread is refused.
+            r += Refused("the static env from a second thread", main, () => env.DoString("return 1"));
+
+            // The same with LuaOptions (the core state), and the first use on a
+            // third thread: that thread owns it, the creator and this one do not.
+            int worker = 0;
+            env = MadeOnOtherThread(new LuaOptions());
+            e = OnOtherThread(() =>
+            {
+                worker = Environment.CurrentManagedThreadId;
+                env.DoString("function inc(x) return x + 1 end");
+            });
+            if (e != null) r += "the first use on a third thread: " + e.Message + "; ";
+            r += Refused("after a worker's first use", worker, () => env.DoString("return 1"));
+            if (Checked())
+            {
+                try
+                {
+                    env.DoString("return 1");
+                    r += "this thread was not refused after a worker's first use; ";
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                // Dispose from a thread that does not own the env is refused too.
+                try
+                {
+                    env.Dispose();
+                    r += "Dispose was not refused on a thread that does not own the env; ";
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+            // SetOwnerThread hands it over as before.
+            env.SetOwnerThread();
+            if (Convert.ToInt32(env.DoString("return inc(1)")[0]) != 2) r += "SetOwnerThread after a worker's first use; ";
+            env.Dispose();
+
+            // Dispose as the first use, on another thread than the creator's.
+            env = MadeOnOtherThread(null);
+            try
+            {
+                env.Dispose();
+            }
+            catch (Exception x)
+            {
+                r += "Dispose as the first use: " + x.Message + "; ";
+            }
+
+            // SetOwnerThread before any use: that thread owns it, the first user
+            // does not take it over.
+            env = MadeOnOtherThread(null);
+            int handedTo = 0;
+            e = OnOtherThread(() =>
+            {
+                handedTo = Environment.CurrentManagedThreadId;
+                env.SetOwnerThread();
+                env.DoString("y = 1");
+            });
+            if (e != null) r += "SetOwnerThread before the first use: " + e.Message + "; ";
+            r += Refused("after SetOwnerThread on another thread", handedTo, () => env.DoString("return 1"));
+            if (Checked())
+            {
+                try
+                {
+                    env.DoString("return 1");
+                    r += "this thread took over an env handed to another thread; ";
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+            env.SetOwnerThread();
+            env.Dispose();
+
+            // Two threads race for the first use: exactly one wins. Only with the
+            // check: without it and without THREAD_SAFE, two threads in one env
+            // corrupt it.
+            for (int round = 0; round < 10 && Checked(); round++)
+            {
+                env = MadeOnOtherThread(null);
+                int refused = 0, ran = 0;
+                var start = new System.Threading.ManualResetEvent(false);
+                var racers = new System.Threading.Thread[2];
+                for (int i = 0; i < racers.Length; i++)
+                {
+                    racers[i] = new System.Threading.Thread(() =>
+                    {
+                        start.WaitOne();
+                        try
+                        {
+                            env.DoString("return 1");
+                            System.Threading.Interlocked.Increment(ref ran);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            System.Threading.Interlocked.Increment(ref refused);
+                        }
+                    });
+                    racers[i].Start();
+                }
+                start.Set();
+                foreach (var t in racers) t.Join();
+                if (ran != 1 || refused != 1)
+                {
+                    r += "two threads racing for the first use: " + ran + " ran, " + refused + " refused; ";
+                    break;
+                }
+                env.SetOwnerThread();
+                env.Dispose();
+            }
+            return r;
+        }
     }
 
     // LuaJIT has no limit on nested C calls: Lua -> C# -> Lua -> C# ... ran

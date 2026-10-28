@@ -91,23 +91,33 @@ namespace XLua
             throw new ObjectDisposedException("LuaEnv", "this lua env had disposed!");
         }
 
-        // The thread that may use the env: the one that created it, or the last one
-        // that called SetOwnerThread. Compared only with the bridge checks (L above).
+        // The thread that may use the env: the first one that reads L after the
+        // constructor returns (Unclaimed until then), or the last one that called
+        // SetOwnerThread; while the constructor runs, the creating thread.
+        // Compared only with the bridge checks (L above). Unity may run field
+        // initializers and static constructors on a loading thread (upstream's
+        // LuaBehaviour example: static LuaEnv luaEnv = new LuaEnv()) and then
+        // use the env on the main thread, so creating an env claims nothing.
         int ownerThread;
         bool checkThread = true;
+
+        // No owner yet. Managed thread IDs are positive, and 0 is the cache's
+        // "not read yet" (currentThreadId), so neither can mean this.
+        const int Unclaimed = -1;
 
         // Environment.CurrentManagedThreadId of this thread, cached: a thread-static
         // read costs about 2 ns on Mono, the property about 6 (Thread.CurrentThread,
         // then its id). It is 0 until the first check on the thread, and 0 differs
-        // from every owner, so CheckOwnerThread fills it in.
+        // from every owner and from Unclaimed, so CheckOwnerThread fills it in.
         [ThreadStatic]
         static int currentThreadId;
 
         /// <summary>
         /// Makes the calling thread the owner of this environment. A
-        /// <c>LuaEnv</c> is not thread-safe and belongs to the thread that
-        /// created it: in the Editor, Development builds and <c>XLUA_GENERAL</c>,
-        /// a use from another thread throws <see cref="InvalidOperationException"/>.
+        /// <c>LuaEnv</c> is not thread-safe and belongs to the first thread that
+        /// uses it after the constructor (not to the thread that created it):
+        /// in the Editor, Development builds and <c>XLUA_GENERAL</c>, a use from
+        /// another thread throws <see cref="InvalidOperationException"/>.
         /// To move an env to another thread (a worker that loaded the scripts
         /// hands it to the main thread), call this on the new thread once the
         /// old one is done with it. <c>THREAD_SAFE</c> shares an env between
@@ -116,7 +126,7 @@ namespace XLua
         /// </summary>
         public void SetOwnerThread()
         {
-            ownerThread = Environment.CurrentManagedThreadId;
+            System.Threading.Interlocked.Exchange(ref ownerThread, Environment.CurrentManagedThreadId);
         }
 
         // The state for the statistics, which any thread may read, as LuaScript's:
@@ -141,6 +151,16 @@ namespace XLua
             {
                 thread = currentThreadId = Environment.CurrentManagedThreadId;
                 if (thread == ownerThread)
+                {
+                    return;
+                }
+            }
+            // The first use after the constructor claims the env; of two threads
+            // that race for it, the one that loses is refused.
+            if (ownerThread == Unclaimed)
+            {
+                int previous = System.Threading.Interlocked.CompareExchange(ref ownerThread, thread, Unclaimed);
+                if (previous == Unclaimed || previous == thread)
                 {
                     return;
                 }
@@ -374,6 +394,10 @@ namespace XLua
                     // LuaOptions.AllowInterrupt: Interrupt also without limits.
                     LuaAPI.xlua_core_set_limits(rawL, 0, 0, interruptFlag);
                 }
+
+                // The creating thread does not keep the env: the first thread that
+                // uses it takes it (ownerThread above).
+                System.Threading.Interlocked.Exchange(ref ownerThread, Unclaimed);
             }
         }
 
