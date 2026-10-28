@@ -461,8 +461,15 @@ static lu_mem traversetable (global_State *g, Table *h) {
       traverseweakvalue(g, h);
     else if (!weakvalue)  /* strong values? */
       traverseephemeron(g, h);
-    else  /* all weak */
-      linkgclist(h, g->allweak);  /* nothing to traverse now */
+    else {  /* all weak */
+      /* xlua-ng: Lua 5.4's fix of "New metatable in an all-weak table can
+         fool the GC" (lua.org/bugs.html): a metatable set after this
+         traversal got no barrier (the table stays gray) and was freed */
+      if (g->gcstate == GCSpropagate)
+        linkgclist(h, g->grayagain);  /* must visit again its metatable */
+      else
+        linkgclist(h, g->allweak);  /* nothing to traverse now */
+    }
   }
   else  /* not weak */
     traversestrongtable(g, h);

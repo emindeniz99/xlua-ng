@@ -5,7 +5,7 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, indexers, path_access, protected_helpers, csharp_functions, setfenv, uint_conversion,
+struct_accessors, struct_clone, indexers, path_access, protected_helpers, weak_table_metatable, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
@@ -940,6 +940,28 @@ def check_protected_helpers(state):
         lib.lua_settop(state, 0)
         run(state, "setmetatable(_G, nil) package = saved_package")
     run(state, "saved_package = nil")
+
+
+def check_weak_table_metatable(state):
+    """A new metatable for an all-weak table during a GC cycle (Lua 5.3.6: freed while
+    in use, "New metatable in an all-weak table can fool the GC", lua.org/bugs.html;
+    found by Test/Fuzz/fuzz_bridge.c). The use after free needs AddressSanitizer to
+    be seen (sanitize.sh); the check runs on every version."""
+    run(state, """
+        for _, live in ipairs({0, 100, 2000}) do
+            local keep = {}
+            for i = 1, live do keep[i] = {i} end
+            for round = 1, 400 do
+                local t = setmetatable({}, {__mode = "kv"})
+                collectgarbage("step", round % 37)
+                setmetatable(t, {})
+                collectgarbage("step", (round * 7) % 53)
+                t.x = 1
+                assert(getmetatable(t) ~= nil and getmetatable(t).__mode == nil)
+            end
+        end
+        collectgarbage()
+    """)
 
 
 def check_csharp_functions(state):
@@ -2837,7 +2859,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "indexers", "path_access", "protected_helpers", "csharp_functions", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "indexers", "path_access", "protected_helpers", "weak_table_metatable", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",
