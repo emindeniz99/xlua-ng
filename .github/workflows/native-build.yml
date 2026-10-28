@@ -201,6 +201,19 @@ jobs:
       - name: Run managed suite with reflection and the source generator (plain, GCM, no registration)
         if: matrix.platform == 'linux'
         run: python3 Test/Native/run_managed.py --source-gen --source-gen-minimize --source-gen-fallback --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/managed-tests"
+      # Owner decision Q71 of 2026-10-28: the suite had stopped compiling under these defines
+      # (CS0619, fixed in d0e846c9) because no job used them. They change only the C# side, so
+      # one Lua version is enough. Both runs go on when one fails; the step fails after them.
+      - name: Run managed suite with THREAD_SAFE and with HOTFIX_ENABLE (reflection and the source generator)
+        if: matrix.platform == 'linux' && matrix.lua == '5.5.1'
+        run: |
+          status=0
+          for define in THREAD_SAFE HOTFIX_ENABLE; do
+            echo "::group::run_managed.py --define $define"
+            python3 Test/Native/run_managed.py --define "$define" --source-gen --source-gen-minimize --source-gen-fallback --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/managed-tests/define-$define" || { echo "::error::the managed suite failed with --define $define"; status=1; }
+            echo "::endgroup::"
+          done
+          exit "$status"
       - name: Measure C# coverage of the runtime and the tools (Mono coverage profiler)
         if: matrix.platform == 'linux' && matrix.lua == '5.5.1'
         run: python3 Test/Native/coverage_cs.py --plugin artifact/Plugins/x86_64/libxlua.so --output "$RUNNER_TEMP/cs-coverage"
@@ -250,7 +263,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tests-lua-${{ matrix.lua }}-linux
-          path: ${{ runner.temp }}/managed-tests/managed-suite*.log
+          path: |
+            ${{ runner.temp }}/managed-tests/managed-suite*.log
+            ${{ runner.temp }}/managed-tests/define-*/managed-suite*.log
           if-no-files-found: warn
           retention-days: 7
       - name: Upload plugins
