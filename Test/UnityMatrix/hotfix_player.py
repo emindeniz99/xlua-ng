@@ -18,8 +18,18 @@ launch at a time:
 3. the player in batch mode: HotfixPlayerProbe patches both Price methods
    from Lua and restores them, and logs XLUA_HOTFIX_PLAYER_PASS: both types
    through their assemblies' own IntKey slots (no __Hotfix fields, the id map
-   loaded), or without asmdefs Game.Shop in field mode (HotfixFlag.Inline). An
+   loaded), or without asmdefs Game.Shop in field mode (HotfixFlag.Inline).
+   In the asmdef and package layouts it also patches and restores Game's
+   [Hotfix] type, Inline type and generic method (Game/GameShapes.cs,
+   HotfixShapes.cs), which upstream's injector skipped outside xLua's
+   assembly. An
    x64 player runs under Rosetta (arch -x86_64), a universal one both ways.
+
+--no-assembly-csharp (asmdef or package layout) moves every script that
+Assembly-CSharp would compile (the fixture's HotfixIntKeyLocal, the probe and
+prepare.py's own) into an asmdef Main, so the player has no
+Assembly-CSharp.dll: the post-build step threw there before 2026-10-18
+(it looked for Assembly-CSharp.dll among the player's script assemblies).
 
 --bundle adds a universal xlua.bundle (build/make_osx_lua55.sh) next to the
 arm64 dylib, as the release plugins ship, for the x64 and universal players.
@@ -57,6 +67,9 @@ p.add_argument("--asmdef", action="store_true", help="the asmdef layout, the def
 p.add_argument("--package", action="store_true",
                help="xLua as the UPM package from a file: tarball (prepare.py --package); injected as in the "
                     "asmdef layout, since xLua is in XLua.dll there too")
+p.add_argument("--no-assembly-csharp", action="store_true",
+               help="move the scripts outside asmdefs into an asmdef Main, so that there is no Assembly-CSharp "
+                    "(asmdef or package layout)")
 p.add_argument("--arch", choices=["ARM64", "x64", "x64ARM64"], default="ARM64", help="player architecture")
 p.add_argument("--bundle", type=Path, help="a built xlua.bundle folder to add as Assets/Plugins/xlua.bundle")
 p.add_argument("--timeout", type=int, default=1800, help="seconds per editor launch")
@@ -65,6 +78,8 @@ p.add_argument("--source-gen", type=Path, metavar="BUILD_DIR",
 a = p.parse_args()
 if a.package and (a.asmdef or a.no_asmdef or a.bundle):
     p.error("--package has the asmdefs and takes no --asmdef, --no-asmdef or --bundle")
+if a.no_assembly_csharp and a.no_asmdef:
+    p.error("--no-assembly-csharp needs xLua in its own asmdefs; it takes no --no-asmdef")
 layout = "package" if a.package else "Assets" if a.no_asmdef else "asmdef"
 a.project, a.out = a.project.resolve(), a.out.resolve()
 a.source_gen = (a.source_gen or a.out / "source-generator").resolve()
@@ -90,10 +105,34 @@ if a.no_asmdef:
 else:
     shutil.copy2(fixture / "Game/Game.asmdef", a.project / "Assets/Game/Game.asmdef")
     shutil.copy2(fixture / "Game/GameHotfix.cs", a.project / "Assets/Game/GameHotfix.cs")
+    shutil.copy2(fixture / "Game/GameShapes.cs", a.project / "Assets/Game/GameShapes.cs")
 shutil.copy2(fixture / "HotfixIntKeyLocal.cs", a.project / "Assets/HotfixIntKeyLocal.cs")
 shutil.copy2(fixture / "LocalHotfix.cs", a.project / "Assets/LocalHotfix.cs")
+shutil.copy2(fixture / "HotfixShapes.cs", a.project / "Assets/HotfixShapes.cs")
 shutil.copy2(fixture / "HotfixPlayerProbe.cs", a.project / "Assets/HotfixPlayerProbe.cs")
 shutil.copy2(fixture / "HotfixPlayerSteps.cs", a.project / "Assets/Editor/HotfixPlayerSteps.cs")
+if a.no_assembly_csharp:
+    # Every runtime script directly in Assets goes to Main, which references what
+    # Assembly-CSharp referenced; the Editor folders stay in Assembly-CSharp-Editor,
+    # which references every auto-referenced asmdef.
+    main = a.project / "Assets/Main"
+    main.mkdir()
+    for script in sorted((a.project / "Assets").glob("*.cs")):
+        shutil.move(str(script), str(main / script.name))
+    references = ["XLua", "XLua.Core", "Game"] + [d.stem for d in (a.project / "Assets").glob("*/*.asmdef")
+                                                   if d.stem not in ("Game", "Main")]
+    (main / "Main.asmdef").write_text('{\n    "name": "Main",\n    "references": [%s]\n}\n'
+                                      % ", ".join('"%s"' % r for r in references))
+    # A script outside every asmdef and every Editor folder would still make an Assembly-CSharp.
+    assets = a.project / "Assets"
+
+    def in_asmdef(script):
+        return any(list(folder.glob("*.asmdef")) for folder in script.parents if folder == assets or assets in folder.parents)
+
+    leftovers = [str(f.relative_to(a.project)) for f in assets.rglob("*.cs")
+                 if "Editor" not in f.relative_to(assets).parts and not in_asmdef(f)]
+    if leftovers:
+        raise SystemExit("scripts left for Assembly-CSharp: %s" % leftovers)
 if a.bundle:
     # The repository's bundle folder (Info.plist and the .meta files), then the binary.
     shutil.copytree(repo / "Assets/Plugins/xlua.bundle", a.project / "Assets/Plugins/xlua.bundle")
@@ -143,6 +182,11 @@ if code or "XLUA_HOTFIX_PLAYER_BUILD: Succeeded" not in text:
 if fallbacks:
     raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: IntKey fallback warnings for %s, expected none" % fallbacks)
 
+managed = app / "Contents/Resources/Data/Managed"
+if a.no_assembly_csharp:
+    if (managed / "Assembly-CSharp.dll").exists() or not (managed / "Main.dll").is_file():
+        raise SystemExit("XLUA_HOTFIX_PLAYER_FAIL: expected Main.dll and no Assembly-CSharp.dll in %s" % managed)
+    print("player script assemblies: Main.dll, no Assembly-CSharp.dll", flush=True)
 binary = app / "Contents/MacOS/XluaHotfixPlayer"
 plugins = sorted(str(f.relative_to(app / "Contents")) for f in (app / "Contents/PlugIns").rglob("*")
                  if f.is_file()) if (app / "Contents/PlugIns").is_dir() else []
@@ -162,5 +206,6 @@ for cpu in runs:
                          % (local_fields, "on" if int_key else "off"))
 print("XLUA_HOTFIX_PLAYER_ALL_PASS (%s, %s layout, %s player, %s)" % (a.unity_version, layout,
                                                                     a.arch + " source generator"
-                                                                    + (", Game.Shop Inline" if a.no_asmdef else ""),
+                                                                    + (", Game.Shop Inline" if a.no_asmdef else "")
+                                                                    + (", no Assembly-CSharp" if a.no_assembly_csharp else ""),
                                                                     ", ".join(runs)))

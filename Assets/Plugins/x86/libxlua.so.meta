@@ -20,7 +20,7 @@ PluginImporter:
       settings:
         CPU: x86
         DefaultValueInitialized: true
-        OS: AnyOS
+        OS: Linux
     Linux:
       enabled: 1
       settings:
@@ -52,9 +52,9 @@ PluginImporter:
         DontProcess: False
         PlaceholderPath: 
     Win:
-      enabled: 1
+      enabled: 0
       settings:
-        CPU: AnyCPU
+        CPU: None
     Win64:
       enabled: 0
       settings:

@@ -723,9 +723,10 @@ namespace CSObjectWrapEditor
             }
             Func<Assembly, bool> generatorRuns = options.GeneratorRunsIn ?? options.CanWrite;
             var lists = scanLists(all, options, report);
-            result.Lists = lists.Select(l => l.Name).Distinct().ToList();
             // Attributes on types of assemblies that the source generator does not
             // compile (precompiled DLLs) act like lists: no generator sees them there.
+            // They count in result.Lists as well, so that the menu rewrites a file
+            // converted from them on its next run instead of keeping it.
             foreach (var kind in new[] { CfgKind.LuaCallCSharp, CfgKind.CSharpCallLua, CfgKind.GCOptimize, CfgKind.ReflectionUse })
             {
                 var effective = kind == CfgKind.LuaCallCSharp ? LuaCallCSharp : kind == CfgKind.CSharpCallLua ? CSharpCallLua : kind == CfgKind.GCOptimize ? GCOptimizeList : ReflectionUse;
@@ -735,6 +736,7 @@ namespace CSObjectWrapEditor
                     lists.Add(new CfgList { Name = name, Kind = kind, Types = group.ToList(), ConvertedIn = options.ConvertedElsewhere(name) });
                 }
             }
+            result.Lists = lists.Select(l => l.Name).Distinct().ToList();
             foreach (var list in lists.Where(l => l.Error != null))
             {
                 result.Errors.Add("`" + list.Name + "` could not be evaluated: " + list.Error);
@@ -1384,22 +1386,54 @@ namespace CSObjectWrapEditor
             return Migrate(oneAssembly, false);
         }
 
+        static Dictionary<string, UnityEditor.Compilation.Assembly> ScriptAssemblies()
+        {
+            return UnityEditor.Compilation.CompilationPipeline.GetAssemblies(UnityEditor.Compilation.AssembliesType.Editor)
+                .GroupBy(a => a.name).ToDictionary(g => g.Key, g => g.First());
+        }
+
+        // Whether the menu writes configuration into this assembly: a script
+        // assembly compiled from Assets that references xLua, or one of the
+        // Assembly-CSharp assemblies. xLua's own assembly only when it is
+        // Assembly-CSharp (the layout without asmdefs), where the project's types
+        // live next to it.
+        public static bool CanWriteInto(Assembly assembly)
+        {
+            return CanWriteInto(assembly, ScriptAssemblies());
+        }
+
+        static bool CanWriteInto(Assembly assembly, Dictionary<string, UnityEditor.Compilation.Assembly> scripts)
+        {
+            string xluaName = typeof(LuaEnv).Assembly.GetName().Name;
+            bool defaultLayout = xluaName == "Assembly-CSharp";
+            string name = assembly.GetName().Name;
+            UnityEditor.Compilation.Assembly script;
+            if ((name == xluaName && !defaultLayout) || name == "XLua.Editor" || !scripts.TryGetValue(name, out script)) return false;
+            if (!script.sourceFiles.Any(f => f.StartsWith("Assets/", StringComparison.Ordinal))) return false;
+            if (FileFor(name) == null) return false;
+            return assembly.GetReferencedAssemblies().Any(r => r.Name == xluaName) || name.StartsWith("Assembly-CSharp", StringComparison.Ordinal);
+        }
+
+        // Whether the source generator runs when this assembly compiles, so that
+        // attributes on its types need no copy: the assemblies the menu writes
+        // into, and xLua's own, next to which the generator is installed.
+        public static bool GeneratorRunsIn(Assembly assembly)
+        {
+            return GeneratorRunsIn(assembly, ScriptAssemblies());
+        }
+
+        static bool GeneratorRunsIn(Assembly assembly, Dictionary<string, UnityEditor.Compilation.Assembly> scripts)
+        {
+            return assembly == typeof(LuaEnv).Assembly || CanWriteInto(assembly, scripts);
+        }
+
         public static MigrationResult Migrate(bool oneAssembly, bool group)
         {
             var xlua = typeof(LuaEnv).Assembly;
             string xluaName = xlua.GetName().Name;
             bool defaultLayout = xluaName == "Assembly-CSharp";
-            var scripts = UnityEditor.Compilation.CompilationPipeline.GetAssemblies(UnityEditor.Compilation.AssembliesType.Editor)
-                .GroupBy(a => a.name).ToDictionary(g => g.Key, g => g.First());
-            Func<System.Reflection.Assembly, bool> canWrite = assembly =>
-            {
-                string name = assembly.GetName().Name;
-                UnityEditor.Compilation.Assembly script;
-                if (name == xluaName || name == "XLua.Editor" || !scripts.TryGetValue(name, out script)) return false;
-                if (!script.sourceFiles.Any(f => f.StartsWith("Assets/", StringComparison.Ordinal))) return false;
-                if (FileFor(name) == null) return false;
-                return assembly.GetReferencedAssemblies().Any(r => r.Name == xluaName) || name.StartsWith("Assembly-CSharp", StringComparison.Ordinal);
-            };
+            var scripts = ScriptAssemblies();
+            Func<System.Reflection.Assembly, bool> canWrite = assembly => CanWriteInto(assembly, scripts);
             string host = defaultLayout || oneAssembly ? "Assembly-CSharp" : BindingsHost;
             var named = UnityEditor.Build.NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(EditorUserBuildSettings.activeBuildTarget));
 
@@ -1422,6 +1456,7 @@ namespace CSObjectWrapEditor
                 BindingsHost = host,
                 EditorHost = "Assembly-CSharp-Editor",
                 CanWrite = canWrite,
+                GeneratorRunsIn = assembly => GeneratorRunsIn(assembly, scripts),
                 IsEditorOnly = assembly =>
                 {
                     UnityEditor.Compilation.Assembly script;

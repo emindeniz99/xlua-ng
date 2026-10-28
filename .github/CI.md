@@ -172,7 +172,8 @@ the repository went public; it now runs on pushes to `main`, pull requests
 and weekly, and uploads its results to code scanning. **Native analysis** (`analysis.yml`, manual) runs
 `Test/Native/analyze.sh`, `Test/Native/coverage.sh` and `Test/Fuzz/run.sh`
 (seconds per target as an input) and uploads logs, coverage HTML and crash
-reproducers. Its `lua-tests` job runs lua.org's official test suites through
+reproducers. Its `coverage` job fails when `xlua.c`'s branch coverage drops
+below `coverage.sh`'s `MIN_BRANCH_COVERAGE` (99%, Test/README.md). Its `lua-tests` job runs lua.org's official test suites through
 `Test/Native/lua_tests.py` for Lua 5.3.6 (also with `LUAC_COMPATIBLE_FORMAT`),
 5.4.9 and 5.5.1, plain and under ASan and UBSan; the script downloads the
 pinned archives and checks their SHA-256. Check workflow changes with
@@ -237,7 +238,12 @@ it.
 - `build.yml` (pushes) runs for `build/`, the NDK and OpenHarmony SDK
   installers, the checks of its jobs (`check_android_elf.py` with
   `managed_imports.py` and the C# it reads, `check_apple_minos.py`,
-  `ohos_check.sh` and its C files) and the workflow itself.
+  `ohos_check.sh` and its C files), and the workflow itself.
+- `meta.yml` (pushes and pull requests) runs `Tools/check_meta.py` for
+  `.meta` files, `Assets/`, `Test/UnitTest`, `Test/PrefTest`,
+  `check_meta.py`, `make_upm_package.py` and itself (Test/README.md "Unity
+  .meta files"). It takes seconds, so a `.meta`-only change does not start
+  `build.yml`'s multi-platform build.
 - `unity-matrix.yml` runs for everything `prepare.py` and `hotfix_il2cpp.py`
   copy or build: `Assets/` except the guides in `Assets/XLua/Doc`, `General/`,
   `Tools/`, `Test/`, `build/`, `mise.toml` and the NDK installer.

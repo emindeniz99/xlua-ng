@@ -166,6 +166,9 @@ public sealed class HotfixIntKeyTests
         int restoredLocal = new HotfixIntKeyLocal().Price();
         int restoredGame = new Game.Shop().Price();
         string restoredByRef = ByRefCalls();
+        // Game's [Hotfix] type, Inline type and generic method (asmdef and package layouts).
+        string shapes = HotfixShapes.Run(env);
+        TestContext.WriteLine("XLUA_INTKEY_SHAPES: " + (shapes ?? "(none without asmdefs)"));
         env.Dispose();
         TestContext.WriteLine("XLUA_INTKEY_BYREF: before " + beforeByRef + " | patched " + patchedByRef
                               + " | restored " + restoredByRef);
@@ -201,5 +204,10 @@ public sealed class HotfixIntKeyTests
         Assert.AreEqual(ByRefExpected("50,99", "50,5"), patchedByRef,
             "a patch's extra result reaches the ref argument (first) only, never an in or ref readonly one");
         Assert.AreEqual(ByRefExpected("5,5", "5,5"), restoredByRef);
+        if (shapes != null)
+        {
+            Assert.AreEqual(HotfixShapes.Expected, shapes,
+                "[Hotfix] on Game.TaggedShop, Inline Game.InlineShop and generic Game.GenericShop.Echo patched and restored");
+        }
     }
 }
