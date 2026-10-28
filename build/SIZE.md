@@ -665,12 +665,110 @@ three. The unbound row matches the table above within 32 bytes.
   [above](#reflection-off-in-the-minimal-preset)) are still out in the
   strict row.
 - So a project that binds a handful of methods pays about the same either
-  way; the generator's fixed part is not split further here (which
-  generated types of `XLua.dll` it is: not checked symbol by symbol).
+  way; the generator's fixed part is split in the next section.
 
 Not measured: iOS, High stripping, a project with more bindings (the
 `+pkg+sg` rows of [Generated bindings](#generated-bindings-generate-code-gcm-and-the-source-generator)
 are the legacy preset).
+
+#### The generator's code in `XLua.dll` (2026-10-28)
+
+The owner's question of 2026-10-28 (Q18): where the fixed cost of the
+source generator in `XLua.dll` comes from, and how to shrink it without
+changing behaviour. The change is described in
+[source-generator.md](../docs/design/source-generator.md#xluadlls-own-bindings-2026-10-28).
+
+**What the generator writes into `XLua.dll`.** The analyzer sits next to
+`XLua.asmdef`, so it also runs in `XLua.dll` and binds xLua's own
+configuration. xLua has no `[CSharpCallLua]` and no `[LuaCallCSharp]`
+types, so the unit holds only the eight UnityEngine GCOptimize defaults of
+`GenAttributes.cs` (`Vector2`, `Vector3`, `Vector4`, `Color`, `Quaternion`,
+`Ray`, `Ray2D`, `Bounds`): `Structs` (push, get and update per type),
+`PackUnpack`, the registration (`Bindings.Register` with the eight name
+table entries) and the manifest (Editor and host builds only). Its IL is
+7,268 bytes before the change and 7,193 after (`ikdasm` of `XLua.dll`
+compiled by `editor_compile_check.py`, `player-android-il2cpp-minimal-source-gen`,
+6000.3.21f1's Roslyn).
+
+**Where the bytes went.** Symbols of `libil2cpp.dbg.so` that the strict
+player adds over the unbound minimal one (`llvm-nm -S` of both, each
+symbol attributed by its definition in `il2cppOutput/cpp`), uncompressed
+bytes:
+
+| part | before | after |
+| --- | ---: | ---: |
+| delegate types instantiated per struct type (`Invoke` with its seven variants, constructor, `BeginInvoke`) | 57,324 | 5,140 |
+| generic registration code per struct type: `AssemblyBindings.Struct<T>`, `ArrayAccessor<T>`, `ObjectTranslator.RegisterPushAndGetAndUpdate<T>` and their closure classes | 26,448 | 0 |
+| data: method pointer, generic method and metadata tables | 35,398 | 13,341 |
+| generated `Structs` | 13,644 | 20,032 |
+| generated registration (`Bindings.Register` and its lambdas) | 8,508 | 1,904 |
+| generated `PackUnpack` | 7,732 | 7,732 |
+| `T[]` interface code for `Color`, `Vector2`, `Ray` and `Ray2D` arrays | 8,096 | 8,096 |
+| reflection invokers (`Il2CppInvokerTable`) | 4,364 | 3,668 |
+| other | 6,116 | 5,828 |
+| `Assembly-CSharp` (`SizeProbeApi`'s wrapper and registration) | 1,100 | 1,100 |
+| total | 168,730 | 66,841 |
+
+Before the change each of the eight types made IL2CPP compile nine
+delegate types (`Action<ObjectTranslator, IntPtr, T>`, `StructGetter<T>`,
+`Action<ObjectTranslator, IntPtr, int, T>`, `Action<IntPtr, T>`,
+`ObjectTranslator.GetFunc<T>`, `Action<IntPtr, int, T>`,
+`Func<IntPtr, int, T>`, `ArrayElementPusher<T>`, `ArrayElementSetter<T>`)
+and six generic methods with their closures: two thirds of the cost. Now
+each type has one generated `Ops_` method that the runtime's non-generic
+closures call, and only `Action<IntPtr, T>` and `Func<IntPtr, int, T>`
+remain (the typed paths of `PushByType` and `Get<T>`, which do not box).
+The `T[]` code comes from the array accessors (`typeof(T[])`, `(T[])`)
+and stays; `Vector3[]`, `Vector4[]`, `Quaternion[]` and `Bounds[]` already
+have it in the unbound player.
+
+**Sizes.** `size_report.py run --configs strict,sg-minimal` (the variants
+of the [strict table](#reflection-off-in-the-minimal-preset) and
+`ng-5.5+pkg+sg`, the legacy preset with the generator), Unity 6000.3.21f1,
+Android ARM64 IL2CPP release, Minimal stripping, the Lua 5.5.1 plugins of
+the table above. Before: main at `3042ef63` (this table's rows grew since
+`aadd1d87` with the merges in between); after: the same with this change.
+APK bytes over the baseline of the same run (12,279,052 to 12,279,060):
+
+| variant | before | after | change |
+| --- | ---: | ---: | ---: |
+| minimal, nothing bound (does not run) | +451,070 | +447,602 | -3,468 |
+| minimal with `XLUA_REFLECTION` | +497,642 | +491,874 | -5,768 |
+| strict minimal (source generator) | +505,750 | +474,990 | **-30,760** |
+| legacy with the source generator (`ng-5.5+pkg+sg`) | +1,679,538 | +1,646,306 | **-33,232** |
+
+The components after the change, compressed in the APK / uncompressed
+(before in brackets):
+
+| variant | `libil2cpp.so` | `global-metadata.dat` | stripped `XLua.dll` |
+| --- | ---: | ---: | ---: |
+| minimal, nothing bound | +260,156 / +892,352 (+262,880 / +918,712) | +44,812 / +139,944 (+45,550 / +142,056) | 200,704 (201,216) |
+| minimal with `XLUA_REFLECTION` | +303,231 / +1,078,880 (+308,398 / +1,105,536) | +46,000 / +142,712 (+46,601 / +144,840) | 205,824 (206,848) |
+| strict minimal | +283,551 / +993,456 (+313,072 / +1,173,360) | +48,655 / +149,340 (+49,890 / +153,424) | 212,992 (218,112) |
+| `ng-5.5+pkg+sg` | +749,828 / +2,544,224 (+782,090 / +2,722,544) | +155,185 / +453,188 (+156,154 / +457,180) | 276,480 (281,088) |
+
+- **Strict minimal** now costs 27,388 bytes over the unbound player
+  (54,680 before) and is 16,884 bytes smaller than keeping reflection (it
+  was 8,108 larger). `libxlua.so`, `libunity.so` and `Assembly-CSharp.dll`
+  are unchanged.
+- **The players without the generator** got smaller too: binding API
+  version 2 removed the generic `Struct<T>`, `Caster<T>` and
+  `ArrayAccessor<T>` and their delegate types, which Minimal stripping kept
+  in `XLua.dll` (IL2CPP compiled them once, fully shared); the non-generic
+  forms that replace them cost less. With version 1's generic forms kept
+  next to the new ones (an intermediate build), the unbound player was
+  3,716 bytes larger than before instead of 3,468 smaller.
+- **Steps** (strict APK over the unbound player of the "before" run, one
+  build each): the non-generic registration with one method per delegate
+  +33,148 (from +54,680); shared error messages +32,732; one `Ops_` method
+  per type +31,096; the final build's own unbound player is the reference
+  of the table above.
+
+Not measured: iOS, High or Medium stripping (where unused binding API code
+is stripped anyway), WebGL, a project with many GCOptimize types or
+`[LuaCallCSharp]` enums (which get the same per-type saving), and the
+run-time cost (one more delegate call on the boxed push, get and update of
+a struct; none on the array accessors and the typed paths).
 
 ### The core preset
 
