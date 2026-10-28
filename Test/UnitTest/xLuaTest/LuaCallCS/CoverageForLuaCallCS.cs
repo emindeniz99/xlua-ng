@@ -18,6 +18,8 @@ using XLua;
 [assembly: CSharpCallLua(typeof(Coverage.IAssemblyConfigured))]
 [assembly: LuaCallCSharp(typeof(Coverage.AssemblyConfiguredExtensions))]
 [assembly: BlackList(typeof(Coverage.AssemblyConfiguredTarget), "Hidden")]
+// CaseGCOptimizeReaderEverywhere: an [AdditionalProperties] property of a packable GCOptimize struct.
+[assembly: AdditionalProperties(typeof(Coverage.PropertyPoint), "Y")]
 [assembly: BlackList(typeof(Coverage.AttributeListed), "AssemblyHidden")]
 [assembly: BlackList(typeof(Coverage.AttributeListed), "AssemblyHiddenMethod", typeof(int))]
 
@@ -528,6 +530,65 @@ namespace Coverage
         {
             X = x;
             Y = y;
+        }
+    }
+
+    // A packable GCOptimize struct with an [AdditionalProperties] property
+    // (assembly attribute above, CaseGCOptimizeReaderEverywhere): with generated
+    // bindings, a Lua table converts to it through the generated reader on every
+    // path, which sets Y too (owner decision 2026-10-28); reflection fills public
+    // fields only, so without generated bindings Y stays 0.
+    [GCOptimize]
+    [LuaCallCSharp]
+    public struct PropertyPoint
+    {
+        public int X;
+        int y;
+
+        public int Y
+        {
+            get { return y; }
+            set { y = value; }
+        }
+    }
+
+    [LuaCallCSharp]
+    public static class PropertyPointApi
+    {
+        // Whether generated bindings are registered (the source generator's passes).
+        public static bool Generated()
+        {
+            return DelegateBridge.Gen_Flag;
+        }
+
+        static int code(PropertyPoint p)
+        {
+            return p.X * 10 + p.Y;
+        }
+
+        public static int Param(PropertyPoint p)
+        {
+            return code(p);
+        }
+
+        public static int Cast(LuaTable t)
+        {
+            return code(t.Cast<PropertyPoint>());
+        }
+
+        public static int Get(LuaTable t)
+        {
+            return code(t.Get<PropertyPoint>("v"));
+        }
+
+        public static int ListElement(List<PropertyPoint> list)
+        {
+            return code(list[0]);
+        }
+
+        public static int DictionaryValue(Dictionary<string, PropertyPoint> d)
+        {
+            return code(d["k"]);
         }
     }
 
