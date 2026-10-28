@@ -23,6 +23,15 @@ Static constructors are not supported.
 
 The standard Unity workflow described here patches project code under `Assets`, not engine or .NET system libraries. xLua itself compiles into `XLua.dll` (its asmdefs, the default; [MIGRATING.md](../../../docs/MIGRATING.md#xlua-in-its-own-assemblies-asmdefs-the-default)), and the injector injects `Assembly-CSharp` and every other project assembly with hotfix types; see [Several hotfix assemblies](#several-hotfix-assemblies). Do not infer engine-library support from that capability.
 
+## Cost and threads
+
+`HOTFIX_ENABLE` turns on the same locking as `THREAD_SAFE`: every call from C# into a `LuaEnv` takes the env's lock, so a patched method may run on any thread. It also costs code that is never patched. Measured on 2026-10-28 ([hotfix.md](../../../docs/research/hotfix.md#measured-cost-2026-10-28)), in an Android ARM64 IL2CPP player:
+
+- An unpatched method in a `[Hotfix]` type costs about 0.8 ns more per call, and a small method is no longer inlined. With `IntKey` it costs about 4.6 ns more.
+- Every C# -> Lua entry (a delegate, `LuaTable`, `LuaFunction`) costs 16 to 34 ns more, the lock. A Lua string read from C# allocates.
+- A patched method costs about 350 ns per call.
+- The define adds about 13 KB to the APK, and each injected method about 40 bytes.
+
 ## API
 
 ### xlua.hotfix(class, [method_name], fix)
