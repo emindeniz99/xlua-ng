@@ -30,11 +30,19 @@ No. xLua can load files with any extension. Unity does not import `.lua` files a
 
 Files downloaded or otherwise stored outside Unity's text asset import pipeline have no such extension restriction. Load them through a `CustomLoader` or an appropriate `package.path`; [Loading Lua sources](Lua_Loaders.md) has loaders for each location. xLua is a library and does not provide a download system; text assets make the bundled examples easy to run.
 
-## Why does iOS report "attempt to call a nil value" when the editor works?
+## Why is a C# member nil in an IL2CPP player when the Editor has it?
 
-IL2CPP can strip engine APIs, .NET APIs, or third-party DLL members that C# does not reference. An API available in the editor may therefore be absent from the player.
+(Upstream asked it as: why does iOS report "attempt to call a nil value" when the editor works?)
 
-Preserve the API by adding a C# reference, generating wrappers through `LuaCallCSharp`, or configuring `link.xml`. For `ReflectionUse` types the source generator writes `link.xml` entries, which the player build passes to UnityLinker.
+**A member that IL2CPP stripped reads as nil in Lua, with no error.** IL2CPP players (iOS, Android, WebGL, consoles) strip the engine APIs, .NET APIs and third-party DLL members that no C# code references. Lua reaches a type that has no generated bindings (no `LuaCallCSharp`) through reflection, and reflection finds only what is left: a stripped method reads as nil, so calling it raises "attempt to call a nil value", and a stripped field, property or constant reads as nil and the script goes on with that value. The Editor and Mono players strip nothing, so the same script works there. The 2026-10-28 run of the test suite in an Android IL2CPP player with Minimal stripping hit it with `CS.System.Int64.MaxValue` (C# compiles a `const` into its users, so nothing references the field) and `System.IO.Path.GetExtension` ([il2cpp-suite.md](../../../docs/research/il2cpp-suite.md#differences-from-mono-and-what-was-done)). Minimal stripping still strips the engine and the class libraries; your own assemblies lose members from Low stripping up.
+
+Keep what Lua uses through reflection:
+
+* `[ReflectionUse]` on the type, or `[assembly: ReflectionUse(typeof(T))]` for a type you cannot change (an engine or .NET type). The source generator writes a `link.xml` entry that keeps the whole type (`preserve="all"`), and the player build passes it to UnityLinker. It needs the source generator ([Configuration](Configure_EN.md#xluareflectionuse)).
+* `[LuaCallCSharp]`, which generates wrappers that call the members, so the linker keeps them, and makes the calls faster.
+* Your own `link.xml` or `[Preserve]`.
+
+xLua cannot tell a stripped member from a misspelt one, so it gives no warning; test the reflected API in a player build.
 
 ## What are the historical Unity 2018 compatibility issues?
 
@@ -58,6 +66,8 @@ Lua 5.5.1 is the default build, and new projects can use it. For conservative pr
 ## How do I make an IL2CPP player smaller?
 
 Besides the native build options ([presets and size flags](../../../build/README.md#native-layers-and-presets)), Unity's **Player Settings > Other Settings > IL2CPP Code Generation** affects what xLua costs. With **Faster (smaller) builds** instead of the default **Faster runtime**, IL2CPP compiles one shared body for each generic method instead of one per value-type instantiation. In the 2026-10-17 measurement (Unity 6000.3.21f1, Android ARM64, release IL2CPP, managed stripping Minimal, Lua 5.5.1, no generated code), what xLua adds to the APK went from 1,397,146 to 1,280,734 bytes, 116,412 bytes less, and the empty project itself was 375,832 bytes smaller. Almost all of the saving is in the class library generics that xLua uses (collections, LINQ, delegates); xLua's own code changes by about 7 KB. The run time cost of fully shared generics was not measured, so measure your game on a device before you switch. xlua-ng does not change the setting for you; it is a project-wide choice. Details: [UNITY_SPIKE.md](../../../build/UNITY_SPIKE.md#q2-il2cpp-generic-sharing).
+
+The generated wrappers have a smaller form, GCM (`GEN_CODE_MINIMIZE`): each wrapped member becomes a C# method behind one shared native entry. The **minimal preset turns it on by default**; in the legacy preset define `GEN_CODE_MINIMIZE` yourself. With 264 wrapped engine types (Unity 6000.3.21f1, Android ARM64 release) GCM made the APK about 628 KB smaller, and on a moto g play 2024 phone each Lua-to-C# call cost about 24 ns more over a mix of common calls (about 5%) ([descriptor-wrappers.md](../../../docs/research/descriptor-wrappers.md)). To keep the plain, faster wrappers in the minimal preset, define **`XLUA_NO_GCM`** next to `XLUA_PRESET_MINIMAL` ([Presets](Configure_EN.md#presets)).
 
 ## How do I diagnose "xlua.access, no field __Hitfix0_Update"?
 
@@ -219,6 +229,10 @@ bar(2, nil)
 ```
 
 The documented supported cases are Mono; IL2CPP with reference-type generic arguments; and IL2CPP with value-type arguments when C# already calls the same generic instantiation, so the required AOT code exists. Hotfixes often reuse such existing instantiations, but verify that the exact type arguments are present.
+
+Measured in Android IL2CPP release players on 2026-10-29: with reference-type arguments every tested Unity version ran an instance that no C# code calls (2021.3.45f2, 2022.3.62f3, 6000.3.21f1, 6000.6.4f1). With a value-type argument, 2021.3 needs C# to compile that exact instance; without it the call raises a catchable `ExecutionEngineException` ("Attempting to call method ... for which no ahead of time (AOT) code was generated"). Unity 2022.3 and later ran such instances through IL2CPP's full generic sharing.
+
+A method whose type parameters are all constrained to a class (as in Example 9) needs no `xlua.get_generic_method`: Lua calls it by name, and the reflection wrapper closes it over the constraints. IL2CPP players do that too since 2026-10-29; upstream left such methods out there, and the call raised "invalid arguments".
 
 ## Can Lua call overloaded C# methods?
 

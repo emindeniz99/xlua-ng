@@ -255,6 +255,20 @@ function RAISE_NO_BINDINGS(ok, err, ...)
     return ok, err, ...
 end
 
+-- f(...) must return expected, where f is a generic method instance with a value-type
+-- argument that no C# code compiled (xlua.get_generic_method). An IL2CPP player before
+-- Unity 2022.1 has no code for it: the call must raise the catchable
+-- ExecutionEngineException instead (LuaTestCommon.Il2CppNoFullGenericSharing).
+function ASSERT_VALUE_TYPE_GENERIC(expected, f, ...)
+    if CS.LuaTestCommon.Il2CppNoFullGenericSharing() then
+        local ok, err = RAISE_NO_BINDINGS(pcall(f, ...))
+        ASSERT_EQ(ok, false)
+        ASSERT_TRUE(string.find(tostring(err), "no ahead of time (AOT) code", 1, true) ~= nil)
+    else
+        ASSERT_EQ(f(...), expected)
+    end
+end
+
 -- Fail a test step whose assertion failure was caught before luaunit saw it.
 local function protectedCall(runner, instance, method, name)
     currentFailure = nil

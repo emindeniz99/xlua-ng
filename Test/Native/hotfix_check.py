@@ -47,6 +47,15 @@ source generator milestone M11.
    methods (whose parameters carry modreq(InAttribute)), in the default,
    IntKey and Inline modes, with a `ref` control; a patch's extra result must
    reach the `ref` argument only.
+7. HotfixFixtureShared.cs, compiled by mcs with xLua and without the
+   generator: no HotfixBridges in the assembly that holds xLua, so its
+   `Inline` IntKey type (and a generic method) get ids of the process-wide
+   list, which the map gives without an assembly; patched through
+   HotfixDelegateBridge.Set, and ids set from four threads at once must all
+   stay set.
+8. Test/Native/hotfix_flags_race.py: the iOS native flags of that list
+   (Assets/Plugins/iOS/HotfixFlags.cpp) read while two threads grow them,
+   under ThreadSanitizer.
 
 Until M11, steps 2 to 5 used Generate Code's bridges, steps 4 and 5 checked that
 an assembly without them fell back to field mode and took the bridges from the
@@ -383,5 +392,40 @@ def source_gen_pass():
 
 
 source_gen_pass()
+
+# 7. The process-wide IntKey list: xLua in the injected assembly, which has no
+# HotfixBridges (mcs, no generator), so the injector gives its IntKey ids to
+# the list that HotfixDelegateBridge.Set writes (and on iOS the native flags);
+# only Inline types and generic methods inject there. HotfixFixtureShared.cs
+# patches through the map's ids and sets ids of the list from four threads.
+print("== xLua in the injected assembly without HotfixBridges (the process-wide IntKey list)", flush=True)
+shared = out / "shared-list"
+shutil.rmtree(shared, ignore_errors=True)
+shared.mkdir(parents=True)
+exe = shared / "HotfixFixtureShared.exe"
+run([a.compiler, "-unsafe", "-define:" + ";".join(DEFINES), "-out:" + str(exe)] + xlua_sources()
+    + [repo / "Test/Native/HotfixFixtureShared.cs"])
+shutil.copy2(a.plugin, shared / a.plugin.name)
+
+
+def shared_fixture(*args):
+    result = run_output([a.mono, "--debug", exe] + list(args), cwd=shared)
+    if result.returncode != 0 or "HOTFIX_SHARED_FIXTURE_PASS" not in result.stdout:
+        raise SystemExit("HotfixFixtureShared failed: " + " ".join(str(x) for x in args))
+
+
+shared_fixture("baseline")
+id_map = shared / "hotfix_id_map.lua"
+log = inject(exe, id_map)
+if "inject finish!" not in log or "Error:" in log or "IntKey falls back to field mode" in log:
+    raise SystemExit("injecting HotfixFixtureShared.exe failed, or IntKey fell back to field mode")
+if "HotfixShared.Keyed" not in id_map.read_text() or '["<assembly>"]' in id_map.read_text():
+    raise SystemExit("HotfixShared.Keyed has no ids of the process-wide list in " + str(id_map))
+shared_fixture("patch", id_map)
+print("HOTFIX_SHARED_LIST_PASS (Inline IntKey types and a generic method through HotfixDelegateBridge.Set; "
+      "Set from four threads)", flush=True)
+
+# 8. The iOS flags behind that list (Assets/Plugins/iOS/HotfixFlags.cpp) under ThreadSanitizer.
+run([sys.executable, repo / "Test/Native/hotfix_flags_race.py", "--output", out / "flags-race"])
 
 print("HOTFIX_CHECK_PASS")
