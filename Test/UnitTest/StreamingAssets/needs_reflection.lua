@@ -1,7 +1,9 @@
 -- The cases that need xLua's reflection fallback: they use C# types or members
 -- without generated bindings in the suite (fixtures meant for the reflection
--- path, and .NET types the suite does not configure), or delegates and
--- interfaces without bridges, which only the Editor's CodeEmit makes. Under
+-- path, and .NET types the suite does not configure), delegates and
+-- interfaces without bridges, which only the Editor's CodeEmit makes, or Lua
+-- tables converted to classes or structs without [GCOptimize], which only
+-- reflection fills (owner decision 2026-10-28). Under
 -- XLUA_NO_REFLECTION (the minimal preset without XLUA_REFLECTION) each must fail
 -- with the error that names the type and the fix (luaunit_compat.lua); with
 -- reflection on they run as usual. Test/Native/run_managed.py runs both. A
@@ -17,6 +19,18 @@ return {
     ["CMyTestCaseBridgeHardening.CaseEnumCacheOutOfReach"] = true,
     ["CMyTestCaseBridgeHardening.CaseLightUserdataIsNoObject"] = true,
     ["CMyTestCaseBridgeHardening.CaseRestrictPrivateAccess"] = true,
+
+    -- CMyTestCaseCSCallLua: Lua tables converted to classes without [GCOptimize]
+    ["CMyTestCaseCSCallLua.testGetFuncToDelegate_Step_2_1"] = true,
+    ["CMyTestCaseCSCallLua.testGetFuncToDelegate_Step_2_2"] = true,
+    ["CMyTestCaseCSCallLua.testGetFuncToDelegate_Step_2_3"] = true,
+    ["CMyTestCaseCSCallLua.testGetTableToClass_Step_1"] = true,
+    ["CMyTestCaseCSCallLua.testGetTableToClass_Step_1_3"] = true,
+    ["CMyTestCaseCSCallLua.testGetTableToClass_Step_2"] = true,
+    ["CMyTestCaseCSCallLua.testGetTableToClass_Step_3"] = true,
+    ["CMyTestCaseCSCallLua.testGetTableToClass_Step_4"] = true,
+    ["CMyTestCaseCSCallLua.testGetTableToClass_Step_5"] = true,
+    ["CMyTestCaseCSCallLua.testLuaTableGetSetKeyValue_class"] = true,
 
     -- CMyTestCaseLuaCallCS
     ["CMyTestCaseLuaCallCS.CaseCast2"] = true,
@@ -83,9 +97,11 @@ return {
     ["CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethod"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseImportGenericType"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeMembers"] = true,
+    ["CMyTestCaseLuaCallCSCoverage.CaseInterfaceBridgeOutRef"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseListedArrayType"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseLuaEnvAlias"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseLuaOptionsBasics"] = true,
+    ["CMyTestCaseLuaCallCSCoverage.CaseLuaTableApi"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseMultiTypeLists"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseNarrowResultsAndRefs"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseNoBridgeActions"] = true,
@@ -193,6 +209,7 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseBridgeAfterDisposeThrows"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseDeepCSharpRecursion"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseDisposeWhileRunningThrows"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseDisposedLuaBaseThrows"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEmitCacheEnvsOnThreads"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEmitCacheOneAssembly"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEmitCacheSequentialEnvs"] = true,
@@ -204,6 +221,7 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseErrorsThroughCSharpCallbacks"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseFinalizerQueueReleasesAll"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseGCOptimizeBoolCharPointerFields"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseGcErrorsAreWarnings"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseInDefaultTypeLoads"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseInDefaultValue"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseLengthMetamethodError"] = true,

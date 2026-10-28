@@ -63,17 +63,28 @@ using System.Reflection;
 
 namespace XLua.Binding
 {
-    // Reads a value that generated code pushes as a struct or table (GCOptimize).
+    // Everything xLua needs of a GCOptimize struct or enum T, or of a type Lua
+    // passes as a table, in one generated method per type (the source
+    // generator's Structs.Ops_<type>): op is a StructOp, value a boxed T or
+    // the T[]. One delegate type for every T: binding API version 1 had
+    // generic registration methods instead (Struct<T>, Caster<T>,
+    // ArrayAccessor<T>), whose code and delegate types IL2CPP compiled once
+    // per value type (docs/design/source-generator.md, "XLua.dll's own
+    // bindings").
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public delegate void StructGetter<T>(ObjectTranslator translator, RealStatePtr L, int index, out T value);
+    public delegate object StructOps(int op, ObjectTranslator translator, RealStatePtr L, int index, object value, int arrayIndex);
 
-    // Pushes array[index] without boxing.
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public delegate void ArrayElementPusher<T>(ObjectTranslator translator, RealStatePtr L, T[] array, int index);
-
-    // Sets array[arrayIndex] from the Lua value at valueIndex without boxing.
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public delegate void ArrayElementSetter<T>(ObjectTranslator translator, RealStatePtr L, T[] array, int arrayIndex, int valueIndex);
+    public static class StructOp
+    {
+        public const int Push = 0;          // push value
+        public const int Get = 1;           // the value at index, boxed
+        public const int Update = 2;        // update the userdata at index from value
+        public const int ArrayGet = 3;      // push ((T[])value)[arrayIndex]
+        public const int ArraySet = 4;      // ((T[])value)[arrayIndex] = the value at index
+        public const int PushDelegate = 5;  // an Action<RealStatePtr, T> closed over translator
+        public const int GetDelegate = 6;   // a Func<RealStatePtr, int, T> closed over translator
+    }
 
     // Marks an assembly that holds generated bindings: `bindings` has a static
     // parameterless Register method. Used where Unity does not call
@@ -113,8 +124,11 @@ namespace XLua.Binding
     {
         // Generated code passes this to AssemblyBindings; Register rejects
         // another value. Removing or changing a member of this API means a new
-        // version.
-        public const int Version = 1;
+        // version. 2 (2026-10-28): GCOptimize types register through
+        // AssemblyBindings.Struct(Type, Type, StructOps) and Caster(Type, Type,
+        // StructOps); the generic Struct<T>, Caster<T> and ArrayAccessor<T>
+        // and their delegate types are gone.
+        public const int Version = 2;
 
         // How many values generated code may push without EnsureStack (Tencent/xLua#1153).
         public const int UncheckedPushes = Utils.UncheckedPushes;
@@ -158,6 +172,44 @@ namespace XLua.Binding
         public static ObjectCast GetCaster(ObjectTranslator translator, Type type)
         {
             return translator.objectCasters.GetCaster(type);
+        }
+
+        // The buffer of the GCOptimize struct or enum userdata at index for
+        // the generated Get_ and Update_ methods; raises when the userdata
+        // holds another type. typeName is the type as the error names it.
+        // One native call checks the type id and that the block holds the
+        // header and the bytes it announces (xlua_tostructbuffer); it was
+        // xlua_gettypeid and lua_touserdata, which trusted the header of any
+        // userdata given the type's metatable (docs/research/crash-inventory.md,
+        // item 10). Zero for such a userdata: Pack and UnPack return false for
+        // it, which raises "pack fail" or "unpack fail".
+        public static IntPtr StructBuffer(ObjectTranslator translator, RealStatePtr L, int index, int slot, string typeName)
+        {
+            int typeId = TypeId(translator, L, slot);
+            IntPtr buff = LuaAPI.xlua_tostructbuffer(L, index, typeId);
+            if (buff == IntPtr.Zero && LuaAPI.xlua_gettypeid(L, index) != typeId)
+            {
+                throw new Exception("invalid userdata for " + typeName);
+            }
+            return buff;
+        }
+
+        // The errors of the generated GCOptimize pushers, shared so that each
+        // type does not carry its own copies of the messages (the legacy
+        // LuaWrapPusher.tpl.txt wording, kept). push: from Push_, else Update_.
+        public static Exception StructPackFailed(string typeName, object value, bool push)
+        {
+            return new Exception((push ? "pack fail fail for " : "pack fail for ") + typeName + " ,value=" + value);
+        }
+
+        public static Exception StructUnpackFailed(string typeName)
+        {
+            return new Exception("unpack fail for " + typeName);
+        }
+
+        public static Exception StructUpdateFailed(RealStatePtr L, int index)
+        {
+            return new Exception("try to update a data with lua type:" + LuaAPI.lua_type(L, index));
         }
 
         // A parameter, field or property of a struct type without a generated
@@ -271,10 +323,10 @@ namespace XLua.Binding
         }
 
         // The Lua state of a bridge's LuaEnv; throws ObjectDisposedException when
-        // the env is disposed (one comparison, LuaEnv.L).
+        // the bridge or the env is disposed (LuaBase.State).
         public static RealStatePtr State(LuaBase o)
         {
-            return o.Env.L;
+            return o.State;
         }
 
         // Bindings generated before 2026-10-19 call this; it is State now. It
@@ -282,7 +334,7 @@ namespace XLua.Binding
         // after LuaEnv.Dispose passed NULL to pcall_prepare (Tencent/xLua#999).
         public static RealStatePtr RawState(LuaBase o)
         {
-            return o.Env.L;
+            return o.State;
         }
 
         public static ObjectTranslator Translator(LuaBase o)
@@ -341,8 +393,9 @@ namespace XLua.Binding
         internal readonly List<KeyValuePair<Type, Action<LuaEnv, ObjectTranslator>>> structs = new List<KeyValuePair<Type, Action<LuaEnv, ObjectTranslator>>>();
         internal readonly List<Action<LuaEnv, ObjectTranslator>> initers = new List<Action<LuaEnv, ObjectTranslator>>();
         internal readonly List<KeyValuePair<Type, MethodInfo[]>> extensionMethods = new List<KeyValuePair<Type, MethodInfo[]>>();
-        internal readonly List<KeyValuePair<Type, BindingRegistry.ArrayGet>> arrayGetters = new List<KeyValuePair<Type, BindingRegistry.ArrayGet>>();
-        internal readonly List<KeyValuePair<Type, BindingRegistry.ArraySet>> arraySetters = new List<KeyValuePair<Type, BindingRegistry.ArraySet>>();
+        // Element access of T[] without boxing, by array type: StructOp.ArrayGet and ArraySet.
+        internal readonly List<KeyValuePair<Type, StructOps>> arrayGetters = new List<KeyValuePair<Type, StructOps>>();
+        internal readonly List<KeyValuePair<Type, StructOps>> arraySetters = new List<KeyValuePair<Type, StructOps>>();
         internal Action<int, DelegateBridge> hotfixSlots;
         internal Type hotfixBridgeClass;
 
@@ -424,46 +477,34 @@ namespace XLua.Binding
             throw new NotSupportedException("Generate Code output is not supported any more; delete it");
         }
 
-        // Push, get and update of a GCOptimize struct or enum; registered in every
-        // LuaEnv through ObjectTranslator.RegisterPushAndGetAndUpdate.
-        public void Struct<T>(Action<ObjectTranslator, RealStatePtr, T> push, StructGetter<T> get, Action<ObjectTranslator, RealStatePtr, int, T> update)
+        // A GCOptimize struct or enum: push, get and update in every LuaEnv
+        // (ObjectTranslator.RegisterStruct, which RegisterPushAndGetAndUpdate<T>
+        // does with generic code), and element access of arrayType (T[])
+        // without boxing.
+        public void Struct(Type type, Type arrayType, StructOps ops)
         {
-            structs.Add(new KeyValuePair<Type, Action<LuaEnv, ObjectTranslator>>(typeof(T), (env, translator) =>
+            structs.Add(new KeyValuePair<Type, Action<LuaEnv, ObjectTranslator>>(type, (env, translator) =>
             {
-                translator.RegisterPushAndGetAndUpdate<T>(
-                    (RealStatePtr L, T value) => push(translator, L, value),
-                    (RealStatePtr L, int index, out T value) => get(translator, L, index, out value),
-                    (RealStatePtr L, int index, T value) => update(translator, L, index, value));
+                translator.RegisterStruct(type, (Delegate)ops(StructOp.PushDelegate, translator, default(RealStatePtr), 0, null, 0),
+                    (Delegate)ops(StructOp.GetDelegate, translator, default(RealStatePtr), 0, null, 0),
+                    (RealStatePtr L, object obj) => ops(StructOp.Push, translator, L, 0, obj, 0),
+                    (RealStatePtr L, int idx) => ops(StructOp.Get, translator, L, idx, null, 0),
+                    (RealStatePtr L, int idx, object obj) => ops(StructOp.Update, translator, L, idx, obj, 0));
             }));
+            arrayGetters.Add(new KeyValuePair<Type, StructOps>(arrayType, ops));
+            arraySetters.Add(new KeyValuePair<Type, StructOps>(arrayType, ops));
         }
 
-        // A caster for a GCOptimize type that Lua passes as a table; registered
-        // in every LuaEnv through ObjectTranslator.RegisterCaster.
-        public void Caster<T>(StructGetter<T> get)
+        // A type Lua passes as a table: its caster in every LuaEnv (as
+        // ObjectTranslator.RegisterCaster<T>) and the element setter of
+        // arrayType.
+        public void Caster(Type type, Type arrayType, StructOps ops)
         {
-            structs.Add(new KeyValuePair<Type, Action<LuaEnv, ObjectTranslator>>(typeof(T), (env, translator) =>
+            structs.Add(new KeyValuePair<Type, Action<LuaEnv, ObjectTranslator>>(type, (env, translator) =>
             {
-                translator.RegisterCaster<T>((RealStatePtr L, int index, out T value) => get(translator, L, index, out value));
+                translator.objectCasters.AddCaster(type, (RealStatePtr L, int idx, object target) => ops(StructOp.Get, translator, L, idx, null, 0));
             }));
-        }
-
-        // Element access for T[] without boxing; get may be null.
-        public void ArrayAccessor<T>(ArrayElementPusher<T> get, ArrayElementSetter<T> set)
-        {
-            if (get != null)
-            {
-                arrayGetters.Add(new KeyValuePair<Type, BindingRegistry.ArrayGet>(typeof(T[]), (RealStatePtr L, ObjectTranslator translator, object array, int index) =>
-                {
-                    get(translator, L, (T[])array, index);
-                }));
-            }
-            if (set != null)
-            {
-                arraySetters.Add(new KeyValuePair<Type, BindingRegistry.ArraySet>(typeof(T[]), (RealStatePtr L, ObjectTranslator translator, object array, int arrayIndex, int valueIndex) =>
-                {
-                    set(translator, L, (T[])array, arrayIndex, valueIndex);
-                }));
-            }
+            arraySetters.Add(new KeyValuePair<Type, StructOps>(arrayType, ops));
         }
 
         // Extension methods of `extended` that Lua sees as its members. Take the
@@ -499,9 +540,6 @@ namespace XLua.Binding
     // The process-wide tables behind BindingApi; the runtime reads them.
     internal static class BindingRegistry
     {
-        internal delegate void ArrayGet(RealStatePtr L, ObjectTranslator translator, object array, int index);
-        internal delegate void ArraySet(RealStatePtr L, ObjectTranslator translator, object array, int arrayIndex, int valueIndex);
-
         static readonly object sync = new object();
         static readonly HashSet<string> registered = new HashSet<string>();
         static volatile bool scanned = false;
@@ -522,8 +560,8 @@ namespace XLua.Binding
         static volatile MethodInfo[] bridgeMethods = null;
         static readonly HashSet<Type> structTypes = new HashSet<Type>();
         static readonly List<Action<LuaEnv, ObjectTranslator>> initers = new List<Action<LuaEnv, ObjectTranslator>>();
-        static readonly Dictionary<Type, ArrayGet> arrayGetters = new Dictionary<Type, ArrayGet>();
-        static readonly Dictionary<Type, ArraySet> arraySetters = new Dictionary<Type, ArraySet>();
+        static readonly Dictionary<Type, StructOps> arrayGetters = new Dictionary<Type, StructOps>();
+        static readonly Dictionary<Type, StructOps> arraySetters = new Dictionary<Type, StructOps>();
         static readonly Dictionary<string, Action<int, DelegateBridge>> hotfixSlots = new Dictionary<string, Action<int, DelegateBridge>>();
         static readonly List<Type> hotfixBridgeClasses = new List<Type>(); // internal classes of generated code
 
@@ -862,17 +900,17 @@ namespace XLua.Binding
 
         static bool TryArrayGet(Type type, RealStatePtr L, ObjectTranslator translator, object obj, int index)
         {
-            ArrayGet get;
-            if (!arrayGetters.TryGetValue(type, out get)) return false;
-            get(L, translator, obj, index);
+            StructOps ops;
+            if (!arrayGetters.TryGetValue(type, out ops)) return false;
+            ops(StructOp.ArrayGet, translator, L, 0, obj, index);
             return true;
         }
 
         static bool TryArraySet(Type type, RealStatePtr L, ObjectTranslator translator, object obj, int arrayIndex, int valueIndex)
         {
-            ArraySet set;
-            if (!arraySetters.TryGetValue(type, out set)) return false;
-            set(L, translator, obj, arrayIndex, valueIndex);
+            StructOps ops;
+            if (!arraySetters.TryGetValue(type, out ops)) return false;
+            ops(StructOp.ArraySet, translator, L, valueIndex, obj, arrayIndex);
             return true;
         }
 

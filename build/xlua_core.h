@@ -429,23 +429,24 @@ XLUA_INTERNAL void xlua_core_free_frame(xlua_core_t *xc, void *ptr);
 /* For the profiler (xlua.c): set or clear its hook on a core state. */
 XLUA_INTERNAL void xlua_core_set_profiler(lua_State *L, xlua_core_t *xc, lua_Hook hook);
 /* Replaces coroutine.resume, wrap and close of a core state with versions
- * that move the budget between threads (luaopen_xlua and xlua_core_open call it). */
+ * that move the budget between threads; L must be a core state (luaopen_xlua
+ * checks, xlua_core_open makes one). */
 XLUA_INTERNAL void xlua_core_open_coroutines(lua_State *L);
 /* A thread switch from 'from' to 'to' (a resume) or back (a yield, return or
  * error): moves the instruction budget and the stop to the thread that runs
  * (section 3.5). The coroutines of xlua_core_call use it too. */
 XLUA_INTERNAL void xlua_core_switch(xlua_core_t *xc, lua_State *from, lua_State *to);
-/* After a host function returned (the LuaScript trampoline): raises the stop
- * of an instruction, time or interrupt limit that tripped meanwhile (the
- * watchdog or Interrupt set it), so that a call whose limit tripped never
- * returns normally, also when no Lua instruction follows (xlua_core_limits.c). */
-XLUA_INTERNAL void xlua_core_check_stop(lua_State *L, xlua_core_t *xc);
 /* After an outermost entry whose body returned normally but whose call was
  * stopped (xlua_core_entry.stop; xlua.c's lua_pcall and xluaL_loadbuffer):
  * replaces the values from 'base' up with the stop's message and returns
  * LUA_ERRRUN (section 8.14). */
 XLUA_INTERNAL int xlua_core_fail_stopped(lua_State *L, int stop, int base);
 #if defined(XLUA_SANDBOX)
+/* After a host function returned (the LuaScript trampoline): raises the stop
+ * of an instruction, time or interrupt limit that tripped meanwhile (the
+ * watchdog or Interrupt set it), so that a call whose limit tripped never
+ * returns normally, also when no Lua instruction follows (xlua_core_limits.c). */
+XLUA_INTERNAL void xlua_core_check_stop(lua_State *L, xlua_core_t *xc);
 /* After C# returned to a C function of the sandbox (require's resolver, the
  * host function trampoline): the memory error of an overdraft, as the C#
  * function trampolines raise it. Defined in xlua_core.c. */

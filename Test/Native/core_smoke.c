@@ -2221,6 +2221,200 @@ static void check_coroutines(void) {
     xlua_core_close(L);
 }
 
+/* ------------------------------------------------------------------------
+ * The edges that the checks above leave untaken in a core library's
+ * xlua_core.c and xlua_core_limits.c (Test/Native/coverage.sh, 2026-10-28):
+ * frames with a NULL or empty error, a result of an unknown type, the clock
+ * check, the C budget with a time limit only and after a stop, Interrupt and
+ * the watchdog poll from a message handler after the stop fired, a coroutine
+ * whose hook an earlier call armed, and the edges of the coroutine switches.
+ * Each is deterministic: a time limit only ever ends a call that would not end.
+ * ------------------------------------------------------------------------ */
+enum { E_ARGNULL = 1, E_TYPEZERO, E_TYPEFARNULL, E_TYPENULL, E_WHERENULL, E_WHEREEMPTY, E_ERRNULL, E_ERREMPTY,
+       E_BADRESULT, E_INTERRUPT, E_WATCH, E_NOOP, E_LAST };
+
+static int64_t edge_seen;  /* E_INTERRUPT and E_WATCH: what the export returned */
+
+static void edge_dispatch(void *ud, int32_t id, xlua_core_frame *f) {
+    host *h = (host *)ud;
+    switch (id) {
+    case E_ARGNULL:  /* no message: "?" */
+        f->status = FRAME_ARGERROR;
+        f->error_arg = 1;
+        break;
+    case E_TYPEZERO:  /* argument 0, which no call has */
+        f->status = FRAME_TYPEERROR;
+        f->error_arg = 0;
+        f->error = "number";
+        break;
+    case E_TYPEFARNULL:
+        f->status = FRAME_TYPEERROR;
+        f->error_arg = f->nargs + 3;
+        break;
+    case E_TYPENULL:
+        f->status = FRAME_TYPEERROR;
+        f->error_arg = 1;
+        break;
+    case E_WHERENULL:
+        f->status = FRAME_ERROR_WHERE;
+        f->error_len = 3;
+        break;
+    case E_WHEREEMPTY:
+        f->status = FRAME_ERROR_WHERE;
+        f->error = "unused";
+        break;
+    case E_ERRNULL:
+        f->status = FRAME_ERROR;
+        f->error_len = 3;
+        break;
+    case E_ERREMPTY:
+        f->status = FRAME_ERROR;
+        f->error = "unused";
+        break;
+    case E_BADRESULT:
+        f->results[0].type = 99;
+        f->nresults = 1;
+        break;
+    case E_INTERRUPT:
+        edge_seen = xlua_core_interrupt(h->L);
+        break;
+    case E_WATCH:
+        edge_seen = xlua_core_watch(h->L);
+        break;
+    case E_NOOP:
+        break;
+    default:
+        CHECK(!"unknown edge function id");
+        break;
+    }
+}
+
+static void check_coverage_edges(void) {
+    static const char *const names[] = {NULL, "e_argnull", "e_typezero", "e_typefarnull", "e_typenull", "e_wherenull",
+                                        "e_whereempty", "e_errnull", "e_errempty", "e_badresult", "e_interrupt",
+                                        "e_watch", "e_noop"};
+    host h;
+    int32_t status = -1, flags = -1;
+    lua_State *L;
+    int i;
+    memset(&h, 0, sizeof(h));
+    L = open_state(256 << 20, 0, &h, &status);
+    CHECK(L != NULL);
+    if (L == NULL) {
+        return;
+    }
+    h.L = L;
+    xlua_core_set_dispatcher(edge_dispatch);
+    for (i = 1; i < E_LAST; i++) {
+        reg(L, names[i], i, 0);
+    }
+
+    /* Frames without a message, or with an empty one, and a result of no known type. */
+    expect_run(L, 0, "e_argnull(1)", ERRRUN, "bad argument #1 to 'e_argnull' (?)", "an argument error without a message");
+    expect_run(L, 0, "e_typezero('x')", ERRRUN, "(number expected, got no value)", "a type error for argument 0");
+    expect_run(L, 0, "e_typefarnull(1)", ERRRUN, "bad argument #4 to 'e_typefarnull' (? expected, got no value)",
+               "a type error without a message, past the arguments");
+    expect_run(L, 0, "e_typenull('x')", ERRRUN, "bad argument #1 to 'e_typenull' (? expected, got string)",
+               "a type error without a message");
+    expect_run(L, 0, "\ne_wherenull()", ERRRUN, "t:2: ", "a positioned error without a message");
+    expect_run(L, 0, "\ne_whereempty()", ERRRUN, "t:2: ", "a positioned error with an empty message");
+    CHECK(run_flags(L, "e_errnull()", &flags) == ERRRUN && flags == CALLF_HOST_ERROR);
+    CHECK(run_flags(L, "e_errempty()", &flags) == ERRRUN && flags == CALLF_HOST_ERROR);
+    expect_run(L, 0, "local ok, e = pcall(e_errnull) local ok2, e2 = pcall(e_errempty) return e .. e2 .. #e .. #e2", OK, "00",
+               "the messages are empty");
+    expect_run(L, 0, "e_badresult()", ERRRUN, "host function: result 1 cannot be returned (type 99)", "a result of type 99");
+
+    /* The clock check (no watchdog): the hook reads the clock every 10,000
+     * instructions, with a time limit only and with both limits; a host
+     * function's return reads it only when the call has a deadline. */
+    CHECK(xlua_core_set_limits(L, 0, 50 * 1000000LL, 1) == 1);
+    expect_run(L, 0, "while true do end", LIMIT_TIME, "time limit exceeded", "the clock check, time limit only");
+    CHECK(xlua_core_set_limits(L, (int64_t)1 << 40, 50 * 1000000LL, 1) == 1);
+    expect_run(L, 0, "while true do end", LIMIT_TIME, "time limit exceeded", "the clock check with an instruction limit");
+    CHECK(xlua_core_set_limits(L, (int64_t)1 << 40, 0, 1) == 1);
+    expect_run(L, 0, "e_noop() return 'after'", OK, "after", "the clock check without a deadline");
+    /* The C budget with a time limit only and no hook: string.find's matcher reads the clock. */
+    CHECK(xlua_core_set_limits(L, 0, 50 * 1000000LL, 0) == 1);
+    expect_run(L, 0, "return string.find(string.rep('a', 100000), '.-b')", LIMIT_TIME, "time limit exceeded",
+               "the C budget's deadline");
+    /* The C budget after a stop: gsub's replacement table indexes through pcall,
+     * which calls the table; its __call loops until the limit, pcall catches the
+     * stop, and gsub, which runs no Lua instruction, meets it in its budget. */
+    CHECK(xlua_core_set_limits(L, 100000, 0, SMALL_SLICES) == 1);
+    expect_run(L, 0, "local r = setmetatable({}, {__call = function() while true do end end, __index = pcall})\n"
+                     "return (string.gsub(string.rep('a', 20000), '.', r))", LIMIT_INSTR, "instruction limit exceeded",
+               "the C budget after a stop that pcall caught");
+    /* Interrupt and the watchdog's poll after the stop hook fired (from a message
+     * handler that is a host function): nothing to arm again. Then the poll of a
+     * call without a deadline. */
+    edge_seen = 7;
+    status = run_flags(L, "xpcall(function() while true do end end, e_interrupt)", &flags);
+    CHECK(status == LIMIT_INSTR && edge_seen == 0);
+    CHECK(xlua_core_set_limits(L, 100000, 10 * 1000000000LL, SMALL_SLICES) == 1);
+    edge_seen = 7;
+    status = run_flags(L, "xpcall(function() while true do end end, e_watch)", &flags);
+    CHECK(status == LIMIT_INSTR && edge_seen == -1);
+    CHECK(xlua_core_set_limits(L, 100000, 0, SMALL_SLICES) == 1);
+    edge_seen = 7;
+    expect_run(L, 0, "e_watch() return 1", OK, "1", "the watchdog's poll without a deadline");
+    CHECK(edge_seen == -1);
+    /* A coroutine created in a limited call inherits the count hook of its
+     * creator; resumed in a call without limits, its hook disarms it. */
+    CHECK(xlua_core_set_limits(L, 1000000, 0, SMALL_SLICES) == 1);
+    expect_run(L, 0, "held = coroutine.create(function() local n = 0 for i = 1, 100000 do n = n + 1 end return n end)",
+               OK, NULL, "a coroutine created under a limit");
+    CHECK(xlua_core_set_limits(L, 0, 0, 0) == 1);
+    expect_run(L, 0, "return select(2, coroutine.resume(held))", OK, "100000", "its hook in a call without limits");
+    /* A time limit too large for a deadline is kept in range. */
+    CHECK(xlua_core_set_limits(L, 0, INT64_MAX, 0) == 1);
+    expect_run(L, 0, "return 1", OK, "1", "a time limit of INT64_MAX");
+    CHECK(xlua_core_set_limits(L, 0, 0, 0) == 1);
+
+    /* The coroutine switches (Lua's own lcorolib code): too many arguments and
+     * results, a dead wrapped coroutine, errors that are tables or memory errors,
+     * and coroutine.close of a value that is not a coroutine, of the running
+     * coroutine, of a normal one and of a finished one. */
+    expect_run(L, 0, "local t = {} for i = 1, 600000 do t[i] = i end\n"
+                     "local co = coroutine.create(function(...) coroutine.yield() end)\n"
+                     "assert(coroutine.resume(co, table.unpack(t)))\n"
+                     "local ok, err = coroutine.resume(co, table.unpack(t))\n"
+                     "assert(not ok and err == 'too many arguments to resume', err)\n"
+                     "local co2 = coroutine.create(function() coroutine.yield(table.unpack(t)) end)\n"
+                     "local function g(...) return coroutine.resume(co2) end\n"
+                     "local ok2, err2 = g(table.unpack(t))\n"
+                     "assert(not ok2 and err2 == 'too many results to resume', err2)\n"
+                     "local w = coroutine.wrap(function(...) coroutine.yield() end)\n"
+                     "w(table.unpack(t))\n"
+                     "assert(not pcall(w, table.unpack(t)))  -- suspended: no error of its own to close\n"
+                     "local wd = coroutine.wrap(function() end) wd() assert(not pcall(wd))\n"
+                     "local w2 = coroutine.wrap(function() error({}) end)\n"
+                     "local ok3, e3 = pcall(w2) assert(not ok3 and type(e3) == 'table')\n"
+                     "assert(not pcall(coroutine.close, 1))\n"
+                     "local outer\n"
+                     "outer = coroutine.create(function()\n"
+                     "  local inner = coroutine.create(function() return pcall(coroutine.close, outer) end)\n"
+                     "  local ok4, ok5 = coroutine.resume(inner)\n"
+                     "  assert(ok4 and not ok5)  -- a normal coroutine\n"
+                     "  pcall(coroutine.close, coroutine.running())  -- the running one: Lua 5.4 refuses, 5.5 closes it\n"
+                     "end)\n"
+                     "assert(coroutine.resume(outer))\n"
+                     "local done = coroutine.create(function() end) coroutine.resume(done)\n"
+                     "assert(coroutine.close(done))\n"
+                     "return 'switches'", OK, "switches", "the edges of the coroutine switches");
+    {
+        xlua_core_stats stats;
+        xlua_gc(L, 2, 0);  /* LUA_GCCOLLECT */
+        CHECK(xlua_core_get_stats(L, &stats) == 1);
+        CHECK(xlua_core_set_memory_limit(L, stats.memory_used + 256 * 1024) == 1);
+        expect_run(L, 0, "local w = coroutine.wrap(function() local t = {} while true do t[#t + 1] = {} end end)\n"
+                         "local ok, e = pcall(w) assert(not ok and e == 'not enough memory', e) return 'memory'",
+                   OK, "memory", "a memory error in a wrapped coroutine");
+        CHECK(xlua_core_set_memory_limit(L, 0) == 1);
+    }
+    xlua_core_set_dispatcher(host_dispatch);
+    xlua_core_close(L);
+}
+
 int main(int argc, char **argv) {
     char *text = read_file(argc > 1 ? argv[1] : "Test/Native/core_sandbox_cases.txt");
     parse(text);
@@ -2240,6 +2434,7 @@ int main(int argc, char **argv) {
     check_host_buffer();
     check_tables();
     check_coroutines();
+    check_coverage_edges();
     run_cases();
     free(text);
     if (failures) {

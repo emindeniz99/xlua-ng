@@ -55,11 +55,11 @@ owner question; (c) by design: documented.
 | 5 | Two threads in one `LuaEnv` without `THREAD_SAFE` | all | heap corruption: SIGABRT, or wrong errors | **checked** in debug builds (2026-10-28) | about 1 to 2 ns per call into Lua where checked | (b) |
 | 6 | A C# finalizer that calls Lua (a second thread) | all | as 5: SIGABRT | **checked** in debug builds (2026-10-28) | as 5 | (b) |
 | 7 | Deep C# ↔ Lua recursion | LuaJIT | native stack overflow at about 10,240 levels: SIGSEGV | **fixed** (2026-10-28) | about 2.5 ns per C# call on LuaJIT | (b) |
-| 8 | Errors in `__gc` on Lua 5.3 | 5.3 | propagate from a GC step: panic in an unprotected C# call (`FullGc`, any allocating push) | open | a protected `FullGc`; or a vendored `lgc.c` change | (b) |
-| 9 | The panic handler throws a C# exception through native frames | all | undefined behaviour; Mono unwinds, IL2CPP need not | open | none | (b) |
-| 10 | Struct accessors read the 8-byte header of any full userdata, whatever its size | all (mostly LuaJIT) | heap over-read; a write if the bytes look like a header | open | +1 `lua_rawlen` per accessor | (b) |
-| 11 | Old leak-checker walk `xlua_report_object_relationship` ([#1149](https://github.com/Tencent/xLua/issues/1149)) | 5.3+ | intermittent crash, not reproduced | open | diagnostic path only | (b) |
-| 12 | A disposed `LuaBase` used while its env lives (released reference reused) | all | wrong function or table, not a crash | open | one more comparison per call | (b) |
+| 8 | Errors in `__gc` on Lua 5.3 | 5.3 | propagate from a GC step: panic in an unprotected C# call (`FullGc`, any allocating push) | **fixed** (2026-10-28, owner): written to stderr and dropped, as 5.4 and 5.5 warn | none (an error path) | (b) |
+| 9 | The panic handler throws a C# exception through native frames | all | undefined behaviour; Mono unwinds, IL2CPP need not (it did in the runs of 2026-10-28) | **decided** 2026-10-28: keep throwing everywhere (it worked in every Android IL2CPP player tested); the smoke player's `XLUA_SMOKE_PANIC` mode checks it | none (an error path) | (b) |
+| 10 | Struct accessors read the 8-byte header of any full userdata, whatever its size | all (mostly LuaJIT) | heap over-read; a write if the bytes look like a header | **fixed** (2026-10-28, owner): the length is checked first, in every build | +0.5 ns per accessor; a C# struct argument one native call instead of two | (b) |
+| 11 | Old leak-checker walk `xlua_report_object_relationship` ([#1149](https://github.com/Tencent/xLua/issues/1149)) | 5.3+ | use after free of objects swept during the walk (reproduced under ASan on 2026-10-28) | **fixed** (2026-10-28, owner) | none (diagnostic path only) | (b) |
+| 12 | A disposed `LuaBase` used while its env lives (released reference reused) | all | wrong function or table, not a crash | **fixed** (2026-10-28, owner): `ObjectDisposedException` | one comparison per call, within the noise | (b) |
 | 13 | Foreign `self` (`obj.Method(other)`) without `XLUA_CHECK_OBJECTS` | all | wrong object or a Lua error, no crash | by design, opt-in check | +10 to 13 ns per instance call | (b) |
 | 14 | Crafted binary chunks (`load` with mode `"b"`) | PUC Lua | memory corruption | by design | n/a | (c) |
 | 15 | C# stack overflow in a C# method Lua called | all | SIGSEGV, uncatchable in .NET | by design | n/a | (c) |
@@ -538,19 +538,103 @@ cover GC steps in unprotected pushes. (ii) A vendored patch to Lua 5.3's
 them (`LUA_PATCHES.md`); a change of 5.3 semantics. Proposal (b): owner
 question; (i) alone is (a)-cheap but only half a fix.
 
+**Decided 2026-10-28 (owner): option (ii), and done.** The vendored 5.3.6
+`GCTM` (`build/lua-5.3.6/src/lgc.c`) pops a finalizer's error and goes on, as
+5.4's does with `luaE_warnerror`, so every pending finalizer runs and nothing
+is raised from a collection step, protected or not. 5.3 has no warning
+system: the message goes to stderr in the text of 5.4's and 5.5's warning
+function, `Lua warning: error in __gc (<message>)`, which Lua 5.5 prints under
+xLua too (its `luaL_newstate` turns warnings on; 5.4's leaves them off and
+drops the error) [C]. Recorded in [LUA_PATCHES.md](../../build/LUA_PATCHES.md)
+next to the weak-table backport of item 27, which stays. Cost: none, an error
+path. Tests, each failing before the patch [C]: `native_regression.py
+gc_errors` (an unprotected `lua_gc` collect with raising finalizers: "PANIC:
+unprotected error in call to Lua API (error in __gc metamethod (no message))"
+and abort on the old 5.3.6; every finalizer runs after it, on all four
+runtimes) and the managed `CaseGcErrorsAreWarnings` (`FullGc` twice and
+`Dispose`, on the old 5.3.6 "FullGc threw LuaException: unprotected error ...").
+Lua 5.3.4's official suite expects `collectgarbage()` to fail in `gc.lua` and
+counts the failures in `api.lua`; `Test/Native/lua_tests.py` changes those
+expectations for 5.3.6 (the fourth adjustment there).
+
 ### 9. The panic handler
 
-`StaticLuaCallbacks.Panic` (`StaticLuaCallbacks.cs:632`, installed in
-`LuaEnv`'s constructor, `LuaEnv.cs:166`) throws a C# `LuaException` from a
+`StaticLuaCallbacks.Panic` (`StaticLuaCallbacks.cs:727`, installed in
+`LuaEnv`'s constructor, `LuaEnv.cs:267`) throws a C# `LuaException` from a
 native callback; Lua calls it with no handler on the stack, so the exception
 unwinds native Lua frames. Mono 6.14.1 on macOS unwound them in every run
-above [C]; IL2CPP and CoreCLR do not promise it [S, core-luascript.md:886-888]
-and the Lua state is left with its error bookkeeping undone [U]. After items 3
-and 4 the known ways to reach it are a real allocation failure in an
-unprotected call (no `MemoryLimit`) and item 8. Options: keep it (Mono
-"works"); or log the message and `Environment.FailFast`, a clean abort that
-names the error. Proposal (b): owner question (it changes "an exception,
-maybe recoverable on Mono" into "the process ends").
+above [C]; IL2CPP and CoreCLR do not promise it [S, core-luascript.md:886-888].
+Before calling the handler, Lua 5.5 resets the thread (`luaD_throw`,
+`build/lua-5.5.1/src/ldo.c:130-145`: `luaE_resetthread` drops every call
+frame and leaves the error object on the stack) and sets the main thread's
+status to the error code (`ldo.c:134`) [C, code]. After items 3 and 4 the
+known ways to reach it are a real allocation failure in an unprotected call
+(no `MemoryLimit`) and item 8 (on Lua 5.3; fixed on 2026-10-28).
+
+**Owner decision of 2026-10-28, revised the same day after the experiment
+below.** The first decision was to keep throwing in the Editor, on Mono and
+with `XLUA_GENERAL`, and to log and `Environment.FailFast` in IL2CPP players.
+The experiment then showed that throwing worked in every IL2CPP player
+tested (the `catch` received the exception and the env kept working), while
+FailFast turned each panic into a native crash. The owner chose to keep
+throwing everywhere, as upstream does, and to keep the experiment as a
+check: `XLUA_SMOKE_PANIC` in the smoke player, to run on every platform's
+player (iOS and WebGL when they are tested), and `crash_repro.py`
+`panic_unprotected_rawset` on the host. The behaviour stays undefined in
+principle: another compiler, unwinder, Unity version or a plugin built
+without unwind tables may differ, which that check would show. Panics are
+rare after items 3 and 4.
+
+**How the runs reach the handler.** No natural path is left in a Lua 5.5
+player after today's fixes, so the experiment raises one on purpose:
+`lua_rawset` with a nil key, called from C# with no protected call around
+it ("table index is nil"). `XluaSmoke.cs` does this with
+`XLUA_SMOKE_PANIC` (`PanicSmoke`), twice, and checks after each panic that
+the env still runs `DoString`, a C# call from Lua, a coroutine, `pcall` and
+`FullGc`, then `Dispose` and a new `LuaEnv`. `crash_repro.py`
+`panic_unprotected_rawset` does the same on the host.
+
+**Throwing (the behaviour kept) [C].** Unity 6000.3.21f1, Android ARM64 IL2CPP, Minimal
+stripping, a Lua 5.5.1 plugin built from main at `1533df01` with
+`build/make_android_lua55.sh` (NDK r30), release and Development players
+(`XLUA_SMOKE_DEFINES=XLUA_SMOKE_PANIC`). In every run the C# `catch`
+received `LuaException: unprotected error in call to Lua API (table index is
+nil)`, the env passed every check after each of the two panics, `Dispose`
+and a new `LuaEnv` worked, and there was no native crash (empty crash
+buffer, the process alive at the end). The Editor and host rows ran the same throwing path:
+
+| Where | Release | Development |
+|---|---|---|
+| moto g play 2024 (Android 14, API 34, 4 KB pages, `getconf PAGE_SIZE` 4096) | caught, env usable | caught, env usable |
+| `xlua16k` AVD (Android 16, API 36, arm64-v8a, 16 KB pages) | caught, env usable | caught, env usable |
+| macOS arm64 Editor (`SmokeBuild.CheckEditor`, Mono) | caught, env usable | |
+| macOS arm64 host, Mono 6.14.1, `XLUA_GENERAL` (`crash_repro.py`) | caught, env usable on Lua 5.5.1, 5.3.6 and LuaJIT 2.1 | |
+
+The Lua stack held one value after each panic (the error object that
+`luaE_resetthread` leaves); the experiment reset it with `lua_settop`. Why
+it works there [U]: IL2CPP's wrapper for the callback
+(`ReversePInvokeWrapper_StaticLuaCallbacks_Panic` in the generated C++) has
+no `try`/`catch`, so IL2CPP's C++ exception unwinds the C frames of
+`libxlua.so`, whose NDK build has `.eh_frame` unwind tables (`llvm-readelf
+-S`), back to the `catch` of the generated code that called `lua_rawset`.
+Nothing skipped by that unwind needed cleanup in these runs (Lua frees
+nothing on a longjmp either), so the env kept working. The `xlua16k` AVD is
+arm64-v8a on an Apple silicon host, not x86_64.
+
+**With FailFast (tried, not kept) [C].** The same players with the FailFast change, which was reverted after these runs: on the phone
+and on the AVD, release and Development, the first panic ends the process.
+Logcat shows, in this order, the `Debug.LogError` line with its managed
+stack (`E Unity : xLua: unprotected error in call to Lua API (table index
+is nil)`, then `XLua.StaticLuaCallbacks:Panic(IntPtr)`,
+`XLua.LuaDLL.Lua:lua_rawset(IntPtr, Int32)` and the caller), IL2CPP's
+FailFast message (`D IL2CPP : [libil2cpp] xLua: Lua panic, unprotected error
+in call to Lua API (table index is nil); the process ends, because a C#
+exception cannot unwind native Lua frames under IL2CPP`), Unity's crash
+report (`E CRASH`) and a tombstone for `SIGTRAP (TRAP_BRKPT)` in
+`libil2cpp.so` on the `UnityMain` thread: IL2CPP ends a FailFast with a
+trap instruction. Crash reporters will count it as a native crash; the
+message to look for is the `xLua: Lua panic` line.
+Logs: `panic-il2cpp-2026-10-28/` on the build disk (not in the repository).
 
 ### 10. Struct accessors and foreign userdata
 
@@ -565,6 +649,57 @@ default accessors memory-safe for any userdata without the tag check, for
 one `lua_rawlen` per access (about 1 to 2 ns on a 14 to 25 ns accessor [U]).
 Proposal (b): owner question, or fold it into the build-type decision for
 `XLUA_CHECK_STRUCT_ACCESSORS`.
+
+**Decided 2026-10-28 (owner): a bounds check in every build, and done.**
+The build-type check (`XLUA_BRIDGE_CHECKS`, the tag) stays as it is: it
+tests the metatable, and a userdata that `debug.setmetatable` gave a struct's
+metatable passes it, so the bounds check is needed with it too.
+
+- `accessor_field` (`build/xlua.c`) requires `lua_rawlen(L, 1) >= 8 + offset +
+  width` before it reads the header, the cheapest check that keeps the
+  header and the field inside the block. It replaces the `lua_type` test,
+  since a light userdata has length 0. A field inside the block of a
+  userdata whose header claims more is still accessed, safely.
+- `xlua.structclone` (`css_clone`) and the new export `xlua_tostructbuffer(L,
+  idx, type_id)` take a struct only when `8 + len <= lua_rawlen` (`struct_block`).
+- The pack and unpack helpers take a pointer and no `lua_State`, so C# could
+  not check there: it called `xlua_gettypeid` and then `lua_touserdata`. C#
+  (`ObjectTranslator`'s `decimal`, and `BindingApi.StructBuffer`, which the
+  source generator's struct readers and writers `Get_` and `Update_` call)
+  now calls `xlua_tostructbuffer`, which checks the type id and the length in one call
+  and returns NULL otherwise; the helpers return 0 for NULL, which raises
+  "unpack fail for T". Bridge version 111.
+
+Cost, measured: `benchmark.py --modes sourcegen --define
+XLUA_NO_BRIDGE_CHECKS --runs 9`, Lua 5.5.1 Release plugin, macOS 27 arm64
+(M2 Pro, load average 13 to 40 from other jobs), Mono 6.14.1, lowest median
+of three interleaved rounds per side, ns per operation:
+
+| Case | before | after |
+|---|---|---|
+| `struct_accessor_get` | 13.6 | 14.1 |
+| `struct_accessor_set` | 16.2 | 16.5 |
+| `struct_gcopt_pass` (C# reads and pushes a `[GCOptimize]` struct) | 155.0 | 148.9 |
+| `struct_gcopt_field_get` | 108.3 | 106.2 |
+| `delegate_struct_gcopt` | 163.3 | 158.2 |
+
+A native loop (`lua_pcall` of a Lua loop over the accessor, lowest of 30 runs
+per side, six alternations) agrees: get 14.14 to 14.74 ns, set 16.26 to 16.79
+ns, so about 0.5 ns per accessor, under the owner's limit of 3 ns. The C#
+path's native part costs 2.8 ns more in a C loop (`xlua_gettypeid`,
+`lua_touserdata` and an unpack 11.96 ns; `xlua_tostructbuffer` and an unpack
+14.74 ns), but saves one P/Invoke, so the managed cases above got faster.
+
+Tests [C]: `native_regression.py struct_bounds` (a 12-byte block whose
+header claims 16 bytes, blocks of 0 to 7 bytes filled with 0xff, an exact
+8-byte header, a light userdata, a number; the accessors, `structclone`,
+`xlua_tostructbuffer` and the helpers given NULL). On the old library the
+accessors read and wrote past the blocks and the check crashed (SIGSEGV on
+macOS); under ASan the helpers given NULL failed first. `fuzz_struct.c` got
+two kinds of foreign userdata for its accessor operation (a header that
+claims more than the block, a block shorter than the header) and checks
+`xlua_tostructbuffer`; its corpus has `short-block`. `fuzz_bridge.c`'s
+stand-in for the C# struct path calls `xlua_tostructbuffer`.
 
 ### 11. The old walker ([#1149](https://github.com/Tencent/xLua/issues/1149))
 
@@ -585,6 +720,33 @@ into its sweep phase from a test (internal headers). Its replacement,
 drop the old walker and `General/LuaMemoryLeakChecker` in favour of the
 snapshot.
 
+**Decided 2026-10-28 (owner): fix the old walker and keep it, and done.**
+Both walks (`xlua_report_object_relationship`, `xlua_report_table_size`)
+skip objects for which `isdead(G(L), p)` holds, stop the collector during the
+walk (`lua_gc` `LUA_GCISRUNNING`, `LUA_GCSTOP`, and `LUA_GCRESTART` only if it
+was running), and the relationship walk calls `lua_checkstack(L, 2)` once
+(a closure takes two slots; without room it reports tables only). A callback
+that runs a full collection itself (`LuaEnv.FullGc`) can still free objects
+ahead of the walk; the comment in `memory_leak_checker.c` says so. Cost: none
+outside the diagnostic walk.
+
+Reproduced on the old walker [C], with a test that fails before the fix
+(`profiler_smoke.py`, under `sanitize.sh`'s ASan and API checks, Linux
+arm64): each round makes 1,500 tables whose key strings and values are newer
+than the table and 1,500 closures whose upvalue box (Lua 5.4, 5.5) is newer
+than the closure, with the collector stopped, then runs small collection
+steps (one single step on 5.4, a step size of 800 bytes on 5.5, the smallest
+multiplier on 5.3) and both walks after each, until the cycle ends (30 steps
+on 5.3.6, 165 on 5.4.9, 59 on 5.5.1); the callbacks read every key and source
+name. The old walker: heap use after free in `aux_upvalue` (`lua_getupvalue`
+on a dead closure whose upvalue box was swept, `lapi.c:1375` in 5.4.9,
+`lapi.c:1390` in 5.5.1) and in the callback's read of a swept key string
+(5.3.6). The second part calls the walk from a C function that filled its 20
+free slots, which the API checks stop on the old walker (two unchecked
+pushes past `ci->top`). The fixed walker passes on 5.3.6, 5.4.9 and 5.5.1, and
+the check also tests that the collector's state comes back (running or
+stopped).
+
 ### 12. A disposed LuaBase while the env lives
 
 `LuaFunction.Dispose()` or a finalized bridge releases its registry
@@ -594,6 +756,37 @@ to call a number value") or nothing [U]. Not a crash, but a call of the
 wrong function. A `disposed` check in the call paths costs one more
 comparison per call. Proposal (b): owner question; the finalizer path (a
 resurrected delegate) is rare, the explicit one is a user error.
+
+**Decided 2026-10-28 (owner): every use after `Dispose()` throws
+`ObjectDisposedException`, and done.** `LuaBase.State` (`LuaBase.cs`) checks
+the `disposed` flag, then returns `LuaEnv.L` (which checks the env); every
+path takes the state through it: `LuaFunction`, `LuaTable` and
+`GenericDelegateBridge` methods, CodeEmit's bridges (`_L`), generated bridges
+(`BindingApi.State` and the old `RawState`), `Equals` and `GetHashCode`; the
+hotfix session (`DelegateBridge.InvokeSessionStart`) checks it too, and
+`LuaBase.push` (a `LuaTable` or `LuaFunction` passed to Lua, as an argument,
+a table value or `DoString`'s env) throws before it reads the reference.
+`ToString` and a second `Dispose` still work. The exception names the type
+("this LuaFunction has been disposed; its Lua reference may belong to another
+object now").
+
+Cost: one field comparison per call. `benchmark.py --modes sourcegen
+--define XLUA_NO_BRIDGE_CHECKS --runs 9`, the setup of item 10, lowest median
+of three interleaved rounds, ns per operation, before and after:
+`delegate_int` 75.4 and 75.9, `luafunction_call` 309.6 and 312.2,
+`luafunction_func` 223.3 and 222.9, `interface_method` 199.5 and 200.4,
+`interface_property_get` 127.4 and 127.5, `delegate_string_arg` 130.6 and
+135.0; `LuaTable` `get_int_key` 191.3 and 190.8, `set_string_key` 252.5 and
+250.9 (two rounds). Within the noise (about ±4 ns on this machine).
+
+Test [C]: `CaseDisposedLuaBaseThrows` (`Upstream.DisposedLuaBase`): a
+`LuaFunction`, a `LuaTable`, a delegate and an interface bridge are disposed,
+new references are taken until the released numbers are reused (checked
+through `ToString`), and 24 uses must throw. On the old runtime the calls
+ran the newer object's code ("attempt to call a table value"), `Get`, `Set`
+and the others read and wrote the newer table without an error, and the
+interface bridge indexed a function; with the fix all throw and the newer
+objects are untouched.
 
 ### 13. Foreign `self`
 
@@ -959,8 +1152,8 @@ the CI reproducers, and `FUZZ_BRIDGE_TRACE=2` showed what the driver did.
   "driver:43: attempt to call local 'f'"). LuaJIT's `luaL_newstate` reports
   an error in a `__gc` through a VM event that prints "ERROR in finalizer:"
   and goes on (`lib_aux.c:323-331`, `lj_gc.c:531`); Lua 5.4 and 5.5 turn it
-  into a warning, off by default, and Lua 5.3 raises it, which the driver
-  avoids (item 8). The driver makes these errors itself: `mkmt` gives
+  into a warning, off by default, and the vendored Lua 5.3.6 writes it to
+  stderr and goes on since 2026-10-28 (item 8). The driver makes these errors itself: `mkmt` gives
   metatables a `__gc` from the pool, and `debug.setmetatable`, `X.ud` and
   `rawset` on a struct's or object's metatable put them on userdata (LuaJIT
   runs `__gc` only for userdata). "invalid c# struct!" is the error of an
@@ -1021,6 +1214,63 @@ the finalizer deadlock under `HOTFIX_ENABLE` (#1127) and the WebGL GC queue
   macOS arm64. [C] The wrapper now converts the handler first and raises
   "#3 need T!" as generated code does (`CaseParityEvents`,
   [binding-mode-parity.md](binding-mode-parity.md)).
+- **`x >> math.mininteger` on Lua 5.3.6** (2026-10-28, open, owner question).
+  Found by `fuzz_bridge.c` (legacy 5.3.6, 300 s, after items 8 and 10 stopped
+  being tricks; reproducer
+  `q24-28-2026-10-28/verify/fuzzb-5.3.6/bridge-legacy-5.3.6/crash-fb611043...`
+  in the output folder). Lua 5.3.6's `OP_SHR` (`lvm.c:986`) computes
+  `luaV_shiftl(ib, -ic)`, and negating `math.mininteger` is signed overflow:
+  UBSan "negation of -9223372036854775808 cannot be represented" [C]. Any
+  script reaches it with a shift; no wrong result or crash seen (undefined
+  behaviour that compilers can exploit). Lua 5.4 negates with
+  `intop(-, 0, y)` (unsigned arithmetic) in `luaV_shiftr`. Fix option: the same
+  one-line change in the vendored 5.3.6 `lvm.c` (and its constant folding,
+  `lcode.c`/`lobject.c` `luaO_arith`, if it has the same expression), with a
+  `LUA_PATCHES.md` row, as item 24 asks for `luaL_traceback`. Not fixed here:
+  outside the four decisions of 2026-10-28.
+
+## Owner decisions of 2026-10-28: items 8, 10, 11 and 12
+
+Each decision, its implementation, cost and test are in the item's section
+above. Tests run on the merge with main (`664a7863`) and the test additions
+after it, macOS 27.0.1 arm64 (M2 Pro), Mono 6.14.1, .NET SDK 10.0.401 unless
+stated:
+
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`:
+  514 tests in each of two modes in all four passes, legacy on Lua 5.3.6,
+  5.4.9, 5.5.1 and LuaJIT 2.1, and on 5.5.1 with a minimal-preset plugin and
+  `--define XLUA_PRESET_MINIMAL` (the two new cases need reflection there, as
+  the other helpers of `UpstreamForLuaCallCS.cs` do: `needs_reflection.lua`).
+- `native_regression.py` (all checks) and `check_exports.py` on the four
+  runtimes; `profiler_smoke.py` on 5.3.6, 5.4.9 and 5.5.1.
+- `xlua-analysis:26.04` container (Linux arm64, `--memory 6g`): `sanitize.sh`
+  for 5.3.6 and 5.5.1 (ASan, UBSan, API checks; export check, native
+  regression, profiler smoke, managed suite through reflection): pass.
+  `coverage.sh` (5.3.6, 5.4.9, 5.5.1): `xlua.c` at 100% of branches on each
+  (410, 424, 424); the first run found the `NULL` branch of every pack and
+  unpack helper and the header-length branch of the accessors untested,
+  which `struct_bounds` now covers.
+- Fuzzing in the container: `fuzz_struct` 120 s each on 5.5.1 (88,728 runs)
+  and 5.3.6 (80,304), no report; `fuzz_bridge` (legacy, 300 s, items 8 and 10
+  no longer tricks) on 5.5.1 (16,957 runs) and LuaJIT (59,938 runs), no
+  report; on 5.3.6 the shift overflow above.
+- Before the fixes, against the same tests [C]: `struct_bounds` crashed the
+  old 5.5.1 library (SIGSEGV, macOS) and failed under ASan; `gc_errors`
+  panicked and aborted on the old 5.3.6; `profiler_smoke.py` reported heap
+  use after free under ASan on the old 5.3.6, 5.4.9 and 5.5.1; the managed
+  `CaseDisposedLuaBaseThrows` and `CaseGcErrorsAreWarnings` failed on the old
+  runtime with the old 5.3.6 plugin.
+- `lua_tests.py --versions 5.3.6`: basic, complete and internal print
+  `final OK` (macOS).
+- `hotfix_check.py` (Lua 5.5.1): pass. `editor_compile_check.py`: 7 editors
+  x 85 configurations, 588 ok, 7 skipped. `Tools/dependencies.py --check`:
+  up to date. `node sync.mjs --check`: all links resolve.
+- Benchmarks: `benchmark.py` and a native loop before the merge, numbers in
+  items 10 and 12.
+- Not run: Windows, Linux x86-64, Unity players and the Unity editor suite,
+  IL2CPP, devices, `sanitize.sh` for 5.4.9 and LuaJIT (the native checks ran
+  on the host for them), the minimal preset under the sanitizers, and
+  `fuzz_bridge` with `FUZZ_TRICKS=1`.
 
 ## Reproduction results
 
@@ -1042,6 +1292,7 @@ reached `Main`; "error" a Lua error that the case printed.
 | `two_threads` | **SIGABRT** | odd LuaException (racy) | odd LuaException | **SIGABRT** | **SIGABRT** |
 | `finalizer_thread_call` | **SIGABRT** | **SIGABRT** | managed | **SIGABRT** | **SIGABRT** |
 | `csharp_stack_overflow` | **SIGSEGV** | **SIGSEGV** | **SIGSEGV** | **SIGSEGV** | **SIGSEGV** |
+| `panic_unprotected_rawset` (2026-10-28, item 9) | not run (new case) | managed, from the panic; env usable | not run | same as 5.5.1 | same as 5.5.1 |
 
 The thread cases are races: one run can abort and the next end in an
 exception.
@@ -1070,3 +1321,22 @@ rebuilt); its "after" results for items 3, 4 and 2 match 5.5.1.
   APICHECK): 5.3.6, 5.4.9, 5.5.1 and LuaJIT pass.
 - Not run: Windows, Unity players and the Editor suite, IL2CPP, Lua 5.4.9 on
   the host (only under `sanitize.sh`).
+
+## Tests run for the panic handler change (2026-10-28)
+
+- Android players, Unity 6000.3.21f1, ARM64 IL2CPP, Minimal stripping,
+  `XLUA_SMOKE_DEFINES=XLUA_SMOKE_PANIC`, release and Development, before and
+  after the change (eight runs, item 9): moto g play 2024 (Android 14) and
+  the `xlua16k` AVD (Android 16, 16 KB pages). The first Development run on
+  the phone overlapped another agent's Unity build, whose adb server
+  replaced ours; it had no result and was repeated.
+- `SmokeBuild.CheckEditor` with `XLUA_SMOKE_PANIC` in the macOS arm64 Editor
+  (Unity 6000.3.21f1, with the change).
+- `crash_repro.py panic_unprotected_rawset` on Lua 5.5.1 (plugin from this
+  tree), 5.3.6 and LuaJIT 2.1 (plugins from the owner-thread lane of the same
+  day), Mono 6.14.1, macOS arm64.
+- Not run: iOS players (the same IL2CPP decision applies; no run recorded
+  what throwing did there), WebGL (IL2CPP too, its exceptions are
+  JavaScript-based; not run), Windows, other Unity versions, Lua 5.4.9 and
+  LuaJIT players, and the managed suite (`run_managed.py`), whose
+  `XLUA_GENERAL` build compiles the unchanged throwing path.

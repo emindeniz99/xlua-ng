@@ -195,9 +195,17 @@ the repository went public; it now runs on pushes to `main`, pull requests
 and weekly, and uploads its results to code scanning. **Native analysis** (`analysis.yml`) runs
 `Test/Native/analyze.sh`, `Test/Native/coverage.sh` and `Test/Fuzz/run.sh`
 (seconds per target as an input) and uploads logs, coverage HTML and crash
-reproducers. Its `coverage` job fails when a file's branch coverage drops
-below `coverage.sh`'s `MIN_BRANCH_COVERAGE` (`xlua.c` 100%, `xlua_core.c` 98%,
-`xlua_core_limits.c` 93%; Test/README.md). That job also runs on pushes to
+reproducers. Its `coverage` job measures the legacy (Lua 5.3.6, 5.4.9,
+5.5.1), core (5.4.9, 5.5.1), minimal (5.3.6, 5.4.9, 5.5.1) and bytecode-only
+(5.5.1) builds, and fails when a file's branch coverage drops below
+`coverage.sh`'s gate: 100% for `xlua.c`, `xlua_core.c`, `xlua_core.h`,
+`xlua_core_limits.c`, `i64lib.c`, `xlua_libs.c`, `xlua_noparser.c`,
+`xlua_chunkc.c` and `xlua_core_nobc.c`, and lower, documented minimums for
+`memory_leak_checker.c`, the sandbox, the buffer library, `xlua_core.h` in
+the core build and Lua 5.4's 2 GB strings (since 2026-10-28; Test/README.md,
+"Static analysis, coverage and fuzzing"). The gate does not need the .NET SDK's
+source generator passes, so a container without the SDK and the hosted
+runner agree. That job also runs on pushes to
 `main` and on pull requests (owner decision 2026-10-28, path filters below).
 Its `fuzz-bridge` job runs `Test/Fuzz/run_bridge.sh` for 30 minutes on four
 configurations every Monday at 03:17 UTC and by hand, keeping its corpus in the

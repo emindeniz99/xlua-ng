@@ -175,8 +175,8 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   player that runs finalizers during an allocation),
   [#1179](https://github.com/Tencent/xLua/issues/1179) (its console code page
   part; the ANSI imports are fixed and checked on the .NET Framework,
-  2026-10-28), [#1149](https://github.com/Tencent/xLua/issues/1149)
-  (not reproduced; a likely cause and fix in
+  2026-10-28). [#1149](https://github.com/Tencent/xLua/issues/1149) is
+  fixed (2026-10-28, owner decision; reproduced under ASan, see
   [crash-inventory.md](docs/research/crash-inventory.md#11-the-old-walker-1149)).
   [#999](https://github.com/Tencent/xLua/issues/999) is fixed (2026-10-19).
   [#1122](https://github.com/Tencent/xLua/issues/1122) (debug symbols after

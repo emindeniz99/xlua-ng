@@ -5,12 +5,12 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, call_chain, csharp_functions, setfenv, uint_conversion,
+struct_accessors, struct_clone, struct_bounds, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, gc_errors, call_chain, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
 memory_snapshot_reentrancy, memory_snapshot_out_of_memory, memory_snapshot_core_limit, uint64_table,
-std_libraries, library_parts, core_limits, core_stop_after_last_instruction, core_watchdog_race, core_stop_latency_env, core_sandbox, core_sandbox_abi, core_lua_api (default: all). Works with Lua
+std_libraries, library_parts, csharp_wrapper_error, open_selected_libs, core_limits, core_stop_after_last_instruction, core_watchdog_race, core_stop_latency_env, core_sandbox, core_sandbox_abi, core_lua_api (default: all). Works with Lua
 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
 
 A core library (XLUA_PRESET=core: no luaopen_xlua) runs the core_sandbox checks
@@ -727,6 +727,129 @@ tagged, untagged, plainmeta, object, lud = nil
     lib.lua_settop(state, 0)
 
 
+def check_struct_bounds(state):
+    """The struct helpers check the userdata's length before they trust its header
+    (docs/research/crash-inventory.md, item 10; owner decision of 2026-10-28): the
+    accessors of xlua.genaccessor, xlua.structclone and xlua_tostructbuffer, which
+    C# reads a struct argument through before the pack and unpack helpers. A
+    userdata shorter than the header (LuaJIT's newproxy() is 0 bytes) or one whose
+    header claims more bytes than its block holds was read, and by the setters and
+    pack helpers written, past its end. Before the fix the accessor below read and
+    wrote bytes 16 to 19 of a 12-byte block and structclone copied 16 bytes out of it."""
+    lib.xlua_tostructbuffer.argtypes = [P, C.c_int, C.c_int]
+    lib.xlua_tostructbuffer.restype = P
+    lib.xlua_unpack_int32_t.argtypes = [P, C.c_int, C.POINTER(C.c_int)]
+    lib.xlua_pack_int32_t.argtypes = [P, C.c_int, C.c_int]
+    meta = tagged_meta(state, 5)
+    real = lib.xlua_pushstruct(state, 16, meta)
+    C.memset(real + 8, 0, 16)
+    assert lib.xlua_tostructbuffer(state, -1, 5) == real and lib.xlua_tostructbuffer(state, -1, 6) is None
+    lib.lua_setglobal(state, b"real")
+    # A 12-byte block (header and 4 bytes) whose header says 16 bytes follow.
+    liar = push_userdata(state, 12)
+    C.c_int.from_address(liar).value = -1
+    C.c_uint.from_address(liar + 4).value = 16
+    C.memset(liar + 8, 0, 4)
+    lib.xlua_rawgeti(state, REGISTRY, meta)
+    lib.lua_setmetatable(state, -2)
+    assert lib.xlua_tostructbuffer(state, -1, 5) is None
+    lib.lua_setglobal(state, b"liar")
+    # A 24-byte block whose header says only 4 bytes follow: the header limits the fields.
+    roomy = push_userdata(state, 24)
+    C.memset(roomy, 0, 24)
+    C.c_int.from_address(roomy).value = -1
+    C.c_uint.from_address(roomy + 4).value = 4
+    lib.lua_setglobal(state, b"roomy")
+    # Blocks shorter than the header, every byte 0xff (fake_id -1, len 2^32 - 1).
+    for size in range(8):
+        tiny = push_userdata(state, size)
+        if size:
+            C.memset(tiny, 0xff, size)
+        lib.xlua_rawgeti(state, REGISTRY, meta)
+        lib.lua_setmetatable(state, -2)
+        assert lib.xlua_tostructbuffer(state, -1, 5) is None, size
+        lib.lua_setglobal(state, ("tiny%d" % size).encode())
+    # The header fits the block exactly; the header of a C# object does not start with -1.
+    exact = push_userdata(state, 8)
+    C.c_int.from_address(exact).value = -1
+    C.c_uint.from_address(exact + 4).value = 0
+    assert lib.xlua_tostructbuffer(state, -1, -1) == exact  # no metatable: type id -1
+    C.c_int.from_address(exact).value = 3
+    assert lib.xlua_tostructbuffer(state, -1, -1) is None
+    lib.lua_pushlightuserdata(state, real)
+    assert lib.xlua_tostructbuffer(state, -1, -1) is None
+    lib.lua_pushnumber(state, 1.0)
+    assert lib.xlua_tostructbuffer(state, -1, -1) is None
+    assert lib.lua_type(state, -1) == 3  # LuaJIT's lua_objlen would turn a number into a string
+    lib.lua_settop(state, 0)
+    # What C# does with a refused userdata: the helpers return false for NULL.
+    field = C.c_int(7)
+    assert lib.xlua_unpack_int32_t(None, 0, C.byref(field)) == 0 and field.value == 7
+    assert lib.xlua_pack_int32_t(None, 0, 1) == 0
+    out = (C.c_double * 6)()  # room for any helper's results
+    for kind, ctype in [("int8_t", C.c_int8), ("int16_t", C.c_int16), ("int32_t", C.c_int32),
+                        ("int64_t", C.c_int64), ("float", C.c_float), ("double", C.c_double)]:
+        getattr(lib, "xlua_pack_" + kind).argtypes = [P, C.c_int, ctype]
+        getattr(lib, "xlua_unpack_" + kind).argtypes = [P, C.c_int, P]
+        assert getattr(lib, "xlua_pack_" + kind)(None, 0, ctype(1)) == 0, kind
+        assert getattr(lib, "xlua_unpack_" + kind)(None, 0, C.cast(out, P)) == 0, kind
+    ptrs = [C.cast(C.byref(out, 8 * i), P) for i in range(6)]
+    for n in range(2, 7):
+        getattr(lib, "xlua_pack_float%d" % n).argtypes = [P, C.c_int] + [C.c_float] * n
+        getattr(lib, "xlua_unpack_float%d" % n).argtypes = [P, C.c_int] + [P] * n
+        assert getattr(lib, "xlua_pack_float%d" % n)(None, 0, *([1.0] * n)) == 0, n
+        assert getattr(lib, "xlua_unpack_float%d" % n)(None, 0, *ptrs[:n]) == 0, n
+    lib.xlua_pack_decimal.argtypes = [P, C.c_int, P]
+    lib.xlua_unpack_decimal.argtypes = [P, C.c_int, P, P, P, P]
+    decimal = (C.c_int * 4)(1, 0, 0, 0)
+    assert lib.xlua_pack_decimal(None, 0, C.cast(decimal, P)) == 0
+    assert lib.xlua_unpack_decimal(None, 0, *ptrs[:4]) == 0
+    run(state, """
+local function refused(f, ...)
+    local ok, err = pcall(f, ...)
+    assert(not ok and tostring(err):find("invalid c# struct!", 1, true), tostring(err))
+end
+-- On LuaJIT the 64-bit fields read back as int64/uint64 userdata.
+local function is(v, n) return v == n or tostring(v):match("^" .. n .. "U?$") ~= nil end
+for t, w in pairs({[0] = 1, 1, 2, 2, 4, 4, 8, 8, 4, 8}) do
+    local get, set = xlua.genaccessor(0, t)
+    set(real, 1)
+    assert(is(get(real), 1))
+    for size = 0, 7 do
+        refused(get, _G["tiny" .. size])
+        refused(set, _G["tiny" .. size], 1)
+    end
+    -- In the liar's 4 bytes of data a field is read and written; past them it is refused.
+    if w <= 4 then
+        set(liar, 2)
+        assert(is(get(liar), 2))
+    else
+        refused(get, liar)
+        refused(set, liar, 2)
+    end
+    get, set = xlua.genaccessor(4, t)
+    refused(get, liar)
+    refused(set, liar, 2)
+end
+local getreal = xlua.genaccessor(12, 4)
+assert(getreal(real) == 0)
+refused(xlua.structclone, liar)
+local get4, set4 = xlua.genaccessor(0, 4)
+set4(roomy, 3)
+assert(get4(roomy) == 3)
+get4, set4 = xlua.genaccessor(8, 4)  -- inside the block, past the header's length
+refused(get4, roomy)
+refused(set4, roomy, 3)
+roomy = nil
+refused(xlua.structclone, tiny0)
+refused(xlua.structclone, tiny7)
+assert(xlua.structclone(real) ~= nil)
+real, liar = nil
+for size = 0, 7 do _G["tiny" .. size] = nil end
+""")
+    lib.lua_settop(state, 0)
+
+
 def check_indexers(state):
     # gen_obj_indexer and friends build the __index/__newindex closures of
     # C# objects and classes from values on the stack. Lookups go: members,
@@ -1126,6 +1249,43 @@ def check_call_chain(state):
     """)
 
 
+def check_gc_errors(state):
+    """An error in a __gc finalizer during a collection outside a protected call:
+    LuaEnv.FullGc and Dispose call lua_gc unprotected, and any allocation can run
+    a step (docs/research/crash-inventory.md, item 8; owner decision of
+    2026-10-28). Lua 5.3.6 raised it from the collection, which ended in the
+    panic handler and abort(); xLua's 5.3.6 now writes it to stderr and keeps
+    collecting, as 5.4 and 5.5 turn it into a warning (off unless a script turns
+    warnings on) and LuaJIT prints it. All pending finalizers run."""
+    lib.xlua_gc.argtypes = [P, C.c_int, C.c_int]
+    lib.xlua_gc.restype = C.c_int
+    run(state, """
+        gc_errors_finalized = 0
+        local function finalizable(gc)  -- LuaJIT, as Lua 5.1, finalizes userdata only
+            if newproxy then
+                local p = newproxy(true)
+                getmetatable(p).__gc = gc
+                return p
+            end
+            return setmetatable({}, {__gc = gc})
+        end
+        local function raising() gc_errors_finalized = gc_errors_finalized + 1 error("error in __gc (native_regression gc_errors)") end
+        local function counting() gc_errors_finalized = gc_errors_finalized + 1 end
+        for i = 1, 3 do
+            finalizable(raising)
+            finalizable(counting)
+            finalizable(function() error({}) end)  -- an error object that is not a string
+        end
+    """)
+    lib.xlua_gc(state, 2, 0)  # LUA_GCCOLLECT, unprotected
+    lib.xlua_gc(state, 2, 0)
+    run(state, """
+        assert(gc_errors_finalized == 6, gc_errors_finalized)
+        gc_errors_finalized = nil
+        assert(collectgarbage() == 0)  -- a protected collection does not fail either
+    """)
+
+
 def check_csharp_functions(state):
     # The C closures that wrap C# callbacks: a reported error is raised after
     # the callback returns, and the xlua.sethook profiler sees the return.
@@ -1241,6 +1401,78 @@ collectgarbage()
     finally:
         lib.xlua_set_csharp_wrapper_caller(None)
     del callbacks, caller
+
+
+def check_csharp_wrapper_error(state):
+    # A GEN_CODE_MINIMIZE wrapper (xlua_push_csharp_wrapper) whose generated
+    # code reports an error, as the generated wrappers do with
+    # LuaAPI.luaL_error: the dispatcher's trampoline raises it after the
+    # dispatcher returned and resets the flag. Only the source generator's GCM
+    # pass of the managed suite reached this branch before (2026-10-28), and a
+    # coverage run without a .NET SDK left it untaken.
+    for name, args, res in [("xlua_push_csharp_wrapper", [P, C.c_int], None),
+                            ("xlua_set_csharp_wrapper_caller", [P], None),
+                            ("xlua_csharp_str_error", [P, C.c_char_p], C.c_int),
+                            ("xlua_csharp_error", [P], C.c_int)]:
+        getattr(lib, name).argtypes = args
+        getattr(lib, name).restype = res
+    WrapperCaller = C.CFUNCTYPE(C.c_int, P, C.c_int, C.c_int)
+
+    def dispatch(L, wrapper_id, top):
+        if wrapper_id == 1:
+            return lib.xlua_csharp_str_error(L, b"str error from a wrapper")
+        if wrapper_id == 2:
+            lib.lua_pushstring(L, b"error object from a wrapper")
+            return lib.xlua_csharp_error(L)
+        lib.xlua_pushinteger(L, top)
+        return 1
+
+    caller = WrapperCaller(dispatch)
+    lib.xlua_set_csharp_wrapper_caller(C.cast(caller, P))
+    try:
+        for name, wrapper_id in [(b"wfail_str", 1), (b"wfail", 2), (b"wcount", 3)]:
+            lib.xlua_push_csharp_wrapper(state, wrapper_id)
+            lib.lua_setglobal(state, name)
+        run(state, """
+local ok, err = pcall(wfail_str)
+assert(not ok and err == "str error from a wrapper", tostring(err))
+assert(wcount(1, 2) == 2)  -- the error flag was reset
+ok, err = pcall(wfail, "x")
+assert(not ok and err == "error object from a wrapper", tostring(err))
+assert(wcount() == 0)
+wfail_str, wfail, wcount = nil
+collectgarbage()
+""")
+    finally:
+        lib.xlua_set_csharp_wrapper_caller(None)
+    del caller
+
+
+def check_open_selected_libs(state):
+    # Lua 5.5's luaL_openselectedlibs(L, load, preload): libraries in 'load' are
+    # opened, those only in 'preload' go to package.preload, the rest are left
+    # out. xlua.c opens every library through it; a reduced XLUA_LIBS build has
+    # its own copy (build/xlua_libs.c), which this checks like linit.c's.
+    if not hasattr(lib, "luaL_openselectedlibs"):
+        print("open_selected_libs: not Lua 5.5, or the function is not exported")
+        return
+    lib.luaL_openselectedlibs.argtypes = [P, C.c_int, C.c_int]
+    lib.luaL_openselectedlibs.restype = None
+    glibk, loadlibk, strlibk, mathlibk = 1, 1 << 1, 1 << 7, 1 << 5
+    L = lib.luaL_newstate()
+    assert L
+    try:
+        lib.luaL_openselectedlibs(L, glibk | loadlibk, 0)
+        lib.luaL_openselectedlibs(L, 0, strlibk)
+        lib.luaL_openselectedlibs(L, mathlibk, 0)
+        run(L, """
+assert(string == nil and package.loaded.string == nil and type(package.preload.string) == "function")
+assert(type(math) == "table" and package.preload.math == nil and table == nil)
+local s = require("string")
+assert(s.rep("a", 2) == "aa")
+""")
+    finally:
+        lib.lua_close(L)
 
 
 def check_hook_tail_calls(state):
@@ -3172,7 +3404,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "call_chain", "csharp_functions", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "struct_bounds", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "gc_errors", "call_chain", "csharp_functions", "csharp_wrapper_error", "open_selected_libs", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",

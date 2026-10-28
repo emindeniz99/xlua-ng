@@ -32,9 +32,36 @@ namespace XLua
 
 #if UNITY_EDITOR || XLUA_GENERAL
         protected int _errorFuncRef { get { return luaEnv.errorFuncRef; } }
-        protected RealStatePtr _L { get { return luaEnv.L; } }
+        protected RealStatePtr _L { get { return State; } }
         protected ObjectTranslator _translator { get { return luaEnv.translator; } }
 #endif
+
+        // The state for every use of this object: calls, reads, writes, pushes to
+        // Lua, the bridges (CodeEmit's through _L, generated ones through
+        // BindingApi.State). After Dispose it throws ObjectDisposedException: the
+        // registry reference was released, and the next luaL_ref may have given
+        // it to another function or table, which a use would then call or change
+        // (docs/research/crash-inventory.md, item 12; owner decision of 2026-10-28).
+        // After LuaEnv.Dispose it throws too (LuaEnv.L). One comparison.
+        internal RealStatePtr State
+        {
+            get
+            {
+                if (disposed)
+                {
+                    ThrowDisposed();
+                }
+                return luaEnv.L;
+            }
+        }
+
+        // Out of line, so that State stays small enough to inline.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        void ThrowDisposed()
+        {
+            throw new ObjectDisposedException(GetType().Name,
+                "this " + GetType().Name + " has been disposed; its Lua reference may belong to another object now");
+        }
 
         public LuaBase(int reference, LuaEnv luaenv)
         {
@@ -97,8 +124,8 @@ namespace XLua
                 {
 #endif
                     LuaBase rhs = (LuaBase)o;
-                    var L = luaEnv.L;
-                    if (L != rhs.luaEnv.L)
+                    var L = State;
+                    if (L != rhs.State)
                         return false;
                     int top = LuaAPI.lua_gettop(L);
                     LuaAPI.lua_getref(L, rhs.luaReference);
@@ -115,16 +142,23 @@ namespace XLua
 
         public override int GetHashCode()
         {
-            LuaAPI.lua_getref(luaEnv.L, luaReference);
-            var pointer = LuaAPI.lua_topointer(luaEnv.L, -1);
-            LuaAPI.lua_pop(luaEnv.L, 1);
+            var L = State;
+            LuaAPI.lua_getref(L, luaReference);
+            var pointer = LuaAPI.lua_topointer(L, -1);
+            LuaAPI.lua_pop(L, 1);
             // Not ToInt32(): it throws OverflowException for an address above 2^31 in a 64-bit
             // .NET Framework process. Mono and IL2CPP give the same value for both.
             return pointer.GetHashCode();
         }
 
+        // Pushes the object onto L, a state of its env that the caller already
+        // holds (a LuaTable or LuaFunction passed to Lua or stored in a table).
         internal virtual void push(RealStatePtr L)
         {
+            if (disposed)
+            {
+                ThrowDisposed();
+            }
             LuaAPI.lua_getref(L, luaReference);
         }
     }

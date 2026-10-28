@@ -217,16 +217,19 @@ their own; `--define XLUA_REFLECTION` turns it back on for every pass, and
 `--define XLUA_NO_REFLECTION` alone (without the preset) works the same way.
 Without reflection the cases listed in
 `StreamingAssets/needs_reflection.lua`, which use the suite's reflection
-fixtures (`*Reflect`, `NoGen*`) and .NET types it does not configure, must fail
-with the error of a type without bindings (`has no generated bindings`) or of a
+fixtures (`*Reflect`, `NoGen*`) and .NET types it does not configure, or
+convert Lua tables to classes and structs without `[GCOptimize]`, must fail
+with the error of a type without bindings (`has no generated bindings`), of a
+table conversion without a generated converter (`has no generated table
+converter`, since 2026-10-28) or of a
 missing bridge (`This type must add to CSharpCallLua`); `luaunit_compat.lua`
 counts that as a pass, and a listed case that passes, or fails another way,
 fails, as does an entry that names no case of the run. An entry `"private_accessible"` or `"util"` applies only where the build
 has `xlua.private_accessible` or `xlua.util`. `RAISE_NO_BINDINGS(pcall(...))`
 raises such an error again in a case that catches it. `CaseNoReflection*`
 (fixtures in `xLuaTest/LuaCallCS/NoReflectionForLuaCallCS.cs`) check the error
-texts, base classes with bindings, enums, `pairs`, bridges and
-`xlua.private_accessible` in both states. With a preset define `run_managed.py` also
+texts, base classes with bindings, enums, `pairs`, bridges,
+`xlua.private_accessible` and table conversions in both states. With a preset define `run_managed.py` also
 sets the `XLUA_EXPECT_*` variables of the preset's library
 (`Tools/presets.py --expect-env`), unless they are set already, so run it
 against a library built with `XLUA_PRESET=minimal`. `--define XLUA_UTIL` next
@@ -546,7 +549,11 @@ graph traversal, and regressions for native defects found by the analysis
 below. Run them against a library built for the host architecture. LuaJIT
 builds have no internal-header leak checker, so `profiler_smoke.py` does not apply to
 them; a Lua 5.x library built with `-DXLUA_LEAK_CHECKER=OFF` passes it with only
-the `xlua_gc` checks. `check_exports.py` also fails when `build/xlua_exports.txt`, the export
+the `xlua_gc` checks. Since 2026-10-28 `profiler_smoke.py` also walks after
+every small collection step of a cycle full of garbage whose parts are newer
+than their owners, and from a C function with a full stack
+([#1149](https://github.com/Tencent/xLua/issues/1149)); the old walker failed
+it under `sanitize.sh` (crash-inventory.md, item 11). `check_exports.py` also fails when `build/xlua_exports.txt`, the export
 list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 `python3 Test/Native/managed_imports.py --write` regenerates it.
 `native_regression.py` also calls exports that `LuaDLL.cs` does not import
@@ -728,7 +735,14 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   build it is (unset, the library decides); and `core_coroutines`
   (milestone 9): `xlua_core_call`'s `XLUA_CALL_START`, `_RESUME` and `_CLOSE`,
   coroutine handles with their status, and the limits per step
-  (`core_smoke.c`'s `check_coroutines` has the full list). A bridge library built with
+  (`core_smoke.c`'s `check_coroutines` has the full list); and `core_raw_api`
+  (2026-10-28, `XLUA_EXPORTS=all`), the branches of `xlua_core.c` and
+  `xlua_core_limits.c` that in a core library only a host using the Lua C API
+  reaches (a bridge library reaches them through the bridge): the limit
+  exports and the C budget on a state without the core allocator, a host
+  function's argument that is light userdata or, on Lua 5.5, a 2 GB external
+  string over untouched memory, a hook that is not core's own, and a
+  coroutine resumed with `lua_resume` instead of `coroutine.resume`. A bridge library built with
   `XLUA_LUASCRIPT=ON` runs the same checks after its own.
 - **`Test/Native/core_smoke.c`** drives the same file and edges through the
   core exports only, without Python, so it works with the managed export
@@ -738,7 +752,15 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   errors and the other kinds, the anchoring of string results across a full
   collection and their release by the next call, a result passed back, the
   instruction count and a memory error; `check_buffer` does the same for the
-  buffer exports and handles.
+  buffer exports and handles. `check_coverage_edges` (2026-10-28) takes the
+  edges of `xlua_core.c` and `xlua_core_limits.c` that the bridge's checks
+  reach through `luaopen_xlua` in a core state: host function frames with a
+  NULL or empty message and a result of an unknown type, the clock check
+  (`XLUA_LIMITS_CLOCK_CHECK`) with a time limit only and with both limits,
+  the C budget with a time limit only and after a stop that `pcall` caught,
+  `Interrupt` and the watchdog's poll from a message handler after the stop
+  fired, a coroutine whose hook an earlier limited call armed, and the edges
+  of the coroutine switches.
 - **`check_exports.py --preset core`** (and `check_android_elf.py --preset
   core`) checks the exports of `build/xlua_core_exports.txt`, exactly those
   with `XLUA_EXPORTS=managed`, none of `io`, `os`, `debug`, `package`,
@@ -815,6 +837,16 @@ python3 Test/Native/bytecode_luaenv.py --plugin /absolute/path/bytecode-only/lib
   uninstrumented compiler library next to it, and runs the three checks
   (`XLUA_EXPECT_BYTECODE_MODULES` from the preset unless set). The profiler test
   and the managed suite compile text and do not apply.
+- **`Test/Native/chunkc_check.py <xlua_chunkc> <work dir>`** (2026-10-28)
+  checks the chunk compiler `build/xlua_chunkc.c` itself: the runtime's
+  chunks with every option, with none and stripped; every argument error;
+  files it cannot open or read, a NUL byte; a chunk with every accepted form
+  (attribute keys inside other words, `""`, CR LF lines, tabs, a backslash in
+  the name, an empty string, a marker on the last line); each broken marker
+  rule with its message; a chunk name twice; a header it cannot write, flush
+  (`/dev/full`) or rename; and out of memory (`/dev/zero` under `RLIMIT_AS`).
+  The last two are Linux only. `coverage.sh` runs it on the instrumented
+  program of its bytecode-only build.
 - **Lua's test suites** (`lua_tests.py`) compile text and do not apply either.
   The interpreter they build (`XLUA_LUA_INTERPRETER`) keeps the compiler with
   the option on, so they still pass with `XLUA_BYTECODE_ONLY=ON` in the
@@ -1064,7 +1096,7 @@ puts the built `lua` first on `PATH` because `files.lua` starts a plain `lua`
 through the shell. The runs get an empty stdin pipe (`files.lua` expects
 `io.stdin:seek` to fail) and `LC_ALL=C`.
 
-Three xLua patches change what the suites see, and the script adjusts for them
+Four xLua patches change what the suites see, and the script adjusts for them
 (`OS_EXECUTE_SHIM` and `ADJUST` in the script; nothing else in the suites
 changes):
 
@@ -1081,6 +1113,11 @@ changes):
   format 1 and no `sizeof(size_t)` byte. `all.lua` runs most test files
   through `string.dump` and `load`, so this mode also exercises the custom
   format on the whole suite.
+- **Errors in `__gc` are reported, not raised** (5.3.6, since 2026-10-28;
+  build/LUA_PATCHES.md): `gc.lua` expects `collectgarbage()` to fail when a
+  finalizer raises, and `api.lua` (internal mode) counts ten such failures.
+  The script expects the collection to succeed, every finalizer to have run
+  and no failure.
 
 On macOS the script also skips four platform differences that stock Lua
 shows too: `main.lua` (macOS readline is libedit, whose REPL does not echo
@@ -1457,142 +1494,167 @@ The untested areas are listed in the
 
 ## Static analysis, coverage and fuzzing
 
-These cover xLua's own C files (`build/xlua_core.c`, `build/xlua.c`,
-`build/i64lib.c`, `build/memory_leak_checker.c`); the vendored Lua, LuaJIT and LuaSocket code
-is not analyzed. Each script takes an empty output directory and runs on Linux
-with Clang. `Test/Native/analyze.sh` runs clang-tidy (`build/.clang-tidy`) and
-`clang --analyze` for Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT, and fails on any
-finding; suppress an intentional pattern with `NOLINT(check): reason` on the
-line. `Test/Native/coverage.sh` builds with `-DXLUA_COVERAGE=ON`, runs the native
-checks and the managed suite, and prints llvm-cov line, function and branch
-coverage per Lua version (it needs Mono like `run_managed.py`); `branches.txt`
-in each version's directory lists every branch, an untaken side as `True: 0`
-or `False: 0`. With all three managed modes, on Lua 5.3.6, 5.4.9 and 5.5.1
-(2026-10-17, Linux arm64):
+These cover xLua's own C files in `build/` (the bridge `xlua.c`,
+`i64lib.c` and `memory_leak_checker.c`; the core layer `xlua_core.c`,
+`xlua_core.h`, `xlua_core_limits.c`, `xlua_core_sandbox.c`,
+`xlua_core_buffer.c` and `xlua_core_nobc.c`; `xlua_libs.c`,
+`xlua_noparser.c` and the host program `xlua_chunkc.c`); the vendored Lua,
+LuaJIT and LuaSocket code is not analyzed. Each script takes an empty output
+directory and runs on Linux with Clang. `Test/Native/analyze.sh` runs
+clang-tidy (`build/.clang-tidy`) and `clang --analyze` for Lua 5.3.6, 5.4.9,
+5.5.1 and LuaJIT, and fails on any finding; suppress an intentional pattern
+with `NOLINT(check): reason` on the line.
 
-| File | Lines | Functions | Branches |
+`Test/Native/coverage.sh` builds with `-DXLUA_COVERAGE=ON` and Lua's C API
+checks (`-DXLUA_APICHECK=ON`, `LUA_USE_APICHECK` with `assert` kept on, like
+`sanitize.sh` and the fuzz targets), runs the tests of each build, and prints
+llvm-cov line, function and branch coverage per runtime; `branches.txt` in
+each runtime's directory lists every branch, an untaken side as `True: 0` or
+`False: 0`. It needs Mono like `run_managed.py`. Each runtime measures the
+files its build compiles (`VERSIONS`, default all nine):
+
+| Runtime | Build | Tests | Files |
 |---|---|---|---|
-| `xlua.c` | 100% | 100% | 100% (380 on 5.5.1) |
-| `i64lib.c` | 100% | 100% | 100% |
-| `memory_leak_checker.c` | 100% | 100% | 100% on 5.5.1, 92% on 5.3.6, 88% on 5.4.9 |
+| `5.3.6`, `5.4.9`, `5.5.1` | legacy | native checks, profiler test, managed suite | `xlua.c`, `xlua_core.c`, `xlua_core.h`, `xlua_core_limits.c`, `i64lib.c`, `memory_leak_checker.c` |
+| `core-5.4.9`, `core-5.5.1` | `XLUA_PRESET=core`, every export | `check_exports.py --preset core`, `native_regression.py` (the core checks), `core_smoke.c` | `xlua_core.c`, `xlua_core.h`, `xlua_core_limits.c`, `xlua_core_sandbox.c`, `xlua_core_buffer.c`, `xlua_core_nobc.c` |
+| `minimal-5.3.6`, `minimal-5.4.9`, `minimal-5.5.1` | `XLUA_PRESET=minimal`, every export | `check_exports.py`, `native_regression.py` | `xlua_libs.c` (a reduced `XLUA_LIBS` builds it; the legacy runs measure the rest) |
+| `bytecode-5.5.1` | `XLUA_BYTECODE_ONLY=ON` | the bytecode-only native checks, `bytecode_luaenv.py`, `chunkc_check.py` | `xlua_noparser.c`, `xlua_chunkc.c` (instrumented too); `xlua.c` reported, not gated |
 
-After the `xlua_core.c` split and `LuaOptions` (milestones 1 and 2 of
-[core-luascript.md](../docs/design/core-luascript.md), 2026-10-18, Linux
-arm64 container, with `XLUA_APICHECK`): `xlua_core.c` and `xlua.c` are at
-100% of lines, functions and branches on Lua 5.3.6, 5.4.9 and 5.5.1
-(`xlua_core.c` 64, 66 and 78 branches; `xlua.c` 320). `xlua_core.h` reports
-all 6 branches taken, but 70% of lines: llvm-cov counts every
-translation unit's copy of its inline functions, and `xlua_core.c` compiles
-`push_helper`, `xlua_core_enter` and `xlua_core_leave` without calling them;
-the copies in `xlua.c` are at 100%.
+**The gate (since 2026-10-28):** `coverage.sh` fails when a file's branch
+coverage is below its minimum, after every runtime has been measured, and
+prints an `XLUA_COVERAGE_GATE` line per runtime and file
+(`Test/Native/coverage_gate.py` reads llvm-cov's `summary.json`; a file the
+build does not have fails the gate, `FILE@RUNTIME=PERCENT` sets one
+runtime's minimum). Each kind of runtime has its variable; empty turns that
+kind's gate off:
 
-With the instruction and time limits (milestones 3 and 4, same setup):
-`xlua_core_limits.c` is at 100% of lines, functions and branches on Lua 5.4.9
-and 5.5.1 (142 branches); `xlua_core.c` (64, 70 and 82 branches on 5.3.6,
-5.4.9 and 5.5.1) and `xlua.c` (322, 326 and 326) stay at 100%, and so do the
-14 branches of `xlua_core.h` on 5.4 and 5.5. On Lua 5.3, which has no limits,
-`xlua_core_limits.c` compiles to stubs, two of which nothing calls. The
-spinlock's retry branch needs the watchdog thread of `check_core_limits` to
-meet the owner thread at the lock, which it did in every run.
-After the watchdog fixes (2026-10-18, same setup, Lua 5.4.9 and 5.5.1):
-`xlua_core_limits.c` has 148 branches and `xlua_core.c` 74 and 86, all
-taken, and every file stays at 100% of lines and functions.
+| Variable | Default |
+|---|---|
+| `MIN_BRANCH_COVERAGE` (legacy) | `xlua.c=100 xlua_core.c=100 xlua_core_limits.c=100 xlua_core.h=100 i64lib.c=100 memory_leak_checker.c=83` |
+| `CORE_MIN_BRANCH_COVERAGE` | `xlua_core.c=100 xlua_core.c@core-5.4.9=99 xlua_core_limits.c=100 xlua_core.h=80 xlua_core_sandbox.c=97 xlua_core_buffer.c=100 xlua_core_buffer.c@core-5.4.9=99 xlua_core_nobc.c=100` |
+| `MINIMAL_MIN_BRANCH_COVERAGE` | `xlua_libs.c=100` |
+| `BYTECODE_MIN_BRANCH_COVERAGE` | `xlua_noparser.c=100 xlua_chunkc.c=100` |
 
-The core preset (milestone 5, `VERSIONS=core-5.4.9 core-5.5.1`, 2026-10-18,
-same setup, after merging the watchdog fixes): `xlua_core_sandbox.c` (118
-branches), `xlua_core_nobc.c` and the core build of `xlua_core.c` (46 and 58
-branches on 5.4.9 and 5.5.1) are at 100% of lines, functions and branches.
-In that build `xlua_core_limits.c` is at 68% of branches: the profiler's hook
-functions are compiled but only the bridge calls them, and the switch edges
-are tested through the bridge (`core_limits`), whose run keeps it at 100%.
-`xlua_core.h` shows 2 of 14 branches untaken there (`xlua_core_enter` and
-`xlua_core_leave` on a state without the core allocator, which no sandbox
-export sees).
+The analysis workflow's `coverage` job runs every runtime with the defaults
+and uploads `report.txt`, `functions.txt`, `branches.txt`, `summary.json`
+and the HTML. Measured on 2026-10-28 with `coverage.sh` in
+`xlua-analysis:26.04` (`docker run --memory 6g`, Linux arm64, Clang 21.1.8,
+Mono 6.14.1, reflection only, no .NET SDK), branches taken of all:
 
-After the integer conversion change (bridge audit C4), the same run on macOS
-27 arm64 with Apple clang (2026-10-17) keeps `xlua.c` at 100% of lines,
-functions and branches on all three versions (410 branches on 5.3.6 and
-5.4.9, 424 on 5.5.1). There `i64lib.c` shows one untaken branch, the
-`snprintf` in `uint64_tostring`, which macOS's fortified `snprintf` macro
-adds; it is not in the source.
+| File | 5.3.6 | 5.4.9 | 5.5.1 |
+|---|---|---|---|
+| `xlua.c` (legacy) | 342 of 342 | 356 of 356 | 356 of 356 |
+| `xlua_core.c` (legacy) | 72 of 72 | 82 of 82 | 94 of 94 |
+| `xlua_core.h` (legacy) | 6 of 6 | 20 of 20 | 20 of 20 |
+| `xlua_core_limits.c` (legacy) | no branches (stubs) | 150 of 150 | 150 of 150 |
+| `i64lib.c` | 8 of 8 | 8 of 8 | 8 of 8 |
+| `memory_leak_checker.c` | 253 of 302 (83.8%) | 254 of 304 (83.6%) | 252 of 300 (84.0%) |
+| `xlua_core.c` (core) | | 123 of 124 | 136 of 136 |
+| `xlua_core.h` (core) | | 16 of 20 | 16 of 20 |
+| `xlua_core_limits.c` (core) | | 152 of 152 | 152 of 152 |
+| `xlua_core_sandbox.c` | | 540 of 554 (97.5%) | 541 of 554 (97.7%) |
+| `xlua_core_buffer.c` | | 101 of 102 | 102 of 102 |
+| `xlua_core_nobc.c` | | no branches | no branches |
+| `xlua_libs.c` (minimal) | 2 of 2 | 2 of 2 | 6 of 6 |
+| `xlua_noparser.c` (bytecode) | | | no branches |
+| `xlua_chunkc.c` (bytecode) | | | 166 of 166 |
 
-Before the 2026-10-17 branch work, `xlua.c` was at 92% of lines, 86% of
-functions and 60% of branches on Lua 5.5.1. Most of the branch tests are in
-`native_regression.py` (struct helpers and accessors, indexer closures and the
-limit of their `BaseType` walk (`indexer_base_walk`, 2026-10-28), path
-access, the C# function wrappers, `lua_setfenv`, `xlua_touint`, the
-integer rule: `xlua_tointeger64`, `xlua_isinteger_number`, `xlua_pushargerror`,
-and the checked accessors and cache lookup of the bridge checks); the rest
-are managed cases in `luaCallCs.lua`. The leak checker's untaken branches on
-5.3.6 and 5.4.9 are checks inside the vendored Lua macros it uses
-(`setclLvalue`, `getnodekey`). `coverage.sh` and `sanitize.sh` build with
-Lua's C API checks (`-DXLUA_APICHECK=ON`, `LUA_USE_APICHECK` with `assert`
-kept on), like the fuzz targets, and `sanitize.sh` adds
-`-fsanitize=float-cast-overflow` under GCC, whose `undefined` group lacks it.
-The API check inside `api_incr_top` adds one more untaken branch to the leak
-checker (2026-10-17, Linux arm64: 2 of 46 on 5.5.1, 3 of 46 on 5.3.6, 4 of 48
-on 5.4.9); `xlua.c` stays at 100% of branches (390, 390 and 404).
+Every file is at 100% of functions except `xlua.c` (98.3%: `xlua_objlen`
+and `xlua_pushcstable`, exports that no test calls) and the stubs of
+`xlua_core_limits.c` on 5.3.6. The bytecode-only code of `xlua.c` (the
+`lua_setfenv` copy and the built-in chunk loader) has every branch taken in
+the bytecode run; the rest of `xlua.c` there is the bridge, which the
+managed suite cannot reach in a library without a compiler.
 
-**Coverage gate (since 2026-10-28):** `coverage.sh` fails when a file's branch
-coverage is below `MIN_BRANCH_COVERAGE`, default
-`xlua.c=100 xlua_core.c=98 xlua_core_limits.c=93` (empty turns it off). It
-measures every runtime first and prints an `XLUA_COVERAGE_GATE` line per
-runtime and file (`Test/Native/coverage_gate.py` reads llvm-cov's
-`summary.json`); the analysis workflow's `coverage` job runs it with the
-default and uploads `branches.txt` and `summary.json` as well. The gate began
-at 99, below the value of that morning (`xlua.c` 348 of 348 branches on 5.3.6
-and 361 of 362 on 5.4.9 and 5.5.1). The untaken branch was the
+What is below 100, and why:
+
+- **`xlua_core.c` on core 5.4.9, 1 branch:** the trampoline passes a string
+  argument of 2 GB or more as its first 2 GB - 1 (`read_arg`). Lua 5.5 makes
+  such a string without memory (`lua_pushexternalstring` over an untouched
+  `mmap`, `core_raw_api`); Lua 5.4 has no external strings, and the test
+  would need 2 GB of real memory.
+- **`xlua_core_buffer.c` on core 5.4.9, 1 branch:** `buffer.fromstring` of
+  a string over 1 GB, for the same reason.
+- **`xlua_core_sandbox.c`, 13 branches on both versions, and one more on
+  5.4.9:** the 13 are `xlua_core_call`'s handling of a stop that arrives
+  after `call_body`'s last stop check and before the call ends: no Lua code,
+  hook or finalizer runs in that window, so only another thread's Interrupt
+  or watchdog reaches it. `check_core_stop_window` takes all of them in a
+  build with `-DXLUA_LIMITS_TEST_POINTS` (554 of 554 on 5.5.1, macOS), which
+  the coverage run does not build. The one on 5.4.9 is a result string of 2
+  GB (as above).
+- **`xlua_core.h` in the core runs, 4 branches:** `xlua_core_enter` and
+  `xlua_core_leave` on a state without the core allocator, and a nested
+  entry on another thread than the running one. Every entry of a core
+  library is the sandbox's, on a core state and on the running thread
+  (`active_thread`); the bridge reaches both (the legacy runs: 20 of 20).
+- **`memory_leak_checker.c`, about 50 branches:** the native allocation
+  failures and size limits of the memory snapshot walk, a thread without
+  stack space, argument checks, and one check inside the vendored
+  `api_incr_top` macro (`LUA_USE_APICHECK`).
+- **Not measured:** LuaJIT (no LuaJIT runtime in `coverage.sh`: the LuaJIT
+  parts of `xlua.c`, `xlua_libs.c` and `i64lib.c`), `xlua_libs.c`'s LuaJIT
+  half, the `XLUA_TRUSTED_BYTECODE` build of the sandbox and `xlua_core_nobc.c`,
+  and `build/xlua_apicheck_msvc.c`, an MSVC-only initializer without branches
+  (`XLUA_APICHECK` test builds on Windows), which no Clang coverage build
+  compiles.
+
+How the files got there (2026-10-28): `xlua_core_check_stop` is built only
+with the sandbox (`XLUA_SANDBOX`), the one place that calls it, so the
+bridge runs no longer show its ten branches; `native_regression.py`'s
+`csharp_wrapper_error` raises an error through the `GEN_CODE_MINIMIZE`
+trampoline, which only the source generator's GCM pass reached before, so
+the gate needs no .NET SDK and the container and the hosted runner agree;
+`open_selected_libs` passes load and preload masks to Lua 5.5's
+`luaL_openselectedlibs`; `core_smoke.c`'s `check_coverage_edges`,
+`core_regression.py`'s `core_raw_api` and `core_sandbox_edges`, and
+`chunkc_check.py` take the edges of the core and bytecode-only builds (see
+their entries above). Checks that nothing could fail went: `xlua_chunkc.c`'s
+allocation checks now share one (`checked_realloc`, which Lua's allocator
+uses too), the bytecode-only `lua_setfenv` copy's dump checks, and five in
+the sandbox (`type_of`'s range, a trampoline without an upvalue, a full
+coroutine stack, a text chunk without `_ENV`, and an ERRRUN that is not a
+string). Before that day the gate was `xlua.c=100 xlua_core.c=98
+xlua_core_limits.c=93` for the legacy runs only, from these values
+(reflection only): `xlua.c` 338, 352 and 352 of all; `xlua_core.c` 63 of 64,
+73 of 74, 85 of 86; `xlua_core_limits.c` 152 of 162 on 5.4.9 and 5.5.1; and
+the core runs (no gate) had `xlua_core.c` 113 of 124 and 125 of 136,
+`xlua_core_limits.c` 122 of 154 and 121 of 154, `xlua_core_sandbox.c` 522 and
+521 of 566 and `xlua_core_buffer.c` 95 of 102.
+
+Other notes: `xlua.c`'s branch tests are mostly in `native_regression.py`
+(struct helpers and accessors, indexer closures and the limit of their
+`BaseType` walk, path access, the C# function wrappers, `lua_setfenv`,
+`xlua_touint`, the integer rule, and the checked accessors and cache lookup
+of the bridge checks); the rest are managed cases in `luaCallCs.lua`. The
 `entry.stop != 0` side of `lua_pcall`'s check for a call stopped after its
-last Lua instruction (`xlua.c:341`), which no test reached. The
-`core_stop_after_last_instruction` check of `native_regression.py` and
-`CaseLuaOptionsStopAfterLastInstruction` of the managed suite now take it on
-every run without threads or timing: the call ends with a tail call into a C
-or C# function that interrupts it, or with a `pcall` that caught the limit
+last Lua instruction is taken without threads by
+`core_stop_after_last_instruction` and
+`CaseLuaOptionsStopAfterLastInstruction`
 ([core-stop-latency.md](../docs/research/core-stop-latency.md#the-stop-after-the-last-instruction-tested-2026-10-28)).
-The same day's main had fewer branches in `xlua.c` (338 on 5.3.6, 352 on
-5.4.9 and 5.5.1); on it the container run (arm64, reflection only, no .NET
-SDK) measured 351 of 352 on 5.5.1 before these tests and 100% on all three
-runtimes after them (338 of 338, 352 of 352 and 352 of 352; the check taken
-22 times on 5.5.1), so the default is now 100. The core runtimes (`VERSIONS=core-...`) build
-`xlua_core_limits.c` without the bridge that calls its hooks, so they take
-`CORE_MIN_BRANCH_COVERAGE` instead (empty by default: no gate).
+`xlua_core.h`'s line coverage is low because llvm-cov counts every
+translation unit's copy of its inline functions, and some files compile
+copies they never call. On macOS with Apple clang, `i64lib.c` shows one more
+branch, from the fortified `snprintf` macro in `uint64_tostring`. One branch
+that the gate counts is not deterministic: the retry of
+`xlua_core_limits.c`'s spinlock (`core_lock`) is taken only when another
+thread holds the lock. The stop-latency checks, whose watchdog and Interrupt
+threads poll while the owner thread's hook and C budget take the lock, take
+it in every run so far (2026-10-28: 72k and 200k times in the legacy runs of
+5.4.9 and 5.5.1, 95 and 55 times in the core runs); a run that never meets
+the lock fails the gate on that branch alone.
 
-**Owner decision (2026-10-28), the gate's files and triggers:** `xlua.c` keeps
-its gate (100% since the tests above); `xlua_core.c` and `xlua_core_limits.c`
-join the gate just below their values that day. Measured with `coverage.sh`
-in `xlua-analysis:26.04` (`docker run --memory 6g`, Linux arm64, Clang
-21.1.8, Mono 6.14.1, reflection only, as the CI job), after merging main at
-`50d29bc2`:
-
-| File | 5.3.6 | 5.4.9 | 5.5.1 | Threshold |
-|---|---|---|---|---|
-| `xlua.c` | 338 of 338 (100%) | 352 of 352 (100%) | 352 of 352 (100%) | 100 |
-| `xlua_core.c` | 63 of 64 (98.44%) | 73 of 74 (98.65%) | 85 of 86 (98.84%) | 98 |
-| `xlua_core_limits.c` | no branches (stubs) | 152 of 162 (93.83%) | 152 of 162 (93.83%) | 93 |
-
-The same values came from main at `3042ef63`, before the merge, except
-`xlua.c`'s untaken branch on 5.4.9 and 5.5.1. The ten untaken branches of
-`xlua_core_limits.c` are all of `xlua_core_check_stop`, which nothing in the
-bridge's suites calls; the one of `xlua_core.c` is the true side of
-`lua_toboolean(L, lua_upvalueindex(2))` at `xlua_core.c:631`, in the GCM
-wrapper caller, which only the source generator's GCM pass reaches. The
-hosted runner's image has a .NET SDK, so CI runs those passes: in run
-40673348494 (`ci/coverage-auto`, Linux x86_64) `xlua_core.c` was at 100% on
-all three runtimes (64, 74 and 86 branches), `xlua.c` at 100% and
-`xlua_core_limits.c` at 152 of 162 on 5.4.9 and 5.5.1, all passing the gate.
-The thresholds keep the lower, reflection-only values, so a machine without
-the SDK passes too.
-
-Since that day the `coverage` job also runs by itself, on pushes to `main`
-and on pull requests that change `build/`, `coverage.sh`, `coverage_gate.py`,
-the Mono installer `.github/scripts/mono.sh` or `analysis.yml`; the
-workflow's other jobs stay manual (`.github/CI.md`). Its path filter is
-narrower than the managed suite and the native checks it runs: a change that
-lowers coverage only through them shows in the next run. With a .NET SDK the
-source generator's passes run too. Since
+The `coverage` job also runs by itself, on pushes to `main` and on pull
+requests that change `build/`, `coverage.sh`, `coverage_gate.py`, the Mono
+installer `.github/scripts/mono.sh` or `analysis.yml` (owner decision
+2026-10-28); the workflow's other jobs stay manual (`.github/CI.md`). Its
+path filter is narrower than the tests it runs: a change that lowers
+coverage only through them shows in the next run. With a .NET SDK the source
+generator's passes run too; the gate does not need them. Since
 `build/CMakeLists.txt` records sources as `build/...`
 ([reproducible builds](../build/README.md#reproducible-builds)),
 `coverage.sh` passes `-path-equivalence=build,<checkout>/build` to llvm-cov.
+
 `Test/Fuzz/run.sh
 <seconds>` builds four libFuzzer targets (five on Lua 5.4 and 5.5) with ASan and UBSan: Lua chunks loaded
 through `xluaL_loadbuffer` in a sandbox env that also exposes the native path,
@@ -1604,7 +1666,9 @@ accept only numbers and numeric strings, and integer fields only those with
 an integer value) and
 arguments that are not structs (with the tag-checking accessors of
 `xlua_check_struct_accessors` when the last input byte is odd, which also
-refuse a struct header without the tag), and the type id helpers; and dotted-path,
+refuse a struct header without the tag; since 2026-10-28 also a userdata whose
+header claims more bytes than its block and one shorter than the header),
+and the type id helpers with `xlua_tostructbuffer`; and dotted-path,
 single-key and global table access, also on values that are not tables. The Lua
 chunk target also calls the memory snapshot walk from the fuzzed chunk
 (`snapshot()`) and after it, and checks the layout of the result. The `core`

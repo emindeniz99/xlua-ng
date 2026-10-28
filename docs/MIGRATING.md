@@ -88,6 +88,11 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | A `BaseType` chain that does not end, in the closures of a C# object's or class's `__index` and `__newindex` (only with the `debug` library: `debug.setupvalue` puts a table whose `BaseType` leads back to itself into the closure) | The walk looped in C, where the instruction hook (`LuaOptions.InstructionLimit`, `TimeLimit`) cannot stop it | Stops after 1000 types with "the BaseType chain is longer than 1000 types (a cycle?)"; real type chains are far shorter | `fix(native): bound the BaseType walk of the indexer closures` |
 | A `LuaEnv` used from a thread other than its owner, in the Editor, in Development Builds and outside Unity (`XLUA_GENERAL`), without `THREAD_SAFE` or `HOTFIX_ENABLE`: a second thread, or a C# finalizer that calls Lua | No check: two threads in one env corrupted the Lua heap, and the process aborted or got odd errors | Throws `InvalidOperationException` that names both thread IDs and the fixes. The owner is the first thread that uses the env after its constructor returns, not the thread that created it (owner decision of 2026-10-28), so an env made in a field initializer or static constructor that Unity runs on a loading thread works on the main thread unchanged; `LuaScript` follows the same rule. The new `LuaEnv.SetOwnerThread()` (and `LuaScript.SetOwnerThread()`) hands it to the calling thread, and `LuaOptions.CheckThread = false` turns the check off for one env. `Interrupt()` and the statistics (`MemoryUsed`, `MemoryPeak`, the limits' getters) work from any thread; the finalizers of `LuaTable`, `LuaFunction` and the bridges only queue a release, as before. One of the [bridge checks](#opt-in-defines-no-change-unless-defined): release players leave it out unless they define `XLUA_BRIDGE_CHECKS`, and `XLUA_NO_BRIDGE_CHECKS` removes it. Where it runs it costs about 1 to 2 ns per call into Lua (one more thread-static read; CodeEmit bridges read it several times per call, about 4 to 8 ns). An env that one thread has used and another takes over, such as one a loader thread ran scripts in, needs `SetOwnerThread()` on the new thread | `feat(runtime): check the owner thread of a LuaEnv in debug builds` |
 | Nested calls between Lua and C# on LuaJIT (a Lua function calls C#, which calls Lua, which calls C# ...) | No limit: the C stack overflowed at about 10,240 levels and the process crashed (SIGSEGV). PUC Lua raised `C stack overflow` | LuaJIT raises the same `C stack overflow` Lua error at the same depth as Lua 5.3 to 5.5: when a 200th C# function would start while 199 run on the thread (the count is per thread, so C# functions of other `LuaEnv`s running on it count too). Every build, no define; about 2.5 ns per call from Lua into C# on LuaJIT, a thread-local counter in the trampoline (macOS arm64; below the noise of the bridge benchmarks) | `fix(native): stop deep C# and Lua recursion on LuaJIT as PUC Lua does` |
+| The struct helpers given a userdata whose block is shorter than its struct header says: the `xlua.genaccessor` accessors and `xlua.structclone` with any such userdata, and a C# parameter of a `[GCOptimize]` struct or of `decimal` given a userdata that `debug.setmetatable` gave the struct's metatable (LuaJIT's 0-byte `newproxy()`, a small userdata of a C module) | The header was read past the end of the block, and then the fields there were read or written: a heap overflow, a crash or silent corruption, in every build (the bridge checks test the metatable, not the size) | Refused in every build (owner decision of 2026-10-28): the accessors and `structclone` raise `invalid c# struct!`, the C# parameter raises `unpack fail for T` (`unpack decimal fail!`), and writing it back `pack fail for T`. xLua's own structs behave as before. An accessor call costs about 0.5 ns more; a C# struct argument is checked in one native call (`xlua_tostructbuffer`) instead of two. Native bridge version 111 (below) | `fix(native): check the length of a struct userdata before its header` |
+| Lua 5.3: an error raised in a `__gc` finalizer | Raised again from the collection that ran the finalizer: `LuaEnv.FullGc`, `LuaEnv.Dispose` and C# calls that allocate (pushing a string or a table) ended in the panic handler (`LuaException: unprotected error in call to Lua API (error in __gc metamethod ...)`, a crash where the runtime does not unwind native frames); inside a protected call it became the error of an unrelated call, and `pcall(collectgarbage)` failed | Written to stderr as `Lua warning: error in __gc (...)` and dropped, as Lua 5.5 does under xLua (5.4 drops it silently while warnings are off; LuaJIT prints `ERROR in finalizer: ...`); the collection goes on and runs the other finalizers (owner decision of 2026-10-28, [build/LUA_PATCHES.md](../build/LUA_PATCHES.md)). Code that relied on `collectgarbage()` failing must check what its finalizers did instead | `fix(lua): report errors in __gc as warnings on Lua 5.3` |
+| The old leak checker, `xlua_report_object_relationship` and `xlua_report_table_size` (`General/LuaMemoryLeakChecker`, CMake `XLUA_LEAK_CHECKER`, Lua 5.3 to 5.5), during a collection cycle or from a C function whose stack is full ([#1149](https://github.com/Tencent/xLua/issues/1149)) | The walks reported dead objects that the collector had not swept yet and read what they point to after it was freed (an intermittent crash), a callback that allocates could step the collector during the walk, and each closure was pushed without checking the stack | Dead objects are left out, the collector is stopped during a walk and its state restored afterwards, and closures are pushed after `lua_checkstack` (without room the walk reports tables only). A callback must not run a full collection itself (owner decision of 2026-10-28). `LuaEnv.TakeMemorySnapshot` is unchanged | `fix(native): skip dead objects in the old leak checker walks` |
+| A `LuaFunction`, `LuaTable`, delegate or interface bridge used after its own `Dispose()` while its `LuaEnv` lives | The released registry reference went to the next object that took one: a call ran another Lua function or failed with "attempt to call a table value", and `Get`, `Set` and the others read or changed another table | Every use throws `ObjectDisposedException` (an `InvalidOperationException`): calls (`Call`, `Func`, `Action`, the delegate or interface itself), `Get`, `Set`, `ContainsKey`, `GetInPath`, `SetInPath`, `Length`, `ForEach`, `GetKeys`, `Cast`, `SetEnv`, `SetMetaTable`, passing it to Lua (as an argument, a table value or `DoString`'s env), `Equals` and `GetHashCode`. `ToString` and a second `Dispose` still work. One comparison per call (owner decision of 2026-10-28) | `fix(runtime): throw ObjectDisposedException from a disposed LuaBase` |
+| A Lua table converted to a packable `[GCOptimize]` struct through `LuaTable.Cast<T>`, `LuaFunction.Cast<T>`, `ObjectTranslator.GetObject`, or as an element of an array, `List<T>` or `Dictionary<K, V>` or a field of a class filled from a table, with generated bindings | Filled the struct's public fields by reflection, so its `[AdditionalProperties]` properties stayed at their defaults, while a parameter of a generated wrapper and `LuaTable.Get<T>` used the generated reader and set them | Every path uses the generated reader, in every preset (owner decision of 2026-10-28), so the properties are set everywhere, as for a parameter. Without generated bindings (no source generator, or before it ran) the fields are still filled by reflection | `fix(runtime): read packable GCOptimize structs through the generated reader everywhere` |
 
 ## Opt-in defines (no change unless defined)
 
@@ -240,17 +245,44 @@ alike:
   the Editor as it does on the device: `This type must add to CSharpCallLua: T.
   Mark it [CSharpCallLua] ...`. Delegates that Lua calls and `CS.D(f)` work as
   before.
+- **Lua tables converted to classes or structs** (since 2026-10-28, owner
+  decision): a table where C# expects a class or struct converts only through
+  the converter the source generator writes for a `[GCOptimize]` type (a
+  struct, or a class with a public parameterless constructor). Before, the
+  preset still filled the object's public fields from the table through
+  reflection. This covers parameters, fields and properties Lua sets,
+  `LuaTable.Get<T>` and `Cast<T>`, `LuaFunction.Func` and `Cast<T>`, delegate
+  and interface results, and the elements of arrays, lists and dictionaries.
+  Otherwise it raises, for example:
+
+  ```text
+  cannot convert a table to Game.SpawnInfo: Game.SpawnInfo has no generated table converter,
+  and this build does not fill C# objects from tables through reflection (XLUA_NO_REFLECTION,
+  part of XLUA_PRESET_MINIMAL). Mark it [GCOptimize], or add
+  [assembly: XLua.GCOptimize(typeof(Game.SpawnInfo))] for a type you cannot change, so that the
+  source generator writes one; or pass a Game.SpawnInfo object instead of a table, or define
+  XLUA_REFLECTION
+  ```
+
+  `[LuaCallCSharp]` writes no table converter. A C# object of the type still
+  passes, and a table still converts to an array, a `List<T>` or a
+  `Dictionary<K, V>`, whose elements follow the same rule. A packable
+  `[GCOptimize]` struct that a table converts to through `Cast<T>` or as a
+  list element now uses its generated reader, which reads the fields the
+  same way and also the `[AdditionalProperties]` properties. Legacy, and the
+  preset with `XLUA_REFLECTION`, are unchanged.
 - **Still through reflection:** the members the source generator leaves to
   reflection on a bound type (`[DoNotGen]`, info XLSG004), which it names at
   compile time and preserves for the linker; `xlua.private_accessible` (with
   `HOTFIX_ENABLE`), which on a type without bindings now also makes its public
   members and constructors reachable; `xlua.get_generic_method`,
-  `xlua.tofunction`, `xlua.access`; and Lua tables converted to classes or
-  structs without a generated converter.
+  `xlua.tofunction`, `xlua.access`. These are explicit: a script names them,
+  and the preset keeps them (owner decision, 2026-10-28).
 - **`pairs`** over a C# collection works without bindings for the collection
   or its enumerator.
 - **`[ReflectionUse]`** keeps only its meaning for the linker (link.xml); it
-  does not make its type reachable without bindings.
+  does not make its type reachable without bindings (owner decision,
+  2026-10-28). `XLUA_REFLECTION` is the opt-in, for the whole project.
 - **To keep reflection**, define `XLUA_REFLECTION` next to
   `XLUA_PRESET_MINIMAL`. A project without the source generator needs it, since
   nothing is bound there. **XLua > Validate Setup** warns when the preset is on
@@ -338,6 +370,11 @@ alike:
   and `xlua_running` for the crash fixes of 2026-10-19 (see the table above).
   The C# side no longer imports `xlua_objlen`. Rebuild the plugins with the
   C# update.
+- **Native bridge version 111:** the plugin adds `xlua_tostructbuffer`, which
+  C# and source-generated code call for a struct argument instead of
+  `xlua_gettypeid` and `lua_touserdata` (the struct bounds row of the table
+  above). Rebuild the plugins with the C# update and build again, so that the
+  source generator's code calls it.
 - **Windows ARM64:** `build/make_win_arm64_*.bat` build `Plugins/arm64/xlua.dll`
   for Unity 2023.1+ Windows ARM64 players; upstream has no Windows ARM64
   plugin. See [build/README.md](../build/README.md#windows-libraries).
@@ -509,7 +546,8 @@ alike:
   only with the new CMake option `XLUA_LUASCRIPT=ON` (off by default, so the
   legacy and minimal libraries are unchanged). A source plugin or other build
   that wants them compiles `build/xlua_core_sandbox.c` with `XLUA_SANDBOX` and
-  `XLUA_LIB_<NAME>` for each library, and `xlua_core.c` with `XLUA_SANDBOX`.
+  `XLUA_LIB_<NAME>` for each library, and `xlua_core.c` and (since 2026-10-28)
+  `xlua_core_limits.c` with `XLUA_SANDBOX`.
 - **Bytecode options (opt-in):** two new CMake options, off by default and
   also read from the environment, so the default libraries are unchanged.
   `-DXLUA_BYTECODE_ONLY=ON` (Lua 5.3 to 5.5 with the bridge; refused on LuaJIT)
@@ -803,10 +841,17 @@ API below is what the source generator's output calls; the notes on Generate Cod
 
 Generated code no longer extends xLua's own classes as `partial` classes. It
 calls a public binding API, `XLua.Binding` (hidden from IDE completion,
-version `BindingApi.Version` = 1), so it compiles in an assembly other than
+version `BindingApi.Version` = 2), so it compiles in an assembly other than
 xLua's, as it must now that xLua has its own asmdefs. The wrappers, bridges and the
 members Lua sees are the same as before. See
 [source-generator.md](design/source-generator.md), section 3 and milestone M0.
+Version 2 (2026-10-28) registers GCOptimize structs and enums without
+generic methods, which made IL2CPP players larger
+([source-generator.md](design/source-generator.md#xluadlls-own-bindings-2026-10-28)).
+The source generator writes its code again whenever Unity compiles, so only a
+DLL compiled outside the project with version 1 bindings is affected: its
+registration stops with "generated bindings ... were made for binding API
+version 1"; compile it again.
 
 - **Regenerate code** after updating: run **XLua/Clear Generated Code**, then
   **XLua/Generate Code** (or `XLuaGenerate` again). Code generated by an

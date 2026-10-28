@@ -56,18 +56,35 @@ static void fail(const char *what, const char *detail, const char *where) {
 	exit(1);
 }
 
+/* Every allocation of the program, Lua's included (lua_alloc): out of memory
+ * ends it with a message. */
+static void *checked_realloc(void *p, size_t n) {
+	void *q = realloc(p, n);
+	if (q == NULL) {
+		fail("out of memory", NULL, NULL);
+	}
+	return q;
+}
+
+/* Lua's allocator (lua_Alloc). It never returns NULL for a growth, so
+ * lua_newstate cannot fail. */
+static void *lua_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
+	(void)ud;
+	(void)osize;
+	if (nsize == 0) {
+		free(ptr);
+		return NULL;
+	}
+	return checked_realloc(ptr, nsize);
+}
+
 static void add(buffer *b, const void *p, size_t n) {
 	if (b->size + n + 1 > b->capacity) {
 		size_t capacity = b->capacity ? b->capacity : 4096;
-		char *data;
 		while (b->size + n + 1 > capacity) {
 			capacity *= 2;
 		}
-		data = (char *)realloc(b->data, capacity);
-		if (data == NULL) {
-			fail("out of memory", NULL, NULL);
-		}
-		b->data = data;
+		b->data = (char *)checked_realloc(b->data, capacity);
 		b->capacity = capacity;
 	}
 	memcpy(b->data + b->size, p, n);
@@ -97,10 +114,7 @@ static buffer read_file(const char *path) {
 }
 
 static char *copy(const char *p, size_t n) {
-	char *s = (char *)malloc(n + 1);
-	if (s == NULL) {
-		fail("out of memory", NULL, NULL);
-	}
+	char *s = (char *)checked_realloc(NULL, n + 1);
 	memcpy(s, p, n);
 	s[n] = '\0';
 	return s;
@@ -162,18 +176,13 @@ static size_t chunk_count = 0;
 
 static void add_chunk(const chunk *c) {
 	size_t i;
-	chunk *grown;
 	for (i = 0; i < chunk_count; i++) {
 		if (strcmp(chunks[i].name, c->name) == 0) {
 			fprintf(stderr, "xlua_chunkc: chunk %s in %s and in %s\n", c->name, chunks[i].file, c->file);
 			exit(1);
 		}
 	}
-	grown = (chunk *)realloc(chunks, (chunk_count + 1) * sizeof(chunk));
-	if (grown == NULL) {
-		fail("out of memory", NULL, NULL);
-	}
-	chunks = grown;
+	chunks = (chunk *)checked_realloc(chunks, (chunk_count + 1) * sizeof(chunk));
 	chunks[chunk_count++] = *c;
 }
 
@@ -271,17 +280,17 @@ static void compile(lua_State *L, chunk *c, int strip) {
 		fprintf(stderr, "xlua_chunkc: %s (%s): %s\n", c->name, c->file, lua_tostring(L, -1));
 		exit(1);
 	}
-	if (lua_dump(L, writer, &c->code, strip) != 0 || c->code.size == 0) {
-		fail("cannot dump ", c->name, c->file);
-	}
+	/* writer never fails, and a dump always starts with Lua's header. */
+	(void)lua_dump(L, writer, &c->code, strip);
 	lua_pop(L, 1);
 }
 
-/* A C string literal of s, which is printable ASCII (a name or chunk name). */
+/* A C string literal of s, which is printable ASCII without a double quote
+ * (a name or chunk name: attribute() ends the value at the first one). */
 static void put_string(FILE *f, const char *s) {
 	fputc('"', f);
 	for (; *s; s++) {
-		if (*s == '"' || *s == '\\') {
+		if (*s == '\\') {
 			fputc('\\', f);
 		}
 		fputc(*s, f);
@@ -293,11 +302,8 @@ static void put_string(FILE *f, const char *s) {
 static void write_header(const char *path) {
 	size_t i, j;
 	size_t path_size = strlen(path);
-	char *temporary = (char *)malloc(path_size + 5);
+	char *temporary = (char *)checked_realloc(NULL, path_size + 5);
 	FILE *f;
-	if (temporary == NULL) {
-		fail("out of memory", NULL, NULL);
-	}
 	memcpy(temporary, path, path_size);
 	memcpy(temporary + path_size, ".tmp", 5);
 	f = fopen(temporary, "wb");
@@ -349,16 +355,13 @@ static void write_header(const char *path) {
 
 int main(int argc, char **argv) {
 	const char *out = NULL;
-	char **options = (char **)calloc((size_t)argc, sizeof(char *));
+	char **options = (char **)checked_realloc(NULL, (size_t)argc * sizeof(char *));
 	int option_count = 0;
 	int strip = 0;
 	int files = 0;
 	int i;
 	size_t k;
 	lua_State *L;
-	if (options == NULL) {
-		fail("out of memory", NULL, NULL);
-	}
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-s") == 0) {
 			strip = 1;
@@ -389,10 +392,11 @@ int main(int argc, char **argv) {
 	if (files == 0 || chunk_count == 0) {
 		fail("no <xlua-chunk> markers found", NULL, NULL);
 	}
-	L = luaL_newstate();
-	if (L == NULL) {
-		fail("cannot create a Lua state", NULL, NULL);
-	}
+#if LUA_VERSION_NUM >= 505
+	L = lua_newstate(lua_alloc, NULL, luaL_makeseed(NULL));
+#else
+	L = lua_newstate(lua_alloc, NULL);
+#endif
 	for (k = 0; k < chunk_count; k++) {
 		compile(L, &chunks[k], strip);
 	}

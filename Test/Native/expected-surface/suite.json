@@ -1637,6 +1637,81 @@
    "lazy": []
   },
   {
+   "type": "Coverage.PropertyPoint",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [
+    "X",
+    "Y"
+   ],
+   "setters": [
+    "X",
+    "Y"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.PropertyPointApi",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Cast",
+     "static": true,
+     "overloads": [
+      "Coverage.PropertyPointApi::Cast(XLua.LuaTable)"
+     ]
+    },
+    {
+     "name": "DictionaryValue",
+     "static": true,
+     "overloads": [
+      "Coverage.PropertyPointApi::DictionaryValue(System.Collections.Generic.Dictionary`2[System.String,Coverage.PropertyPoint])"
+     ]
+    },
+    {
+     "name": "Generated",
+     "static": true,
+     "overloads": [
+      "Coverage.PropertyPointApi::Generated()"
+     ]
+    },
+    {
+     "name": "Get",
+     "static": true,
+     "overloads": [
+      "Coverage.PropertyPointApi::Get(XLua.LuaTable)"
+     ]
+    },
+    {
+     "name": "ListElement",
+     "static": true,
+     "overloads": [
+      "Coverage.PropertyPointApi::ListElement(System.Collections.Generic.List`1[Coverage.PropertyPoint])"
+     ]
+    },
+    {
+     "name": "Param",
+     "static": true,
+     "overloads": [
+      "Coverage.PropertyPointApi::Param(Coverage.PropertyPoint)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
    "type": "EmployeeTemplate",
    "kind": "class",
    "constructors": [],
@@ -3505,6 +3580,123 @@
    "events": [],
    "lazy": [],
    "fallback": []
+  },
+  {
+   "type": "NoReflection.ConvertedStruct",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [
+    "A",
+    "B"
+   ],
+   "setters": [
+    "A",
+    "B"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "NoReflection.TableApi",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "CastClass",
+     "static": true,
+     "overloads": [
+      "NoReflection.TableApi::CastClass(XLua.LuaTable)"
+     ]
+    },
+    {
+     "name": "CastConvertedClass",
+     "static": true,
+     "overloads": [
+      "NoReflection.TableApi::CastConvertedClass(XLua.LuaTable)"
+     ]
+    },
+    {
+     "name": "CastConvertedStruct",
+     "static": true,
+     "overloads": [
+      "NoReflection.TableApi::CastConvertedStruct(XLua.LuaTable)"
+     ]
+    },
+    {
+     "name": "ClassResult",
+     "static": true,
+     "overloads": [
+      "NoReflection.TableApi::ClassResult(XLua.LuaFunction)"
+     ]
+    },
+    {
+     "name": "GetClass",
+     "static": true,
+     "overloads": [
+      "NoReflection.TableApi::GetClass(XLua.LuaTable)"
+     ]
+    },
+    {
+     "name": "MakeClass",
+     "static": true,
+     "overloads": [
+      "NoReflection.TableApi::MakeClass()"
+     ]
+    },
+    {
+     "name": "SumClass",
+     "static": true,
+     "overloads": [
+      "NoReflection.TableApi::SumClass(NoReflection.TableClass)"
+     ]
+    },
+    {
+     "name": "SumClasses",
+     "static": true,
+     "overloads": [
+      "NoReflection.TableApi::SumClasses(System.Collections.Generic.List`1[NoReflection.TableClass])"
+     ]
+    },
+    {
+     "name": "SumConvertedClass",
+     "static": true,
+     "overloads": [
+      "NoReflection.TableApi::SumConvertedClass(NoReflection.ConvertedClass)"
+     ]
+    },
+    {
+     "name": "SumConvertedStruct",
+     "static": true,
+     "overloads": [
+      "NoReflection.TableApi::SumConvertedStruct(NoReflection.ConvertedStruct)"
+     ]
+    },
+    {
+     "name": "SumConvertedStructs",
+     "static": true,
+     "overloads": [
+      "NoReflection.TableApi::SumConvertedStructs(System.Collections.Generic.List`1[NoReflection.ConvertedStruct])"
+     ]
+    },
+    {
+     "name": "SumStruct",
+     "static": true,
+     "overloads": [
+      "NoReflection.TableApi::SumStruct(NoReflection.TableStruct)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
   },
   {
    "type": "OverloadPick",
@@ -6008,6 +6200,18 @@
    "groups": []
   },
   {
+   "type": "Coverage.PropertyPoint",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 8,
+   "fields": [
+    "X System.Int32",
+    "Y System.Int32 property"
+   ],
+   "groups": []
+  },
+  {
    "type": "FirstPushEnum",
    "kind": "enum",
    "pushed": true,
@@ -6112,6 +6316,30 @@
    "flag": 0,
    "size": 4,
    "fields": [],
+   "groups": []
+  },
+  {
+   "type": "NoReflection.ConvertedClass",
+   "kind": "table",
+   "pushed": false,
+   "flag": 0,
+   "size": -1,
+   "fields": [
+    "A System.Int32",
+    "B System.Int32"
+   ],
+   "groups": []
+  },
+  {
+   "type": "NoReflection.ConvertedStruct",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 8,
+   "fields": [
+    "A System.Int32",
+    "B System.Int32"
+   ],
    "groups": []
   },
   {
@@ -6281,11 +6509,13 @@
   "Coverage.MultiListedPair root",
   "Coverage.MultiListedVec root",
   "Coverage.PackedPoint root",
+  "Coverage.PropertyPoint root",
   "Gen2FloatStruct root",
   "Gen3FloatStruct root",
   "Gen4FloatStruct root",
   "Gen5FloatStruct root",
   "Gen6FloatStruct root",
+  "NoReflection.ConvertedStruct root",
   "PackAsTableStruct root",
   "Pedding",
   "StaticPusherStructA root",

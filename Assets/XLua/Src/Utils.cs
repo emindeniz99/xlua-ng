@@ -1925,6 +1925,26 @@ namespace XLua
 				+ "XLUA_PRESET_MINIMAL), so the Editor needs the bridge as players do";
 		}
 
+		// The error for a Lua table converted to a class or struct that has no
+		// generated table converter under XLUA_NO_REFLECTION (owner decision
+		// 2026-10-28, question 4 of docs/design/presets.md): the source generator
+		// writes a converter for a [GCOptimize] type, a struct or a class with a
+		// public parameterless constructor; [LuaCallCSharp] writes none.
+		internal static string NoTableConverterMessage(Type type)
+		{
+			string name = type.ToString();
+			string subject = "cannot convert a table to " + name + ": ";
+			string off = ", and this build does not fill C# objects from tables through reflection (XLUA_NO_REFLECTION, part of XLUA_PRESET_MINIMAL)";
+			if (!IsPublic(type))
+			{
+				return subject + name + " is not public, so it has no generated table converter" + off
+					+ ". Pass a " + name + " object instead of a table, make the type public and mark it [GCOptimize], or define XLUA_REFLECTION";
+			}
+			return subject + name + " has no generated table converter" + off + ". Mark it [GCOptimize], or add [assembly: XLua.GCOptimize(typeof("
+				+ csharpName(type) + "))] for a type you cannot change, so that the source generator writes one; or pass a " + name
+				+ " object instead of a table, or define XLUA_REFLECTION";
+		}
+
 		static string csharpName(Type type)
 		{
 			string name = type.FullName == null ? type.ToString() : type.GetFriendlyName();

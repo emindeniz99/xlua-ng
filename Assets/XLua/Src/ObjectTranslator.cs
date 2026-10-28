@@ -1956,6 +1956,15 @@ namespace XLua
             if (update != null) custom_update_funcs.Add(type, update);
         }
 
+        // The generated reader of a packable [GCOptimize] struct
+        // (RegisterPushAndGetAndUpdate), which takes a Lua table too: the table
+        // conversions of ObjectCasters use it in every build (owner decisions
+        // 2026-10-28, docs/design/presets.md Q31 and Q48).
+        internal bool TryGetGeneratedReader(Type type, out GetCSObject get)
+        {
+            return custom_get_funcs.TryGetValue(type, out get);
+        }
+
         public bool HasCustomOp(Type type)
         {
             return custom_push_funcs.ContainsKey(type);
@@ -2080,6 +2089,22 @@ namespace XLua
             );
         }
 
+        // RegisterPushAndGetAndUpdate without generic code, for generated code
+        // (XLua.Binding.AssemblyBindings.Struct(Type, Type, StructOps)): push
+        // is an Action<RealStatePtr, T> and get a Func<RealStatePtr, int, T>
+        // of the type, and the other three take the value boxed.
+        internal void RegisterStruct(Type type, Delegate push, Delegate get, PushCSObject pushObject, GetCSObject getObject, UpdateCSObject updateObject)
+        {
+            Delegate org;
+            if (tryGetPushFuncByType(type, out org) || tryGetGetFuncByType(type, out org))
+            {
+                throw new InvalidOperationException("push or get of " + type + " has register!");
+            }
+            push_func_with_type.Add(type, push);
+            get_func_with_type.Add(type, get);
+            registerCustomOp(type, pushObject, getObject, updateObject);
+        }
+
         public void RegisterChecker<T>(CheckFunc<T> check)
         {
             objectCheckers.AddChecker(typeof(T), (L, idx) =>
@@ -2133,12 +2158,13 @@ namespace XLua
             LuaTypes lua_type = LuaAPI.lua_type(L, index);
             if (lua_type == LuaTypes.LUA_TUSERDATA)
             {
-                if (LuaAPI.xlua_gettypeid(L, index) != decimal_type_id)
+                // Zero for a userdata of another type, or one that only has the
+                // metatable of decimal (UnPack then fails).
+                IntPtr buff = LuaAPI.xlua_tostructbuffer(L, index, decimal_type_id);
+                if (buff == IntPtr.Zero && LuaAPI.xlua_gettypeid(L, index) != decimal_type_id)
                 {
                     throw new Exception("invalid userdata for decimal!");
                 }
-
-                IntPtr buff = LuaAPI.lua_touserdata(L, index);
 
                 if (!CopyByValue.UnPack(buff, 0, out val))
                 {

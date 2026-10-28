@@ -35,7 +35,7 @@ Each item of the 2026-10-18 family falls in one of three classes:
 | 2 (part) | none: `xlua_tocsobj_fast` read an int from any userdata | c | a light userdata (a C# `IntPtr`, so `obj.Method(ptr)`) made it read the memory the pointer names; a zero-sized one (LuaJIT's `newproxy()`) 4 bytes past its block | +1.8 ns per object read in release (2.5 to 4.3 ns, native) | always |
 | 1 | `XLUA_LOCK_METATABLES` | b | `getmetatable(obj)` returns `"locked"`; legacy scripts patch classes through it ([xLua#77](https://github.com/Tencent/xLua/issues/77), [xLua#1169](https://github.com/Tencent/xLua/issues/1169)) | none per call | unchanged |
 | 6 | `XLUA_RESTRICT_GETMETATABLE` | b | an edit of the table `xlua.getmetatable` returns no longer changes the type | one table copy per rare call | unchanged |
-| 9 | `XLUA_LOCK_XLUA_TABLE` | b | legacy code adds functions to `xlua`; the helpers use the functions captured at start-up, so turning it off in release would change which `xlua.access` hotfix uses | +6 ns per `xlua.f` lookup | unchanged (question 1 below) |
+| 9 | `XLUA_LOCK_XLUA_TABLE` | b | legacy code adds functions to `xlua`; the helpers use the functions captured at start-up, so turning it off in release would change which `xlua.access` hotfix uses | +6 ns per `xlua.f` lookup | unchanged (question 1 below, decided 2026-10-28: kept) |
 | 10, 11 | `XLUA_RESTRICT_PRIVATE_ACCESS` | b | removes helpers scripts call (`xlua.access` outside hotfix) | none | unchanged |
 | 12 | `XLUA_NO_LOAD_ASSEMBLY` | b | removes `xlua.load_assembly` | none | unchanged |
 
@@ -137,15 +137,38 @@ they follow the build type in every preset, as `XLUA_BRIDGE_CHECKS`
    that in release players, but release and development would then differ
    in which functions `xlua.hotfix` and the `CS` lookup use after a script
    replaces `xlua.access` or `rawset`. Recommendation: keep it.
+
+   **Decided 2026-10-28 (owner, Q32): keep.** `XLUA_LOCK_XLUA_TABLE` stays
+   on in minimal release players, as in every other minimal build. No code
+   change.
 2. `XLUA_NO_BRIDGE_CHECKS` is public, for profiling Development players
    and `XLUA_GENERAL` programs. If nobody outside the tests needs it, it can
    become a test-only symbol.
+
+   **Decided 2026-10-28 (owner, Q33): it stays public.** It is documented as
+   the opt-out for profiling Development players and for programs that ship
+   on `XLUA_GENERAL` ([XLua_API_EN.md](../../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_bridge_checks),
+   [Security.md](../../Assets/XLua/Doc/Security.md),
+   [MIGRATING.md](../MIGRATING.md#opt-in-defines-no-change-unless-defined)).
+   No code change.
 3. The struct header: the default `xlua.genaccessor` accessors and the
    pack/unpack helpers trust `len` in any full userdata whose first int is
    -1, so a foreign userdata can still be read or written past its block in
    release players. Comparing `len` with `lua_rawlen` would make it a
    class (c) fix like the reader's; not measured (one more C API call per
    struct field access in generated code).
+
+   **Decided 2026-10-28 (owner) and implemented:** a bounds check in every
+   build, no flag; `XLUA_BRIDGE_CHECKS` (the tag check) stays as it is. The
+   accessors require `lua_rawlen >= 8 + offset + width` before they read the
+   header, `xlua.structclone` and the new `xlua_tostructbuffer` require
+   `8 + len <= lua_rawlen`, and C# and generated code read a struct argument
+   through `xlua_tostructbuffer` (type id and length in one native call)
+   instead of `xlua_gettypeid` and `lua_touserdata`. Bridge version 111.
+   Measured: +0.5 ns per accessor call (14.1 and 16.5 ns get and set), and
+   a `[GCOptimize]` struct argument 4 to 6 ns faster (one P/Invoke fewer).
+   Details and tests in
+   [crash-inventory.md](../research/crash-inventory.md#10-struct-accessors-and-foreign-userdata).
 4. The owner-thread check that
    [crash-inventory.md](../research/crash-inventory.md) proposes for
    `LuaEnv.L` (items 5 and 6: two threads in one `LuaEnv`, finalizers that
