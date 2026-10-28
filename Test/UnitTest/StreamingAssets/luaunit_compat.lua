@@ -22,6 +22,25 @@ if rawget(_G, "os") then
     end
 end
 
+-- Lua's print writes to C stdio's stdout, and C# (LuaTestCommon.Log, the
+-- Console outside Unity) writes to the same file through a buffer of its own.
+-- PUC Lua flushes after each print and LuaJIT does not; say() below flushes
+-- through io.stdout, which a library without io (the minimal preset) lacks.
+-- There LuaJIT's lines waited in the stdio buffer, which goes out in blocks
+-- that end anywhere, and a C# line logged meanwhile (CaseFirstPushEnum's
+-- "LuaFunction<...") landed inside a later Lua line, once inside the
+-- summary that run_managed.py reads. Without io.stdout, print goes through
+-- C#, so both kinds of line share one writer and keep their order. In Unity
+-- print and Log both go to Debug.Log already.
+if not (io and io.stdout) then
+    local log = CS.LuaTestCommon.Log
+    print = function(...)
+        local parts = {}
+        for i = 1, select("#", ...) do parts[i] = tostring((select(i, ...))) end
+        log(table.concat(parts, "\t"))
+    end
+end
+
 local lu = require("luaunit")
 
 local M = {}
