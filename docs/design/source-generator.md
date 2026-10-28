@@ -3557,7 +3557,10 @@ runs were before decision 10's message change.
 6. **The Linux container** (`Test/Docker`) has no .NET SDK, so `sanitize.sh`
    and `coverage.sh` there run the managed suite through reflection only and
    say so; the CI jobs install the SDK. Add the SDK to the image (about
-   200 MB)?
+   200 MB)? On 2026-10-28 the pinned SDK mounted into the image ran every
+   `sanitize.sh` source generator pass, with
+   `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` because the image has no
+   `libicu` ([Test/README.md](../../Test/README.md#the-checks-the-round-left-out-2026-10-28)).
 7. **A release package without the generator:** `make_upm_package.py` still
    builds one without `--source-gen` (the tests use that for the reflection
    run). Make `--source-gen` required for anything but tests?
