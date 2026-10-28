@@ -176,7 +176,11 @@ on `Coverage.ParityReflected`, the same class without configuration
 (reflection wrappers in the `--source-gen` passes), and check the results and
 error texts: operators, indexers, readonly fields, events, `self` of another
 class, the error texts, and `CaseParitySameResults` compares some thirty
-calls of both types one by one. `CaseLazyBlackListed` and
+calls of both types one by one. `CaseParityObsolete` checks that `[Obsolete]`
+members are left out in every mode, reflection included, and
+`CaseParityStructArgs` that a struct parameter or field given nil, a number
+or nothing raises the same `InvalidCastException` everywhere (owner
+decisions of 2026-10-28). `CaseLazyBlackListed` and
 `CaseObsoleteOperator` cover `[DoNotGen]` with `[BlackList]` and `[Obsolete]`
 operators and indexers in generated code. The modes run in separate
 processes, so a case compares a mode with an expected value or with the
@@ -1576,6 +1580,64 @@ and on raising handle operations under `xpcall`. After them, 180 seconds each
 `luajit-uint`, built with `UINT_ESPECIALLY`) runs only the `uint64` target, which
 there also checks the LuaJIT-only helpers and `..` on the int64 userdata. A crash leaves a
 reproducer in `$FUZZ_OUT/<target>/`.
+
+`Test/Fuzz/run_bridge.sh <seconds>` runs the adversarial bridge target
+(`fuzz_bridge.c`, the crash sweep of the
+[backlog](../docs/design/backlog.md#tests-and-ci)) on one preset and runtime:
+`XLUA_PRESET` (legacy, minimal or core) and `LUA_VERSION` (5.3.6, 5.4.9,
+5.5.1 or luajit; core needs 5.4 or 5.5). It builds libxlua with CMake as
+the preset builds it, plus ASan, UBSan, Lua's API checks and libFuzzer's
+coverage, and links the target against it. A Lua driver reads each input as
+a list of operations: it builds a pool of values of every kind (boundary
+and huge integers, NaN and infinities, numeric and odd strings, tables with
+metatables, light userdata, other libraries' userdata, xLua's struct and C#
+object userdata, LuaJIT's int64 userdata, functions, coroutines, earlier
+results), calls native functions with arguments from the pool, runs Lua
+operators and the `debug` library on the pool, collects garbage and
+replaces globals. The natives of the bridge presets are `xlua.*`, the
+accessors `xlua.genaccessor` returns (default and, with bit 1 of the first
+byte, checked), the `uint64` table and LuaJIT's int64 metamethods, the
+helpers C# calls (through C wrappers that call them as `LuaDLLBridge.cs`
+does: value readers, the protected table helpers, `xlua_pnext`,
+`xlua_plen`, the userdata cache, the push functions, `CopyByValue`'s pack
+and unpack, `lua_setfenv`, `xlua_getloaders`, `pcall_prepare`, `xlua_gc`,
+the memory snapshot), the class and object indexers, and the C# function
+trampolines around C functions that do what C# functions do. Bit 0 of the
+first byte makes the state a core state with a memory limit and, on Lua 5.4
+and 5.5, an instruction limit, as `LuaEnv(LuaOptions)` does. In the core
+preset the driver runs in LuaScript's sandbox, and the natives are the
+buffer library, the sandbox's coroutine functions and host functions whose
+C dispatcher returns every frame status, invalid results, yields and
+strings from its own memory, and runs handle operations on its arguments.
+Besides crashes, sanitizer reports, API check failures and hangs, the target
+fails when a helper that C# calls outside a protected call raises an error
+other than a memory error, when a helper leaves the stack other than its
+caller expects, and when a struct header changes. The known crashes of
+[crash-inventory.md](../docs/research/crash-inventory.md) (items 8, 10, 18,
+22, 23 and 24: foreign userdata with a struct header, `debug.getregistry`,
+`debug.setupvalue` on a trampoline's C function and on a class indexer's
+fields, `__gc` errors on Lua 5.3, `debug.setmetatable` on io files on
+LuaJIT, `debug.traceback` levels near the int limits) are left out unless
+`FUZZ_TRICKS=1`; `FUZZ_BRIDGE_TRACE=1` (2, 3) on a reproducer says how the
+driver ended (and lists every call). The seeds are 16 fixed random inputs
+of 1 KB, which the script writes, and `Test/Fuzz/corpus/bridge` (the
+reduced input of crash-inventory item 27: on legacy Lua 5.3.6 it replaces the
+metatable of an all-weak `_G` between GC steps).
+On 2026-10-28 (Linux arm64 container, Clang 21.1.8) the target ran for about
+2 hours 40 minutes of CPU in fork mode: legacy 15 minutes on each runtime,
+minimal 10, core 15 on 5.4.9 and 5.5.1, plus re-runs after the fixes. It
+found five crashes that were fixed (items 25 to 29 of
+[crash-inventory.md](../docs/research/crash-inventory.md): `xlua_getloaders`
+raising, a host function's type error past the frame, Lua 5.3.6's
+use after free for the metatable of an all-weak table, a light userdata read
+as LuaJIT's int64, and LuaEnv's message handler recursing on LuaJIT), and
+an overflow in Lua's `debug.traceback` (item 24, an owner question). Each
+input takes 10 to 80 ms (up to 400 calls): 30 to 60 runs per second on the
+bridge presets with Lua 5.x, 120 to 140 on the core preset and about 250 on
+LuaJIT. The corpora reached 79%
+of `xlua.c`'s functions and 71% of its branches on legacy Lua 5.5.1, 83%
+and 75% on LuaJIT. A 60-second run of legacy Lua 5.5.1 is part of the
+sanitizer job in `native-build.yml`.
 
 `Test/Native/check_webgl_exports.py` does the import check for the Unity WebGL
 plugin. It reads `llvm-nm --defined-only` output for the object file that

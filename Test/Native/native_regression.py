@@ -5,7 +5,7 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, indexers, indexer_base_walk, path_access, protected_helpers, csharp_functions, setfenv, uint_conversion,
+struct_accessors, struct_clone, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
@@ -1009,6 +1009,82 @@ def check_protected_helpers(state):
     assert results == [(1, 1), (1, 1)], results
     assert lib.xlua_running(state) == 0
     lib.lua_settop(state, 0)
+    # xlua_getloaders (LuaEnv.AddSearcher) after a script replaced package or gave
+    # _G an __index that raises: nil, where it raised with no handler (Lua's panic;
+    # found by Test/Fuzz/fuzz_bridge.c).
+    lib.xlua_getloaders.argtypes = [P]
+    lib.xlua_getloaders(state)
+    assert lib.lua_gettop(state) == 1 and lib.lua_type(state, 1) == 5  # LUA_TTABLE
+    lib.lua_settop(state, 0)
+    for code in ["package = nil", "package = true",
+                 "setmetatable(_G, {__index = function() error('no globals') end}) package = nil"]:
+        run(state, "saved_package = saved_package or package " + code)
+        lib.xlua_getloaders(state)
+        assert lib.lua_gettop(state) == 1 and lib.lua_type(state, 1) == 0, code  # LUA_TNIL
+        lib.lua_settop(state, 0)
+        run(state, "setmetatable(_G, nil) package = saved_package")
+    run(state, "saved_package = nil")
+
+
+def check_error_handler(state):
+    """LuaEnv's message handler (errorfunc) after a script replaced debug or
+    debug.traceback: the message with a traceback, where it raised ("error in error
+    handling", and on LuaJIT with a hook that makes a protected call, recursion until
+    the C stack overflowed; found by Test/Fuzz/fuzz_bridge.c)."""
+    lib.get_error_func_ref.argtypes = [P]
+    lib.pcall_prepare.argtypes = [P, C.c_int, C.c_int]
+    error_ref = lib.get_error_func_ref(state)
+
+    def call(setup, body="error('boom')"):
+        lib.lua_settop(state, 0)
+        run(state, "saved_debug = saved_debug or debug " + setup)
+        assert lib.luaL_loadstring(state, body.encode()) == 0
+        func_ref = lib.luaL_ref(state, REGISTRY)
+        base = lib.pcall_prepare(state, error_ref, func_ref)
+        status = lib.lua_pcall(state, 0, 0, base)
+        message = lib.lua_tolstring(state, -1, None)
+        lib.lua_settop(state, 0)
+        run(state, "debug = saved_debug saved_debug = nil")
+        return status, message
+
+    status, message = call("")
+    assert status == LUA_ERRRUN and b"boom" in message and b"stack traceback" in message, (status, message)
+    for setup in ["debug = nil", "debug = 1", "debug = {traceback = 1}"]:
+        status, message = call(setup)
+        assert status == LUA_ERRRUN and b"boom" in message and b"stack traceback" in message, (setup, status, message)
+    status, message = call("debug = {traceback = function(m) return 'mine: ' .. tostring(m) end}")
+    assert status == LUA_ERRRUN and message.startswith(b"mine: "), message  # a script's own traceback is used
+    status, message = call("debug = nil", "error({})")
+    assert status == LUA_ERRRUN and message is None, message  # a table error stays a table
+    status, message = call("debug = nil", "error()")
+    assert status == LUA_ERRRUN and message.startswith(b"stack traceback"), message  # nil: the traceback alone
+    if is_luajit(state):
+        # The recursion: a hook that makes a protected call inside the handler.
+        status, message = call("debug.sethook(function() pcall(type) end, 'c') debug = nil")
+        run(state, "debug.sethook()")
+        assert status == LUA_ERRRUN and b"boom" in message, (status, message)
+
+
+def check_weak_table_metatable(state):
+    """A new metatable for an all-weak table during a GC cycle (Lua 5.3.6: freed while
+    in use, "New metatable in an all-weak table can fool the GC", lua.org/bugs.html;
+    found by Test/Fuzz/fuzz_bridge.c). The use after free needs AddressSanitizer to
+    be seen (sanitize.sh); the check runs on every version."""
+    run(state, """
+        for _, live in ipairs({0, 100, 2000}) do
+            local keep = {}
+            for i = 1, live do keep[i] = {i} end
+            for round = 1, 400 do
+                local t = setmetatable({}, {__mode = "kv"})
+                collectgarbage("step", round % 37)
+                setmetatable(t, {})
+                collectgarbage("step", (round * 7) % 53)
+                t.x = 1
+                assert(getmetatable(t) ~= nil and getmetatable(t).__mode == nil)
+            end
+        end
+        collectgarbage()
+    """)
 
 
 def check_csharp_functions(state):
@@ -1388,6 +1464,25 @@ else
     assert(s(uint64.parse("7") / 2) == "3")
 end
 """)
+    # A light userdata that debug.setmetatable gave the int64 metatable is no int64:
+    # the checks read 16 bytes at the address it holds (found by fuzz_bridge.c).
+    if not is_luajit(state):
+        return
+    for name in ("lua_isint64", "lua_isuint64", "lua_toint64"):
+        getattr(lib, name).argtypes = [P, C.c_int]
+    lib.lua_isint64.restype = lib.lua_isuint64.restype = C.c_int
+    lib.lua_toint64.restype = C.c_int64
+    block = (C.c_int64 * 2)(0xFFFFFFFF, 1234)  # fake_id -1, type Int, value 1234 on little-endian
+    lib.lua_settop(state, 0)
+    lib.lua_pushlightuserdata(state, C.addressof(block))
+    lib.lua_setglobal(state, b"xlua_test_lud")
+    run(state, "debug.setmetatable(xlua_test_lud, getmetatable(uint64.parse('1')))")
+    push_results(state, "return xlua_test_lud", 1)
+    assert lib.lua_isint64(state, 1) == 0 and lib.lua_isuint64(state, 1) == 0
+    assert lib.lua_toint64(state, 1) == 0
+    lib.lua_settop(state, 0)
+    run(state, "local ok, e = pcall(function() return xlua_test_lud .. 'x' end) assert(not ok, e) "
+               "debug.setmetatable(xlua_test_lud, nil) xlua_test_lud = nil")
 
 
 def check_luajit_int64_helpers(state):
@@ -3038,7 +3133,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "csharp_functions", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",

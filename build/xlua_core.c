@@ -234,6 +234,15 @@ static XLUA_NOINLINE int raise_frame_error(lua_State *L, const xlua_core_frame *
 	case XLUA_FRAME_ARGERROR:
 		return luaL_argerror(L, f->error_arg, f->error != NULL ? f->error : "?");
 	case XLUA_FRAME_TYPEERROR:
+		if (f->error_arg < 1 || f->error_arg > f->nargs) {
+			/* An argument the call did not pass (LuaCall.GetLong(30) on a call
+			 * with two): luaL_typeerror would read it, and past the frame's
+			 * LUA_MINSTACK slots that index is outside the stack (Lua's API
+			 * check "unacceptable index"; 0 and below are no argument). The
+			 * message is the same. */
+			return luaL_argerror(L, f->error_arg,
+			                     lua_pushfstring(L, "%s expected, got no value", f->error != NULL ? f->error : "?"));
+		}
 		return luaL_typeerror(L, f->error_arg, f->error != NULL ? f->error : "?");
 	case XLUA_FRAME_MEMERR:
 		luaD_throw(L, LUA_ERRMEM);  /* as Lua raises it: no message handler */
@@ -485,11 +494,35 @@ LUA_API int errorfunc(lua_State *L) {
 		xc->reserve = XLUA_CORE_ERROR_RESERVE;
 	}
 	lua_getglobal(L, "debug");
-	lua_getfield(L, -1, "traceback");
+	if (lua_istable(L, -1)) {
+		lua_getfield(L, -1, "traceback");
+	}
+	else {
+		lua_pushnil(L);
+	}
 	lua_remove(L, -2);
-	lua_pushvalue(L, 1);
-	lua_pushnumber(L, 2);
-	lua_call(L, 2, 1);
+	if (lua_isfunction(L, -1)) {
+		lua_pushvalue(L, 1);
+		lua_pushnumber(L, 2);
+		lua_call(L, 2, 1);
+	}
+	else {
+		/* A script replaced debug or debug.traceback. Indexing it raised in
+		 * the handler: every error became "error in error handling", and on
+		 * LuaJIT, where a protected call inside the handler (a hook) resets
+		 * that state, the handler re-entered itself until the C stack
+		 * overflowed (found by Test/Fuzz/fuzz_bridge.c). debug.traceback's
+		 * own result instead: the message with the traceback, a value that is
+		 * not a string unchanged. */
+		const char *msg = lua_tostring(L, 1);
+		lua_pop(L, 1);
+		if (msg == NULL && !lua_isnoneornil(L, 1)) {
+			lua_pushvalue(L, 1);
+		}
+		else {
+			luaL_traceback(L, L, msg, 1);
+		}
+	}
 	if (xc != NULL) {
 		xc->reserve = reserve;
 	}

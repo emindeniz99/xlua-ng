@@ -1707,6 +1707,23 @@ namespace Coverage
         public static int StaticOverload(int a) { return 1; }
         public static int StaticOverload(string a) { return 2; }
         public override string ToString() { return "Parity(" + Value + ")"; }
+        // [Obsolete] members: left out in every mode (CaseParityObsolete).
+        [Obsolete("use Add")] public int OldAdd(int a, int b) { return a + b; }
+        [Obsolete("gone", true)] public static int OldStatic() { return 1; }
+        [Obsolete] public string Over(bool x) { return "bool"; }
+        [Obsolete] public int OldField = 1;
+        [Obsolete] public static int OldStaticField = 2;
+        [Obsolete] public const int OldConst = 3;
+        [Obsolete] public int OldProp { get { return 4; } set { Value = value; } }
+        [Obsolete] public event Action OldEvent { add { } remove { } }
+        [Obsolete] public Parity(string s) { Value = -1; }
+        [Obsolete] public static Parity operator /(Parity a, Parity b) { return new Parity(a.Value / b.Value); }
+        // Struct parameters (CaseParityStructArgs).
+        public string Pick(ParityStruct s) { return "struct"; }
+        public string Pick(Parity p) { return "class"; }
+        public string Opt(int a, ParityStruct s = default(ParityStruct)) { return a + ":" + s.X; }
+        public string NulStruct(ParityStruct? s) { return s.HasValue ? "has " + s.Value.X : "null"; }
+        public ParityStruct Inner;
     }
 
     // [BlackList] on an indexer: left out in every mode.
@@ -1798,6 +1815,34 @@ namespace Coverage
         public static int StaticOverload(int a) { return 1; }
         public static int StaticOverload(string a) { return 2; }
         public override string ToString() { return "ParityReflected(" + Value + ")"; }
+        // [Obsolete] members: left out in every mode (CaseParityObsolete).
+        [Obsolete("use Add")] public int OldAdd(int a, int b) { return a + b; }
+        [Obsolete("gone", true)] public static int OldStatic() { return 1; }
+        [Obsolete] public string Over(bool x) { return "bool"; }
+        [Obsolete] public int OldField = 1;
+        [Obsolete] public static int OldStaticField = 2;
+        [Obsolete] public const int OldConst = 3;
+        [Obsolete] public int OldProp { get { return 4; } set { Value = value; } }
+        [Obsolete] public event Action OldEvent { add { } remove { } }
+        [Obsolete] public ParityReflected(string s) { Value = -1; }
+        [Obsolete] public static ParityReflected operator /(ParityReflected a, ParityReflected b) { return new ParityReflected(a.Value / b.Value); }
+        // Struct parameters (CaseParityStructArgs).
+        public string Pick(ParityReflectedStruct s) { return "struct"; }
+        public string Pick(ParityReflected p) { return "class"; }
+        public string Opt(int a, ParityReflectedStruct s = default(ParityReflectedStruct)) { return a + ":" + s.X; }
+        public string NulStruct(ParityReflectedStruct? s) { return s.HasValue ? "has " + s.Value.X : "null"; }
+        public ParityReflectedStruct Inner;
+    }
+
+    // ObsoleteOperator without configuration: reflection wrappers in the source
+    // generator's passes.
+    public class ObsoleteOperatorReflected
+    {
+        public int Value;
+        public ObsoleteOperatorReflected(int v) { Value = v; }
+        [Obsolete("use Divide")] public static ObsoleteOperatorReflected operator /(ObsoleteOperatorReflected a, ObsoleteOperatorReflected b) { return new ObsoleteOperatorReflected(a.Value / b.Value); }
+        public static ObsoleteOperatorReflected operator +(ObsoleteOperatorReflected a, ObsoleteOperatorReflected b) { return new ObsoleteOperatorReflected(a.Value + b.Value); }
+        [Obsolete("gone")] public int this[int i] { get { return i; } }
     }
 
     // [BlackList] on an indexer: left out in every mode.
