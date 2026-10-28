@@ -14,8 +14,11 @@ touch `build/`, `native-build.yml` on pull requests, `codeql.yml` on pushes to
 `main`, pull requests and weekly, `unity-matrix.yml` on matching pushes, pull
 requests and weekly (its Unity steps skip without the licence secrets), and
 `docs.yml` on documentation pushes, `windows-host.yml` (since 2026-10-28) on
-pull requests that change what it reads. `analysis.yml`, `publish.yml` and
-`renovate.yml` stay manual (Renovate needs the `RENOVATE_TOKEN` secret first).
+pull requests that change what it reads, and `analysis.yml`'s `coverage` job
+(since 2026-10-28) on pushes to `main` and pull requests that change
+`build/`, the coverage scripts or the workflow. The rest of `analysis.yml`,
+`publish.yml` and `renovate.yml` stay manual (Renovate needs the
+`RENOVATE_TOKEN` secret first).
 Every workflow can also be started from **Actions → Run workflow**.
 It has `workflow_dispatch`, read-only repository permissions, and no tag or
 release creation step. Artifacts expire after seven days.
@@ -189,11 +192,14 @@ symbol the managed side imports.
 5.3.6, 5.4.9 and 5.5.1, and C# without a build. Code scanning on a private
 repository needs GitHub Advanced Security, so the workflow was manual until
 the repository went public; it now runs on pushes to `main`, pull requests
-and weekly, and uploads its results to code scanning. **Native analysis** (`analysis.yml`, manual) runs
+and weekly, and uploads its results to code scanning. **Native analysis** (`analysis.yml`) runs
 `Test/Native/analyze.sh`, `Test/Native/coverage.sh` and `Test/Fuzz/run.sh`
 (seconds per target as an input) and uploads logs, coverage HTML and crash
-reproducers. Its `coverage` job fails when `xlua.c`'s branch coverage drops
-below `coverage.sh`'s `MIN_BRANCH_COVERAGE` (100%, Test/README.md). Its `lua-tests` job runs lua.org's official test suites through
+reproducers. Its `coverage` job fails when a file's branch coverage drops
+below `coverage.sh`'s `MIN_BRANCH_COVERAGE` (`xlua.c` 100%, `xlua_core.c` 98%,
+`xlua_core_limits.c` 93%; Test/README.md). That job also runs on pushes to
+`main` and on pull requests (owner decision 2026-10-28, path filters below);
+the other jobs run only by hand. Its `lua-tests` job runs lua.org's official test suites through
 `Test/Native/lua_tests.py` for Lua 5.3.6 (also with `LUAC_COMPATIBLE_FORMAT`),
 5.4.9 and 5.5.1, plain and under ASan and UBSan; the script downloads the
 pinned archives and checks their SHA-256. Check workflow changes with
@@ -315,6 +321,12 @@ it.
 - `codeql.yml` skips pushes and pull requests that change only Markdown,
   `docs/` or `Assets/XLua/Doc`; it analyzes C, C++ and C# only, and its weekly
   run covers everything.
+- `analysis.yml` (pushes to `main` and pull requests; the `coverage` job
+  only, the others skip themselves unless started by hand) runs for
+  `build/`, `Test/Native/coverage.sh`, `Test/Native/coverage_gate.py`,
+  `.github/scripts/mono.sh` and itself. This list is narrower than what the
+  job reads (the managed suite and the native checks also add coverage), by
+  the owner's choice of 2026-10-28; a manual run covers the rest.
 - `windows-host.yml` (pull requests) runs for `build/`, `Assets/XLua/` except
   the guides, `General/`, `Test/UnitTest/`, `Test/Native/`,
   `Tools/presets.py` (run_managed.py imports it), its Mono installer and
@@ -325,8 +337,8 @@ it.
   push that removed it.
 
 **Concurrency.** `native-build.yml`, `codeql.yml`, `build.yml`,
-`unity-matrix.yml` and `windows-host.yml` cancel the older run of the same pull request or branch.
-They never cancel a run on `main`. Manual `native-build.yml` and `windows-host.yml` runs get a group
+`unity-matrix.yml`, `windows-host.yml` and `analysis.yml` cancel the older run of the same pull request or branch.
+They never cancel a run on `main`. Manual `native-build.yml`, `windows-host.yml` and `analysis.yml` runs get a group
 of their own, so they are neither cancelled nor queued.
 `docs.yml` (Pages) and `publish.yml` (releases) never cancel.
 
