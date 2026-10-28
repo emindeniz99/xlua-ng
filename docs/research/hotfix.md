@@ -189,7 +189,8 @@ ns per call, the loop included. "Off" is a build without `HOTFIX_ENABLE`
 (`#if THREAD_SAFE || HOTFIX_ENABLE`): the env lock on every C# -> Lua entry,
 a lock in the translator lookup of Lua -> C# calls (until this change), a new
 byte array for every Lua string that C# reads instead of the shared buffer
-(`LuaDLL.cs:144`), and no owner-thread check. `benchmark.py --modes
+(`LuaDLL.cs:144`; a buffer per thread since 2026-10-28, below), and no
+owner-thread check. `benchmark.py --modes
 sourcegen`, lowest median of three rounds per build, ns per call: **[C]**
 
 | case | off | `HOTFIX_ENABLE` before | after `a4750b51` | `THREAD_SAFE` after |
@@ -224,9 +225,69 @@ from the tree before `a4750b51`): **[C]**
 - **C# -> Lua entries** pay the env lock: 11 to 26 ns per entry on the
   host, 16 to 34 ns on IL2CPP. An uncontended `lock` costs 16 ns on the host
   and 28 ns on IL2CPP. **[C]**
-- **Strings** that C# reads from Lua cost 5 to 8 ns more and allocate,
-  because the shared decode buffer is off. **[C]** A `[ThreadStatic]` buffer
-  would keep that without sharing; not done.
+- **Strings** that C# reads from Lua cost 5 to 8 ns more and allocated,
+  because the shared decode buffer was off. **[C]** Each thread has a buffer
+  of its own since 2026-10-28 (below).
+
+### Strings with a buffer per thread (2026-10-28)
+
+Without `THREAD_SAFE` and `HOTFIX_ENABLE` the bridge encodes and decodes
+strings of up to 256 UTF-8 bytes in one shared buffer
+(`CoreGlobals.strBuff`, `Assets/XLua/Core/LuaDLL.cs`). With either define
+several threads may call Lua at once (one env each, or one env under its
+lock), so every `lua_tostring`, `lua_pushstring` and
+`xlua_pushasciistring` (member names) made a new array. Now
+`CoreGlobals.ThreadStrBuff()` returns a `[ThreadStatic]` buffer of the
+calling thread, made on its first string; longer strings still get an array
+of their own, as without the defines. No lock, and the code without the
+defines is unchanged. A direct decode from the native pointer
+(`Encoding.GetString(byte*, int)`) would need no buffer at all, but it needs
+unsafe code, which the bridge does not have: a project that compiles xLua
+into Assembly-CSharp ("The way back" in MIGRATING.md) would have to allow
+unsafe code. **[C]**
+
+`benchmark.py --modes sourcegen --filter string --no-lua --define
+XLUA_NO_BRIDGE_CHECKS`, Lua 5.5.1, the tree before (`9f2e51d2`) and after,
+alternating, lowest median of three rounds, ns per call / managed bytes per
+call: **[C]**
+
+| case | none before | none after | `THREAD_SAFE` before | `THREAD_SAFE` after | `HOTFIX_ENABLE` before | `HOTFIX_ENABLE` after |
+|---|---:|---:|---:|---:|---:|---:|
+| Lua -> C# string argument | 79.8 / 48 | 79.7 / 48 | 87.7 / 96 | 82.0 / 48 | 88.3 / 96 | 81.8 / 48 |
+| Lua -> C# string result | 83.0 / 0 | 83.0 / 0 | 89.3 / 48 | 84.1 / 0 | 89.3 / 48 | 83.7 / 0 |
+| C# -> Lua delegate, string argument | 131.8 / 0 | 132.9 / 0 | 150.4 / 48 | 148.3 / 0 | 150.1 / 48 | 148.8 / 0 |
+| `LuaTable.Get<int>("value")` | 247.1 / 0 | 245.6 / 0 | 276.9 / 40 | 267.3 / 0 | 269.9 / 40 | 269.1 / 0 |
+| `LuaTable.Set("value", i)` | 244.7 / 0 | 244.2 / 0 | 270.0 / 40 | 262.0 / 0 | 268.2 / 40 | 262.6 / 0 |
+
+The 48 bytes of the string argument are the string C# gets ("hello xlua");
+the array the defines added is gone. `hotfix_bench.py` (`HotfixBench.cs`
+has `lua_string_arg` and `lua_string_return` since this change; the same
+file in both trees), lowest median of three rounds, ns per call: **[C]**
+
+| case | off before | off after | on before | on after |
+|---|---:|---:|---:|---:|
+| `lua_string_arg` | 81.31 | 81.47 | 90.28 | 83.39 |
+| `lua_string_return` | 84.15 | 83.95 | 93.33 | 86.28 |
+| `lua_string_arg`, `--define THREAD_SAFE` | 90.62 | 84.59 | 90.06 | 83.47 |
+| `lua_string_return`, `--define THREAD_SAFE` | 92.50 | 87.49 | 93.46 | 88.76 |
+
+("off" is without `HOTFIX_ENABLE`, "on" with it; with `--define
+THREAD_SAFE` both builds have `THREAD_SAFE`.) What is left, 2 to 4 ns over
+the build without the defines, is the thread-static read on Mono; the
+other cases of both scripts did not move beyond noise. Not measured: IL2CPP
+(a thread-static read there goes through the thread's static data) and
+LuaJIT, on which only the suite ran.
+
+Checks (`Test/Native/SourceGenLauncher.cs`, every `run_managed.py
+--source-gen` pass): 2,000 pushes of a C# string field into Lua allocate
+296 managed bytes in all (the calls' own arrays), and 2,000 reads allocate
+what the 2,000 strings take plus 80 bytes, with and without the defines;
+the tree before failed the first check under `THREAD_SAFE` (96,296 bytes).
+Four threads with an env each push and read 3,000 strings each (ASCII,
+non-ASCII, over 256 bytes), at the same time under the defines. A version
+that shared one buffer between threads under `THREAD_SAFE` crashed the
+suite's existing thread tests (SIGABRT in `lua_rawset` during `LuaEnv`
+creation). **[C]**
 
 ### Size
 
@@ -239,6 +300,65 @@ has the table. **[C]**
 - Injection, per method, from 500 methods: field mode 42 bytes of APK, 194
   bytes of uncompressed code and 30 bytes of metadata (the static field);
   IntKey 38, 183 and 0. IntKey saves the metadata, not the code.
+
+### HotfixBridges without HOTFIX_ENABLE (2026-10-28)
+
+The source generator writes `HotfixBridges` (the hotfix bridges and the
+IntKey slots) into every assembly with `[Hotfix]` types, with or without
+`HOTFIX_ENABLE` (`General/SourceGenerator/XLua.SourceGenerator/HotfixBridges.cs`,
+`Emitter.cs:129,345`). Without the define nothing is injected. What reads
+the class then: **[C]** (by reading)
+
+- **The injector** (`Assets/XLua/Src/Editor/Hotfix.cs`) compiles only with
+  `HOTFIX_ENABLE` (`Hotfix.cs:9`), and so does Validate Setup's injector
+  check (`SetupValidator.cs:65`). Nothing.
+- **IntKey:** only injected code calls `HotfixBridges.Get`. But
+  `xlua.util.auto_id_map()` (`EmbeddedModules.cs:237`) calls
+  `HotfixDelegateBridge.SetSlot(assembly, id, f)` for the types of a
+  `hotfix_id_map` it finds, and `xlua.hotfix` exists without the define in
+  `legacy`. Today such a call stores the patch in the slots and nothing runs
+  it; without the class it throws `InvalidOperationException` ("no generated
+  hotfix bridges are registered", `Binding.cs:767`). That happens to a
+  project that keeps a release build's `hotfix_id_map` in `Resources` and
+  runs its patch scripts in a build without the define.
+- **The lookup by signature** (`ObjectTranslator.cs:645-655`): a delegate
+  type with no bridge of its own takes a registered bridge with the same
+  parameters, and the hotfix bridges count (`BindingRegistry.BridgeMethods`,
+  `Binding.cs:902`). A `delegate void D(int)` that no `[CSharpCallLua]`
+  lists works today, also on IL2CPP, if the assembly has a `[Hotfix]` type
+  with a static `void M(int)`. Without the class it fails with "This type
+  must add to CSharpCallLua" once generated bindings set `Gen_Flag` (the
+  generic `Action`/`Func` bridges take no value-type parameters). Upstream
+  behaved the same: Generate Code wrote the hotfix bridges into
+  `DelegatesGensBridge` whether or not the define was set.
+- **Extension methods:** a unit that registers slots counts as binding code
+  (`Binding.cs:448`), which turns off the reflection scan for extension
+  methods (`Binding.cs:660`). An assembly whose only generated code is its
+  `HotfixBridges` would no longer do that.
+
+**Size.** The strict minimal and legacy configurations of `size_report.py`
+have no `[Hotfix]` types, so the generator writes no `HotfixBridges` there
+and skipping it saves nothing. For `+hftargets` (50 `[Hotfix]` classes,
+500 methods of eight signatures, `HotfixSizeTargets.cs`), compiled as a
+library with csc `-optimize+` and the generator, without the define: the
+class has 13 methods (10 bridges, `Get`, `Set`, the static constructor) and
+867 bytes of IL of the assembly's 9,242, and skipping it makes the DLL
+3,072 bytes smaller (33,280 against 30,208). Estimated from the IL, not
+built with Unity: for comparison, `+hftargets` without injection (the 500
+methods and this class together) cost 21,844 bytes of APK
+([SIZE.md](../../build/SIZE.md#hotfix-hotfix_enable-2026-10-28)). A game's
+cost grows with its number of distinct hotfix signatures, not methods.
+**[C]** the IL and DLL numbers; **[U]** the APK share.
+
+**Patch, not merged.** The branch `small-perf-hotfixbridges` (on top of
+this work) skips the class without `HOTFIX_ENABLE`, with the generator unit
+test `HotfixBridgesOnlyWithHotfixEnable`, the existing hotfix tests compiled
+with the define, the injector's error naming the define, and a MIGRATING.md
+entry for the three changes above. **Decide (owner):** take it (the
+size above for projects with `[Hotfix]` types that build without the define,
+against the three behaviour changes in such builds), take it only with
+`SetSlot` doing nothing without the define (one of the three left), or keep
+the bridges.
 
 ### The env lock and hotfix
 
@@ -272,14 +392,15 @@ pays too.
 **Options for the owner:**
 
 1. **Keep it (legacy today, every preset).** Cost as measured: 11 to 34 ns
-   per C# -> Lua entry, 5 to 8 ns and an allocation per string read.
+   per C# -> Lua entry, and 2 to 4 ns per string (5 to 8 ns and an
+   allocation before the buffer per thread of 2026-10-28).
 2. **Separate them in the non-legacy presets.** `HOTFIX_ENABLE` alone takes
    no lock; a patched method must run on the env's owner thread, and
    `InvokeSessionStart` checks that in every build (a thread-static read and
    a compare, about 2 ns, against 210 to 349 ns per patched call), throwing
    `InvalidOperationException` instead of corrupting the heap. `THREAD_SAFE`
    gives back the any-thread behaviour. `legacy` keeps the lock. Gain: the
-   C# -> Lua lock, the string buffer and the debug-build owner check under
+   C# -> Lua lock, the thread-static string buffer and the debug-build owner check under
    `HOTFIX_ENABLE`. Cost: a preset difference to document and test (a
    `run_managed.py` pass), and a hotfix that runs off the main thread fails
    loudly in those presets. Recommended.
