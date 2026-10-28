@@ -33,6 +33,16 @@ Checks:
 - core_stop_latency: the time limit and Interrupt stop xlua_core_call within
   100 ms, also with an instruction limit, and Interrupt works without limits
   (XLUA_LIMITS_INTERRUPT); Test/Native/stop_latency.py.
+- core_raw_api: needs the Lua C API exported: the limit exports and the C
+  budget on a state without the core allocator, a host function's argument
+  that is light userdata or a 2 GB external string (Lua 5.5), a hook that is
+  not core's own, and a coroutine resumed without the switch.
+- core_sandbox_edges: the edges of xlua_core_sandbox.c and xlua_core_buffer.c
+  that the checks above leave untaken: handles out of range, full stacks of a
+  coroutine and of its caller, a coroutine error whose __tostring fails, the
+  edge cases of the handle operations, a name registered twice; with the C API
+  exported, userdata that are no buffers and (Lua 5.5) a 2 GB string; with
+  xlua_core_limits.c's test points, a stop after call_body's last check.
 """
 import ctypes as C
 import os
@@ -947,12 +957,500 @@ def check_core_stop_latency_once(lib):
           % (n, worst[3] * 1000, worst[:3], early))
 
 
+class Frame(C.Structure):  # xlua_core_frame
+    _fields_ = [("L", P), ("args", C.POINTER(Value)), ("results", C.POINTER(Value)), ("error", P)] \
+        + [(n, C.c_int32) for n in ("nargs", "results_cap", "nresults", "status", "error_len", "error_arg",
+                                    "yieldable", "id")]
+
+
+DISPATCH = C.CFUNCTYPE(None, P, C.c_int32, C.POINTER(Frame))
+
+
+def check_core_raw_api(lib):
+    """What only a host with the Lua C API (XLUA_EXPORTS=all) can do to a core
+    state, for the branches of xlua_core.c and xlua_core_limits.c that LuaScript
+    and scripts cannot reach in a core library (Test/README.md, the coverage
+    gate): the limit exports and the C budget on a state without the core
+    allocator; a host function's argument that is light userdata, or a string
+    of 2 GB (an external string, Lua 5.5); a hook that is not core's own (the
+    budget and the end of a call), and a coroutine resumed without the switch.
+    In a bridge library the bridge reaches the same branches (debug.sethook,
+    LuaFunction.Call on a coroutine)."""
+    if not hasattr(lib, "luaL_loadbufferx"):
+        print("core_raw_api: the Lua C API is not exported (XLUA_EXPORTS=managed), skipped")
+        return
+    for name, args, res in [("luaL_newstate", [], P), ("lua_close", [P], None),
+                            ("luaL_requiref", [P, C.c_char_p, P, C.c_int], None),
+                            ("luaL_loadbufferx", [P, C.c_char_p, C.c_size_t, C.c_char_p, C.c_char_p], C.c_int),
+                            ("lua_pcallk", [P, C.c_int, C.c_int, C.c_int, P, P], C.c_int),
+                            ("lua_settop", [P, C.c_int], None), ("lua_gettop", [P], C.c_int),
+                            ("lua_rawgeti", [P, C.c_int, C.c_longlong], C.c_int),
+                            ("lua_pushlightuserdata", [P, P], None), ("lua_sethook", [P, P, C.c_int, C.c_int], None),
+                            ("lua_newthread", [P], P), ("lua_resume", [P, P, C.c_int, C.POINTER(C.c_int)], C.c_int),
+                            ("lua_tolstring", [P, C.c_int, P], C.c_char_p),
+                            ("xlua_core_set_dispatcher", [P], None),
+                            ("xlua_core_register", [P, C.c_int32, C.c_char_p, C.c_int32, C.c_int32, C.POINTER(C.c_int32)],
+                             C.c_int)]:
+        fn = getattr(lib, name)
+        fn.argtypes = args
+        fn.restype = res
+
+    # A state without the core allocator: the limit exports refuse it, and the
+    # C budget of the string library does nothing there.
+    plain = lib.luaL_newstate()
+    try:
+        assert lib.xlua_core_set_limits(plain, 1000, 0, 0) == 0
+        assert lib.xlua_core_interrupt(plain) == 0 and lib.xlua_core_watch(plain) == -1
+        lib.luaL_requiref(plain, b"string", C.cast(lib.luaopen_string, P), 1)
+        lib.lua_settop(plain, 0)
+        code = b"return string.find(string.rep('a', 5000), '.-b')"
+        assert lib.luaL_loadbufferx(plain, code, len(code), b"=plain", b"t") == OK
+        assert lib.lua_pcallk(plain, 0, 0, 0, None, None) == OK, lib.lua_tolstring(plain, -1, None)
+    finally:
+        lib.lua_close(plain)
+
+    L, status = open_state(lib, libs=SAFE)
+    assert L, status
+    version = run(lib, L, "return _VERSION")[1]
+    registry = REGISTRY[version]
+    seen = {}
+
+    def dispatch(host, fn_id, frame):
+        try:
+            f = frame.contents
+            if fn_id == 1:  # the first argument, as the trampoline passed it
+                seen["arg"] = (f.args[0].type, f.args[0].len)
+            elif fn_id == 2:  # a hook of the host's own: none
+                lib.lua_sethook(f.L, None, 0, 0)
+            elif fn_id == 3:  # a coroutine resumed through lua_resume, not coroutine.resume
+                top = lib.lua_gettop(f.L)
+                co = lib.lua_newthread(f.L)  # with the count hook of the running thread
+                chunk = b"local n = 0 for i = 1, 10000 do n = n + 1 end return n"
+                assert lib.luaL_loadbufferx(co, chunk, len(chunk), b"=co", b"t") == OK
+                nres = C.c_int()
+                seen["resume"] = lib.lua_resume(co, f.L, 0, C.byref(nres))
+                lib.lua_settop(f.L, top)
+        except Exception as e:  # noqa: BLE001 (reported by main)
+            CALLBACK_ERRORS.append(repr(e))
+
+    dispatcher = DISPATCH(dispatch)
+    lib.xlua_core_set_dispatcher(C.cast(dispatcher, P))
+    try:
+        old = C.c_int32()
+        for name, fn_id in [(b"arg", 1), (b"unhook", 2), (b"rawresume", 3)]:
+            assert lib.xlua_core_register(L, 0, name, len(name), fn_id, C.byref(old)) == OK
+        # The registered function as a handle, to call it with what a script cannot pass.
+        result = Value()
+        code = b"return arg"
+        c = Call(kind=CALL_CHUNK, code=C.cast(C.c_char_p(code), P), code_len=len(code), name=C.cast(C.c_char_p(b"t"), P),
+                 name_len=1, results=C.pointer(result), results_cap=1)
+        assert lib.xlua_core_call(L, C.byref(c)) == OK and result.type == 6, result.type
+        ref = result.u.i
+
+        def call_arg(push):
+            top = lib.lua_gettop(L)
+            assert lib.lua_rawgeti(L, registry, ref) == 6  # LUA_TFUNCTION
+            push()
+            assert lib.lua_pcallk(L, 1, 0, 0, None, None) == OK, lib.lua_tolstring(L, -1, None)
+            lib.lua_settop(L, top)
+
+        call_arg(lambda: lib.lua_pushlightuserdata(L, 16))
+        assert seen.pop("arg") == (T_OTHER, 0)
+        if version == "Lua 5.5":
+            # 2 GB of address space that is never touched but for its last byte, which
+            # an external string needs to be 0: the trampoline passes its first 2 GB - 1.
+            import mmap
+            size = 1 << 31
+            flags = mmap.MAP_PRIVATE | getattr(mmap, "MAP_ANONYMOUS", 0x20) | getattr(mmap, "MAP_NORESERVE", 0)
+            region = mmap.mmap(-1, size + 1, flags=flags)
+            try:
+                lib.lua_pushexternalstring.argtypes = [P, P, C.c_size_t, P, P]
+                lib.lua_pushexternalstring.restype = C.c_char_p
+                start = C.c_char.from_buffer(region)
+                call_arg(lambda: lib.lua_pushexternalstring(L, C.addressof(start), size, None, None))
+                assert seen.pop("arg") == (T_STR, 2 ** 31 - 1)
+                lib.xlua_gc(L, 2, 0)  # LUA_GCCOLLECT: the string goes before its memory
+                del start
+            finally:
+                region.close()
+        assert lib.xlua_core_unref(L, ref) == 1
+
+        # A host that removes the hook: the end of the call gives no slice back,
+        # and the C budget, left without a slice to borrow from, stops the call.
+        assert lib.xlua_core_set_limits(L, 1000000, 0, SMALL_SLICES) == 1
+        assert run(lib, L, "unhook() return 1") == (OK, "1")
+        assert lib.xlua_core_set_limits(L, 3000, 0, SMALL_SLICES) == 1
+        s = run(lib, L, "unhook() return string.find(string.rep('a', 3000), '.-b')")
+        assert s[0] == LIMIT_INSTR, s
+        # A coroutine that inherited the running thread's count hook, resumed
+        # without the switch: its hook finds it is not the running thread and
+        # disarms it, and it runs to its end.
+        assert lib.xlua_core_set_limits(L, 1000000, 0, SMALL_SLICES) == 1
+        assert run(lib, L, "rawresume() return 2") == (OK, "2")
+        assert seen.pop("resume") == OK
+        assert lib.xlua_core_set_limits(L, 0, 0, 0) == 1
+    finally:
+        lib.xlua_core_set_dispatcher(None)
+        lib.xlua_core_close(L)
+    del dispatcher
+    print("core_raw_api: ok")
+
+
+ERRTYPE, INTERRUPTED = 20, 12
+H_GET, H_SET, H_NEXT, H_INEXT, H_NEWTABLE, H_REF, H_KEY, H_EQUAL = 0, 1, 3, 4, 5, 7, 8, 9
+T_TABLE, T_FUNC = 5, 6
+CALLF_ERROR_FUNC = 4
+TP_END = 2  # xlua_core_limits.c's test point in xlua_core_end (XLUA_LIMITS_TEST_POINTS)
+LUAI_MAXSTACK = 1000000  # luaconf.h of Lua 5.4 and 5.5
+
+
+def handle_value(type_, handle, length=0):
+    v = Value()
+    v.type, v.len, v.u.i = type_, length, handle
+    return v
+
+
+def handle_op(lib, L, op, *values):
+    """xlua_core_handle with v[0], v[1], ... (None leaves one zeroed): (status, v)."""
+    v = (Value * 4)()
+    for i, x in enumerate(values):
+        if x is not None:
+            v[i] = x
+    return lib.xlua_core_handle(L, op, v), v
+
+
+def check_core_sandbox_edges(lib):
+    """The edges of xlua_core_sandbox.c and xlua_core_buffer.c that the other
+    checks leave untaken (Test/README.md, the coverage gate): handles out of
+    range (INT32_MIN, beyond 32 bits, a negative handle of a slot that is no
+    iterator), a function handle as an argument, more arguments than the
+    stack has slots, a chunk without a name, error(function), a coroutine
+    whose resume finds its own stack or the caller's full, a coroutine error
+    whose __tostring raises a table, the edge cases of the handle operations
+    (an iterator at math.maxinteger, a huge iterator handle or array size,
+    REF of every kind of value, a key handle as a key, EQUAL of a free slot,
+    xlua_core_handle on a full stack), a dotted name registered twice, and a
+    state without the sandbox. With the Lua C API exported (XLUA_EXPORTS=all)
+    also full userdata that are no buffers and, on Lua 5.5, a 2 GB external
+    string; with xlua_core_limits.c's test points (-DXLUA_LIMITS_TEST_POINTS),
+    a stop between call_body's check and the end of the call, which otherwise
+    only another thread can make."""
+    for name, args, res in [("xlua_core_set_dispatcher", [P], None),
+                            ("xlua_core_register", [P, C.c_int32, C.c_char_p, C.c_int32, C.c_int32, C.POINTER(C.c_int32)],
+                             C.c_int)]:
+        fn = getattr(lib, name)
+        fn.argtypes = args
+        fn.restype = res
+    raw = hasattr(lib, "luaL_loadbufferx")
+    with_buffer = buffer_built(lib)
+    L, status = open_state(lib, libs=SAFE | (LIBS["buffer"] if with_buffer else 0))
+    assert L, status
+    version = run(lib, L, "return _VERSION")[1]
+    seen = {}
+
+    def dispatch(host, fn_id, frame):
+        try:
+            f = frame.contents
+            seen.setdefault("calls", []).append(fn_id)
+            if fn_id == 1:  # the caller's stack is nearly full: resume a coroutine that yields 500000 values
+                s, c, _, err = co_call(lib, L, CALL_RESUME, fn=seen["co"])
+                seen["hold"] = (s, c.flags, err)
+            elif fn_id == 2:  # a full stack: xlua_core_handle cannot have its 8 slots
+                top = lib.lua_gettop(f.L)
+                # A request over the limit leaves the stack at its largest size (Lua's
+                # error size), which no later request grows: the search below finds
+                # exactly the slots that are left.
+                assert lib.lua_checkstack(f.L, LUAI_MAXSTACK) == 0
+                lo, hi = 0, 2 * LUAI_MAXSTACK
+                while lo < hi:
+                    mid = (lo + hi + 1) // 2
+                    if lib.lua_checkstack(f.L, mid):
+                        lo = mid
+                    else:
+                        hi = mid - 1
+                assert lib.lua_checkstack(f.L, lo) == 1 and lib.lua_checkstack(f.L, lo + 1) == 0
+                # All but one slot: the export's check of the state pushes one value first.
+                lib.lua_settop(f.L, top + lo - 1)
+                seen["full"] = handle_op(lib, L, H_NEWTABLE)[0]
+                lib.lua_settop(f.L, top)
+        except Exception as e:  # noqa: BLE001 (reported by main)
+            CALLBACK_ERRORS.append(repr(e))
+
+    if raw:
+        lib.lua_settop.argtypes = [P, C.c_int]
+        lib.lua_settop.restype = None
+    dispatcher = DISPATCH(dispatch)
+    lib.xlua_core_set_dispatcher(C.cast(dispatcher, P))
+    try:
+        expect(lib, L, "function id(...) return ... end\n"
+                       "function holder()\n"
+                       "  local function f(...) coroutine.yield() return 'held' end\n"
+                       "  return f(table.unpack({}, 1, 600000))\n"
+                       "end\n"
+                       "function gen_big() coroutine.yield() coroutine.yield(table.unpack({}, 1, 500000)) return 'end' end\n"
+                       "function deep(...) hold() return 'deep' end\n"
+                       "function run_deep() return deep(table.unpack({}, 1, 600000)) end\n"
+                       "function bad_tostring() error(setmetatable({}, {__tostring = function() error({}) end})) end\n"
+                       "function make() return {}, function() return 'f' end, coroutine.create(id) end", OK)
+        s, n, r, _ = call_global(lib, L, "make")
+        assert s == OK and n == 3 and (r[0].type, r[1].type, r[2].type) == (T_TABLE, T_FUNC, T_THREAD), s
+        table, func, thread = r[0].u.i, r[1].u.i, r[2].u.i
+
+        # Handles as arguments: a function handle (case XLUA_T_FUNC of xlua_core_push_value),
+        # handles beyond 32 bits, INT32_MIN, and a negative handle whose slot is no iterator.
+        s, n, r, _ = call_global(lib, L, "id", [handle_value(T_FUNC, func)])
+        assert s == OK and n == 1 and r[0].type == T_FUNC and r[0].u.i != func, s
+        assert lib.xlua_core_unref(L, r[0].u.i) == 1
+        for bad in (-(1 << 40), 1 << 40, -(2 ** 31), -2 * func, -2 * func - 1):
+            s, _, _, err = call_global(lib, L, "id", [handle_value(T_TABLE, bad)])
+            assert s == ERRHANDLE and err == "argument 1 is not a valid handle (type 5)", (bad, s, err)
+
+        # More arguments than INT32_MAX - 3: refused before the stack is asked.
+        one = (Value * 1)()
+        c = Call(kind=0, name=C.cast(C.c_char_p(b"id"), P), name_len=2, args=one, nargs=2 ** 31 - 3)
+        assert lib.xlua_core_call(L, C.byref(c)) == ERRSTACK and C.string_at(c.error, c.error_len) == b"too many arguments"
+
+        # A chunk without a name: "@" alone.
+        code = b"error('unnamed')"
+        c = Call(kind=CALL_CHUNK, code=C.cast(C.c_char_p(code), P), code_len=len(code), name=None, name_len=5)
+        s = lib.xlua_core_call(L, C.byref(c))
+        assert s == ERRRUN and C.string_at(c.error, c.error_len) == b":1: unnamed", (s, C.string_at(c.error, c.error_len))
+
+        # error(function): ErrorValue is the function, as a handle.
+        code = b"error(function() end)"
+        c = Call(kind=CALL_CHUNK, code=C.cast(C.c_char_p(code), P), code_len=len(code), name=C.cast(C.c_char_p(b"t"), P),
+                 name_len=1)
+        assert lib.xlua_core_call(L, C.byref(c)) == ERRRUN and c.flags & CALLF_ERROR_FUNC and c.error_ref > 0
+        assert C.string_at(c.error, c.error_len) == b"(error object is a function value)"
+        assert lib.xlua_core_unref(L, c.error_ref) == 1
+
+        # A suspended coroutine holding 600000 values cannot take 500000 more arguments; it
+        # stays suspended and runs on.
+        s, c, _, _ = co_call(lib, L, CALL_START, name="holder")
+        assert s == YIELD, s
+        co = c.fn
+        many = (Value * 500000)()  # nils
+        c = Call(kind=CALL_RESUME, fn=co, args=many, nargs=len(many))
+        s = lib.xlua_core_call(L, C.byref(c))
+        assert s == ERRSTACK and C.string_at(c.error, c.error_len) == b"too many arguments to resume" \
+            and not c.flags & CALLF_DEAD, s
+        s, c, r, _ = co_call(lib, L, CALL_RESUME, fn=co)
+        assert s == OK and c.flags & CALLF_DEAD and value_text(r[0]) == "held", s
+        assert lib.xlua_core_unref(L, co) == 1
+        # A host function whose thread holds 600000 values cannot take the 500000 a coroutine yields.
+        assert lib.xlua_core_register(L, 0, b"hold", 4, 1, C.byref(C.c_int32())) == OK
+        s, c, _, _ = co_call(lib, L, CALL_START, name="gen_big")
+        assert s == YIELD, s
+        seen["co"] = c.fn
+        s, n, r, _ = call_global(lib, L, "run_deep")
+        assert s == OK and value_text(r[0]) == "deep", s
+        hold = seen.pop("hold")
+        assert hold[0] == ERRSTACK and hold[2] == "too many results to resume" and not hold[1] & CALLF_DEAD, hold
+        s, c, r, _ = co_call(lib, L, CALL_RESUME, fn=seen["co"])
+        assert s == OK and value_text(r[0]) == "end", s
+        assert lib.xlua_core_unref(L, seen.pop("co")) == 1
+
+        # A coroutine's error whose __tostring raises a table: describe_error, which runs
+        # outside a message handler for a coroutine, fails with the table, and the call
+        # reports XLUA_ERRRUN without a message or traceback (LuaScript: "unknown error").
+        # This is today's behaviour, not a rule: a plain call's message handler runs again
+        # for the inner table and reports "(error object is a table value)".
+        s, c, _, err = co_call(lib, L, CALL_START, name="bad_tostring")
+        assert s == ERRRUN and err is None and not c.traceback and c.flags & CALLF_DEAD, (s, err)
+        assert lib.xlua_core_unref(L, c.fn) == 1
+
+        # Handle operations. An iterator is a table handle too: its key slot set to
+        # math.maxinteger ends an INEXT traversal instead of overflowing.
+        assert handle_op(lib, L, H_SET, handle_value(T_TABLE, table), int_value(1), int_value(10))[0] == OK
+        s, v = handle_op(lib, L, H_INEXT, handle_value(T_TABLE, table), None, None, handle_value(0, 0, 1))
+        assert s == OK and v[1].type == T_INT and v[1].u.i == 1 and v[3].u.i > 0, s
+        it = v[3].u.i
+        assert handle_op(lib, L, H_SET, handle_value(T_TABLE, it), int_value(1), int_value(2 ** 63 - 1))[0] == OK
+        s, v = handle_op(lib, L, H_INEXT, handle_value(T_TABLE, table), None, None, handle_value(0, it))
+        assert s == OK and v[1].type == T_NIL, s
+        assert lib.xlua_core_unref(L, it) == 1
+        # An iterator handle above INT32_MAX / 2 is none.
+        s, v = handle_op(lib, L, H_NEXT, handle_value(T_TABLE, table), None, None, handle_value(0, 2 ** 30))
+        assert s == ERRHANDLE, s
+        # An array size of INT32_MAX or more is no size hint.
+        for size in (2 ** 31 - 1, 1 << 40):
+            s, v = handle_op(lib, L, H_NEWTABLE, None, int_value(size))
+            assert s == OK and v[0].type == T_TABLE and lib.xlua_core_unref(L, v[0].u.i) == 1, (size, s)
+        # REF of a table, a function and a coroutine: new handles; of a key's string: none.
+        for h, kind in ((table, T_TABLE), (func, T_FUNC), (thread, T_THREAD)):
+            s, v = handle_op(lib, L, H_REF, handle_value(0, h))
+            assert s == OK and v[2].type == kind and v[2].u.i not in (0, h), (kind, s)
+            assert lib.xlua_core_unref(L, v[2].u.i) == 1
+        key = b"key"
+        s, v = handle_op(lib, L, H_KEY, None, Value(type=T_STR, len=len(key), u=Value.U(s=C.cast(C.c_char_p(key), P))))
+        assert s == OK and v[2].len == -1, s
+        key_value = v[2]
+        assert handle_op(lib, L, H_REF, handle_value(0, key_value.u.i))[0] == ERRHANDLE
+        # A key handle is no string to make a key of.
+        assert handle_op(lib, L, H_KEY, None, key_value)[0] == ERRTYPE
+        # EQUAL with a free slot: false.
+        s, v = handle_op(lib, L, H_EQUAL, handle_value(0, 999999), handle_value(0, table))
+        assert s == OK and v[2].type == T_BOOL and v[2].u.i == 0, s
+        s, v = handle_op(lib, L, H_EQUAL, handle_value(0, table), handle_value(0, table))
+        assert s == OK and v[2].u.i == 1, s
+        if with_buffer:
+            s, v = handle_op(lib, L, H_NEWBUFFER, None, int_value(4))
+            assert s == OK, s
+            buf = v[0].u.i
+            s, v = handle_op(lib, L, H_REF, handle_value(0, buf))
+            assert s == OK and v[2].type == T_BUFFER and v[2].len == 4, s
+            assert lib.xlua_core_unref(L, v[2].u.i) == 1 and lib.xlua_core_unref(L, buf) == 1
+
+        # A name of a library registered twice: the copy in each environment that still has the
+        # first function gets the second.
+        old = C.c_int32()
+        env = C.c_int32()
+        assert lib.xlua_core_register(L, 0, b"edges.f", 7, 3, C.byref(old)) == OK and old.value == 0
+        assert lib.xlua_core_newenv(L, C.byref(env)) == OK
+        assert lib.xlua_core_register(L, 0, b"edges.f", 7, 4, C.byref(old)) == OK and old.value == 3
+        seen["calls"] = []
+        for handle in (0, env.value):
+            assert run(lib, L, "edges.f()", handle) == (OK, "nil")
+        assert seen["calls"] == [4, 4], seen["calls"]
+        assert lib.xlua_core_unref(L, env.value) == 1
+
+        if raw:
+            # xlua_core_handle from a host function whose thread's stack is full.
+            assert lib.xlua_core_register(L, 0, b"fill", 4, 2, C.byref(old)) == OK
+            assert run(lib, L, "fill()") == (OK, "nil")
+            assert seen.pop("full") == ERRMEM
+            check_core_foreign_userdata(lib, L, version, with_buffer)
+        for h in (table, func, thread):
+            assert lib.xlua_core_unref(L, h) == 1
+
+        # A state without the sandbox.
+        if hasattr(lib, "xlua_core_newstate"):
+            lib.xlua_core_newstate.argtypes = [C.POINTER(Config), C.POINTER(C.c_int32)]
+            lib.xlua_core_newstate.restype = P
+            plain = lib.xlua_core_newstate(C.byref(Config(0, 0, 0, 0, 0)), C.byref(C.c_int32()))
+            assert plain
+            assert lib.xlua_core_register(plain, 0, b"f", 1, 1, C.byref(old)) == ERRCONFIG
+            assert lib.xlua_core_unref(plain, 100) == 0
+            lib.xlua_core_close(plain)
+
+        if hasattr(lib, "xlua_core_set_test_point") and with_buffer:
+            check_core_stop_window(lib, L)
+        else:
+            print("core_sandbox_edges: no test points (XLUA_LIMITS_TEST_POINTS) or no buffer library: "
+                  "the stop after call_body's check is not reached")
+        assert lib.lua_gettop(L) == 0
+    finally:
+        lib.xlua_core_set_dispatcher(None)
+        lib.xlua_core_close(L)
+    del dispatcher
+    print("core_sandbox_edges: ok")
+
+
+def check_core_foreign_userdata(lib, L, version, with_buffer):
+    """Full userdata that are no buffers, which only the C API can make in a
+    sandbox: one without a metatable and one with another metatable, as
+    globals, as results and as handles; on Lua 5.5 a 2 GB external string
+    (an untouched anonymous mmap) as a result and for buffer.fromstring."""
+    registry = REGISTRY[version]
+    for name, args, res in [("lua_newuserdatauv", [P, C.c_size_t, C.c_int], P),
+                            ("lua_createtable", [P, C.c_int, C.c_int], None),
+                            ("lua_setmetatable", [P, C.c_int], C.c_int), ("lua_setglobal", [P, C.c_char_p], None),
+                            ("lua_pushnil", [P], None), ("lua_pushvalue", [P, C.c_int], None),
+                            ("luaL_ref", [P, C.c_int], C.c_int)]:
+        fn = getattr(lib, name)
+        fn.argtypes = args
+        fn.restype = res
+    refs = []
+    for name, meta in ((b"plainud", False), (b"metaud", True)):
+        lib.lua_newuserdatauv(L, 8, 0)
+        if meta:
+            lib.lua_createtable(L, 0, 0)
+            lib.lua_setmetatable(L, -2)
+        lib.lua_pushvalue(L, -1)
+        refs.append(lib.luaL_ref(L, registry))
+        lib.lua_setglobal(L, name)
+    results = (Value * 2)()
+    code = b"return plainud, metaud"
+    c = Call(kind=CALL_CHUNK, code=C.cast(C.c_char_p(code), P), code_len=len(code), name=C.cast(C.c_char_p(b"t"), P),
+             name_len=1, results=results, results_cap=2)
+    assert lib.xlua_core_call(L, C.byref(c)) == OK and c.nresults == 2 and results[0].type == results[1].type == T_OTHER
+    for ref in refs:
+        assert handle_op(lib, L, H_BUFFER, handle_value(0, ref))[0] == (ERRHANDLE if with_buffer else ERRCONFIG)
+        assert handle_op(lib, L, H_REF, handle_value(0, ref))[0] == ERRHANDLE
+        assert lib.xlua_core_unref(L, ref) == 1
+    if with_buffer:
+        expect(lib, L, "for _, u in ipairs({plainud, metaud}) do\n"
+                       "  assert(not buffer.isbuffer(u))\n"
+                       "  local ok, e = pcall(buffer.len, u)\n"
+                       "  assert(not ok and e:find('buffer expected, got userdata', 1, true), e)\n"
+                       "end\n"
+                       "return 'ok'", OK, "ok")
+    for name in (b"plainud", b"metaud"):
+        lib.lua_pushnil(L)
+        lib.lua_setglobal(L, name)
+    if version != "Lua 5.5":
+        return
+    import mmap
+    size = 1 << 31
+    flags = mmap.MAP_PRIVATE | getattr(mmap, "MAP_ANONYMOUS", 0x20) | getattr(mmap, "MAP_NORESERVE", 0)
+    region = mmap.mmap(-1, size + 1, flags=flags)
+    try:
+        lib.lua_pushexternalstring.argtypes = [P, P, C.c_size_t, P, P]
+        lib.lua_pushexternalstring.restype = C.c_char_p
+        start = C.c_char.from_buffer(region)
+        lib.lua_pushexternalstring(L, C.addressof(start), size, None, None)
+        lib.lua_setglobal(L, b"huge")
+        expect(lib, L, "return huge", ERRRUN, "a string of more than 2 GB cannot be passed to C#")
+        if with_buffer:
+            expect(lib, L, "local ok, e = pcall(buffer.fromstring, huge) assert(not ok) return e", OK,
+                   "string too long for a buffer (more than 1073741824 bytes)")
+        lib.lua_pushnil(L)
+        lib.lua_setglobal(L, b"huge")
+        lib.xlua_gc(L, 2, 0)  # LUA_GCCOLLECT: the string goes before its memory
+        del start
+    finally:
+        region.close()
+
+
+def check_core_stop_window(lib, L):
+    """A stop that comes after call_body's last check, before xlua_core_end
+    (core-luascript.md, section 8.14): in a real build only another thread's
+    Interrupt or watchdog makes it; the test point in xlua_core_end makes it
+    on this thread. The results' handles are released, and the call fails."""
+    lib.xlua_core_set_test_point.argtypes = [P]
+    lib.xlua_core_set_test_point.restype = None
+    armed = []
+
+    def point(p):
+        if p == TP_END and armed:
+            armed.pop()
+            assert lib.xlua_core_interrupt(L) == 1
+
+    callback = C.CFUNCTYPE(None, C.c_int)(point)
+    lib.xlua_core_set_test_point(C.cast(callback, P))
+    try:
+        assert lib.xlua_core_set_limits(L, 0, 0, LIMITS_INTERRUPT) == 1
+        expect(lib, L, "function kinds() return {}, function() end, buffer.create(1), coroutine.create(id), 1 end", OK)
+        for cap in (8, 2):  # the loop ends at nresults, and at results_cap
+            armed.append(1)
+            s, n, r, err = call_global(lib, L, "kinds", cap=cap)
+            assert s == INTERRUPTED and n == 0 and err and not armed, (cap, s, err)
+            kinds = [r[i].type for i in range(min(cap, 5))]
+            assert kinds == [T_TABLE, T_FUNC, T_BUFFER, T_THREAD, T_INT][:len(kinds)], kinds
+            for i in range(len(kinds) - (cap > 4)):
+                assert lib.xlua_core_unref(L, r[i].u.i) == 0, "released by xlua_core_call"
+        assert lib.xlua_core_set_limits(L, 0, 0, 0) == 1
+    finally:
+        lib.xlua_core_set_test_point(None)
+    print("core_sandbox_edges: the stop after call_body's check (test points)")
+
+
 def main(lib, names):
     bind(lib)
     import sys
     sys.path.insert(0, str(HERE))
     for name in names or ["core_sandbox", "core_sandbox_abi", "core_host_oom", "core_lua_api", "core_buffer", "core_trusted_bytecode",
-                          "core_stop_latency", "core_coroutines"]:
+                          "core_stop_latency", "core_coroutines", "core_raw_api", "core_sandbox_edges"]:
         globals()["check_" + name](lib)
         assert not CALLBACK_ERRORS, (name, CALLBACK_ERRORS)
     if not hasattr(lib, "luaopen_xlua"):

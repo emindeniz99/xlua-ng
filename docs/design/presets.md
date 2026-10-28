@@ -646,6 +646,36 @@ Tests:
    `CaseLuaTableApi` of the coverage suite, all with `Coverage.Point` or the
    `tableValue*Class` fixtures), and `luaunit_compat.lua` accepts the new
    error, `has no generated table converter`, there.
+
+   **Follow-up questions of the Q31 work, answered by the owner on
+   2026-10-28 (all option a):**
+
+   - **Q46, tables to collections:** strict minimal keeps converting a
+     table to an array, a `List<T>` or a `Dictionary<K, V>` (that makes the
+     collection, it fills no fields); their elements follow the Q31 rule. No
+     code change.
+   - **Q47, the twelve suite cases:** they stay in `needs_reflection.lua`;
+     `CaseNoReflectionTableConversion` covers strict minimal. No code change.
+   - **Q48, packable `[GCOptimize]` structs in every preset:** a table read
+     through `Cast<T>` (`ObjectTranslator.GetObject`) or as an element of an
+     array, list or dictionary, or as a field of a class filled from a table,
+     now uses the struct's generated reader in every preset, legacy
+     included, the same as a generated parameter, so its
+     `[AdditionalProperties]` properties are set everywhere. Before, legacy
+     filled only its public fields by reflection on these paths, while a
+     generated parameter or `LuaTable.Get<T>` set the properties too.
+     Implemented: the reflection caster of `ObjectCasters.genCaster` asks
+     `ObjectTranslator.TryGetGeneratedReader` first for a table (one
+     dictionary lookup per conversion of a table to a struct or class). A
+     project without generated bindings, and the source generator's
+     fallback pass, still fill the fields by reflection. Test:
+     `CaseGCOptimizeReaderEverywhere` (fixtures `Coverage.PropertyPoint`
+     and `PropertyPointApi`), which failed in the legacy source-generator
+     pass before the change. [MIGRATING.md](../MIGRATING.md#changes-in-every-build)
+     has the row.
+   - **Q49, the overload check:** it keeps accepting a table for such a
+     parameter, so the call reaches the clear error instead of "invalid
+     arguments". No code change.
    **Related, decided 2026-10-28 (owner): warn about `[GCOptimize]` structs
    without bindings.** In strict minimal a `[GCOptimize]` struct gets its
    pusher and reader but no wrapper, so reading its fields failed only at run

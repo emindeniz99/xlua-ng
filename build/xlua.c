@@ -217,28 +217,28 @@ static int env_upvalue(lua_State *L, int idx) {
  * calls lua_setfenv directly. */
 typedef struct setfenv_dump {
 	int init;
-	int done;
 	luaL_Buffer b;
 } setfenv_dump;
 
 /* As lstrlib.c's string.dump writer: the buffer starts in the writer, so
  * that the function stays on top for lua_dump (luaL_buffinit pushes a
  * placeholder in 5.4 and 5.5), and 5.5's final NULL block moves the result
- * to slot 1, because 5.5's lua_dump restores the stack top. */
+ * to slot 1, because 5.5's lua_dump restores the stack top. A dump always
+ * writes Lua's header first, so the buffer exists by then. */
 static int setfenv_writer(lua_State *L, const void *p, size_t sz, void *ud) {
 	setfenv_dump *d = (setfenv_dump *)ud;
 	if (!d->init) {
 		d->init = 1;
 		luaL_buffinit(L, &d->b);
 	}
+#if LUA_VERSION_NUM >= 505
 	if (p == NULL) {
 		luaL_pushresult(&d->b);
 		lua_replace(L, 1);
-		d->done = 1;
+		return 0;
 	}
-	else {
-		luaL_addlstring(&d->b, (const char *)p, sz);
-	}
+#endif
+	luaL_addlstring(&d->b, (const char *)p, sz);
 	return 0;
 }
 
@@ -248,16 +248,14 @@ static int setfenv_copy(lua_State *L) {
 	const char *s;
 	size_t len;
 	d.init = 0;
-	d.done = 0;
 	lua_settop(L, 1);
 	lua_pushvalue(L, 1);  /* on top for lua_dump; slot 1 receives the dump */
-	if (lua_dump(L, setfenv_writer, &d, 1) != 0 || !d.init) {
-		return luaL_error(L, "unable to dump the function");
-	}
-	if (!d.done) {  /* 5.3 and 5.4 */
-		luaL_pushresult(&d.b);
-		lua_replace(L, 1);
-	}
+	/* lua_dump returns the writer's status, always 0 here; a memory error raises. */
+	(void)lua_dump(L, setfenv_writer, &d, 1);
+#if LUA_VERSION_NUM < 505  /* 5.5's final NULL block did this in setfenv_writer */
+	luaL_pushresult(&d.b);
+	lua_replace(L, 1);
+#endif
 	lua_settop(L, 1);
 	s = lua_tolstring(L, 1, &len);
 	if (luaL_loadbufferx(L, s, len, "=setfenv", "b") != LUA_OK) {
@@ -1878,7 +1876,9 @@ static int builtin_chunk(lua_State *L) {
 
 LUA_API void luaopen_xlua(lua_State *L) {
 	luaL_openlibs(L);
-	xlua_core_open_coroutines(L);  /* core states: the budget follows coroutine switches */
+	if (xlua_core_of(L) != NULL) {
+		xlua_core_open_coroutines(L);  /* core states: the budget follows coroutine switches */
+	}
 #if defined(XLUA_LUASOCKET) || defined(XLUA_MIME)
 	preload_native_modules(L);
 #endif

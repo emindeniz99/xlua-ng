@@ -17,12 +17,13 @@ Checks:
 - lua_setfenv (LuaEnv.LoadString/DoString with an env, LuaFunction.SetEnv)
   without the empty text chunk it uses elsewhere: the function's own _ENV, a
   closure that shares _ENV with a sibling, a stripped function, functions without
-  _ENV and C functions, and out of memory while it copies the function;
+  _ENV and C functions, and out of memory at each allocation of the copy;
 - require of a precompiled file from package.path;
 - LuaEnv's built-in chunks (build/xlua_chunkc.c): luaopen_xlua's loader in the
   registry gives every chunk of the <xlua-chunk> markers of Assets/XLua/Src, found
   and hashed here independently of xlua_chunkc, with its chunk name as source, and
-  refuses another hash and an unknown name. XLUA_EXPECT_BYTECODE_MODULES
+  refuses another hash and an unknown name, and out of memory while it loads a
+  chunk. XLUA_EXPECT_BYTECODE_MODULES
   ("util,profiler,memory", the CMake options XLUA_BYTECODE_UTIL ...) says which
   optional ones the library has; unset, either is fine.
 """
@@ -237,35 +238,65 @@ assert(sibling() == "global" and y == "global")
     assert setfenv(compile_("return 1")) == 0
     check("f, sibling = nil, nil")
     lib.lua_settop(state, 0)
-    # Out of memory while the function is copied: nothing is set and the table is popped.
-    Alloc = C.CFUNCTYPE(P, P, P, C.c_size_t, C.c_size_t)
-    lib.lua_getallocf.argtypes = [P, C.POINTER(P)]
-    lib.lua_getallocf.restype = P
-    lib.lua_setallocf.argtypes = [P, P, P]
-    lib.lua_setallocf.restype = None
-    original_ud = P()
-    original_ptr = lib.lua_getallocf(state, C.byref(original_ud))
-    original = Alloc(original_ptr)
-    failing = [False]
-
-    def alloc(ud, ptr, osize, nsize):
-        if failing[0] and nsize > 0 and (ptr is None or nsize > osize):
-            return None
-        return original(original_ud, ptr, osize, nsize)
-
-    hook = Alloc(alloc)
-    assert load(lib, state, compile_("return y")) == OK
-    run(lib, state, compile_("return {y = 'env'}"), 1)
-    lib.lua_setallocf(state, C.cast(hook, P), None)
-    failing[0] = True
-    try:
-        result = lib.lua_setfenv(state, -2)
-    finally:
-        failing[0] = False
-        lib.lua_setallocf(state, original_ptr, original_ud)
-    assert result == 0 and lib.lua_gettop(state) == 1, (result, lib.lua_gettop(state))
-    assert lib.lua_pcall(state, 0, 1, 0) == OK and tostring(lib, state, -1) == b"global"
+    # Out of memory while the function is copied, at each allocation in turn (the
+    # dump's buffer, its result, loading the copy) until the copy succeeds: nothing
+    # is set and the table is popped.
+    with failing_alloc(lib, state) as fail_after:
+        for allowed in range(1000):
+            lib.lua_settop(state, 0)
+            assert load(lib, state, compile_("return y")) == OK
+            run(lib, state, compile_("return {y = 'env'}"), 1)
+            fail_after(allowed)
+            result = lib.lua_setfenv(state, -2)
+            fail_after(None)
+            assert lib.lua_gettop(state) == 1, (allowed, lib.lua_gettop(state))
+            assert lib.lua_pcall(state, 0, 1, 0) == OK
+            got = tostring(lib, state, -1)
+            if result == 1:
+                assert got == b"env", (allowed, got)
+                break
+            assert result == 0 and got == b"global", (allowed, result, got)
+        else:
+            raise AssertionError("lua_setfenv failed with 1000 allocations allowed")
     lib.lua_settop(state, 0)
+
+
+class failing_alloc:
+    """Wraps the state's allocator; fail_after(n) makes every growth after the
+    next n fail, fail_after(None) stops failing."""
+
+    def __init__(self, lib, state):
+        self.lib, self.state = lib, state
+
+    def __enter__(self):
+        lib, state = self.lib, self.state
+        Alloc = C.CFUNCTYPE(P, P, P, C.c_size_t, C.c_size_t)
+        lib.lua_getallocf.argtypes = [P, C.POINTER(P)]
+        lib.lua_getallocf.restype = P
+        lib.lua_setallocf.argtypes = [P, P, P]
+        lib.lua_setallocf.restype = None
+        self.original_ud = P()
+        self.original_ptr = lib.lua_getallocf(state, C.byref(self.original_ud))
+        original = Alloc(self.original_ptr)
+        left = [None]
+
+        def alloc(ud, ptr, osize, nsize):
+            if left[0] is not None and nsize > 0 and (ptr is None or nsize > osize):
+                if left[0] == 0:
+                    return None
+                left[0] -= 1
+            return original(self.original_ud, ptr, osize, nsize)
+
+        def fail_after(n):
+            left[0] = n
+
+        self.hook = Alloc(alloc)
+        lib.lua_setallocf(state, C.cast(self.hook, P), None)
+        return fail_after
+
+    def __exit__(self, *exc):
+        self.lib.lua_setallocf(self.state, self.original_ptr, self.original_ud)
+        return False
 
 
 def check_require(lib, state, compile_):
@@ -348,6 +379,25 @@ return table.concat(found, " ")
 """.replace("ROWS", ", ".join(rows)).replace("PAIRS", str(names["enumerable_pairs"][3])) \
         .replace("REMOVE", str(names["remove_libraries"][3]))
     print("built-in chunks: " + value(lib, state, compile_(code)).decode())
+    # Out of memory while the loader loads a chunk, at each allocation in turn: nil
+    # and Lua's message, until the chunk loads.
+    lib.lua_settop(state, 0)
+    get = compile_('return debug.getregistry()["xlua.builtin_chunk"], "remove_libraries", %d'
+                   % names["remove_libraries"][3])
+    with failing_alloc(lib, state) as fail_after:
+        for allowed in range(1000):
+            run(lib, state, get, 3)
+            fail_after(allowed)
+            status = lib.lua_pcall(state, 2, 2, 0)
+            fail_after(None)
+            if status == OK and lib.lua_gettop(state) == 2 and tostring(lib, state, -1) == b"":
+                lib.lua_settop(state, 0)
+                break  # the function and nil
+            message = tostring(lib, state, -1)
+            assert b"not enough memory" in message, (allowed, status, message)
+            lib.lua_settop(state, 0)
+        else:
+            raise AssertionError("the built-in chunk loader failed with 1000 allocations allowed")
 
 
 def check_no_builtin_chunks(lib, state):
