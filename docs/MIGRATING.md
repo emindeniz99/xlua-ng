@@ -215,6 +215,16 @@ alike:
   name no type declares is `nil`, as before.
 - **Enums without bindings:** values pass and numbers convert, but `CS.E.Name`
   and `CS.E.__CastFrom` raise; mark the enum `[LuaCallCSharp]`.
+- **`[GCOptimize]` structs without bindings:** `[GCOptimize]` gives a struct
+  its pusher and reader, not a wrapper, so Lua gets the values but `v.x`
+  raises `has no generated bindings`. Since 2026-10-28 the source generator
+  says so at compile time: warning XLSG014 names each struct that an assembly
+  configures with `[GCOptimize]` and that neither it nor a referenced assembly
+  binds. Mark the struct `[LuaCallCSharp]` too (or
+  `[assembly: XLua.LuaCallCSharp(typeof(T))]`). A packable
+  `OptimizeFlag.PackAsTable` struct is a Lua table and needs nothing. xLua's
+  own UnityEngine defaults (`Vector3` and the others) are not reported; bind
+  the ones your Lua code reads fields of.
 - **`obj:ToString()`, `obj:GetType()`, `obj:Equals()`** come from
   `System.Object`, and `t.Name` from `System.Type`, which the preset does not
   bind for you (owner decision, 2026-10-28): bind them

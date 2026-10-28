@@ -79,6 +79,7 @@ namespace XLua.SourceGenerator
         public string StructManifest = "[]";   // JSON: the GCOptimize types and their layout
         public string PackManifest = "[]";     // JSON: the types with Pack/UnPack
         public string NotPackable = "";        // GCOptimize structs read from tables only (XLSG010), one per line
+        public string UnboundStructs = "";     // "type|C# name|fields" lines: GCOptimize structs Lua cannot read without reflection (XLSG014)
         public string LinkXml = "";            // the link.xml fragment (LinkXml.cs), or ""
         public string HotfixBridges = "";      // the members of the HotfixBridges class (HotfixBridges.cs), or ""
         public string HotfixManifest = "[]";   // JSON: the SignatureKey of every hotfix bridge
@@ -95,6 +96,7 @@ namespace XLua.SourceGenerator
                 && DelegateManifest == o.DelegateManifest && InterfaceManifest == o.InterfaceManifest
                 && StructsSource == o.StructsSource && PackSource == o.PackSource && StructRegistration == o.StructRegistration
                 && StructManifest == o.StructManifest && PackManifest == o.PackManifest && NotPackable == o.NotPackable
+                && UnboundStructs == o.UnboundStructs
                 && LinkXml == o.LinkXml && HotfixBridges == o.HotfixBridges && HotfixManifest == o.HotfixManifest
                 && ObfuzRules == o.ObfuzRules && GcmMismatch == o.GcmMismatch && Gcm == o.Gcm;
         }
@@ -204,6 +206,12 @@ namespace XLua.SourceGenerator
             // GeneratedBindings] list, section 5.1) keep that wrapper. They
             // still count as wrapped for the member model and the map.
             var elsewhere = BoundByReferences(compilation);
+            // Not in xLua's own assembly (an asmdef in Unity): its UnityEngine defaults
+            // (GenAttributes.cs) are not the project's configuration, and nothing there
+            // could bind them.
+            bool runtimeItself = SymbolEqualityComparer.Default.Equals(
+                compilation.GetTypeByMetadataName("XLua.Binding.BindingApi").ContainingAssembly, compilation.Assembly);
+            var unbound = NoReflectionDefined(compilation) && !runtimeItself ? UnboundStructs(structs, ctx, elsewhere) : new List<string>();
             var models = new List<TypeModel>();
             var skipped = new List<string>();
             foreach (var t in luaCallCSharp)
@@ -239,6 +247,7 @@ namespace XLua.SourceGenerator
             set2.StructManifest = StructManifest(structs);
             set2.PackManifest = PackManifest(structs);
             set2.NotPackable = string.Join("\n", structs.NotPackable);
+            set2.UnboundStructs = string.Join("\n", unbound);
             var reflectionUse = ReflectionUseLinkLines(compilation, entries, typed);
             set2.LinkXml = LinkXmlDocument(set2.Types.SelectMany(t => t.LinkXml.Split('\n')).Concat(reflectionUse));
             set2.ObfuzRules = ObfuzRulesDocument(set2.Types.SelectMany(t => t.ObfuzLines.Split('\n')).Concat(reflectionUse));
@@ -266,6 +275,43 @@ namespace XLua.SourceGenerator
         {
             var set = new HashSet<string>(symbols);
             return set.Contains("GEN_CODE_MINIMIZE") || (set.Contains("XLUA_PRESET_MINIMAL") && !set.Contains("XLUA_NO_GCM"));
+        }
+
+        // ---- XLUA_NO_REFLECTION ----
+
+        // Strict minimal: XLUA_NO_REFLECTION, which XLUA_PRESET_MINIMAL implies
+        // unless XLUA_REFLECTION is defined (the rule of the <xlua-preset>
+        // blocks, as in GcmDefined). xLua then reaches no member of a type
+        // without generated bindings.
+        internal static bool NoReflectionDefined(Compilation compilation)
+        {
+            foreach (var tree in compilation.SyntaxTrees)
+            {
+                if (tree.Options is CSharpParseOptions o) return NoReflectionDefined(o.PreprocessorSymbolNames);
+            }
+            return false;
+        }
+
+        internal static bool NoReflectionDefined(IEnumerable<string> symbols)
+        {
+            var set = new HashSet<string>(symbols);
+            return set.Contains("XLUA_NO_REFLECTION") || (set.Contains("XLUA_PRESET_MINIMAL") && !set.Contains("XLUA_REFLECTION"));
+        }
+
+        // XLSG014 (owner decision 2026-10-28): [GCOptimize] gives a struct its
+        // pusher and reader, not a wrapper, so without reflection Lua cannot
+        // read or set its fields unless the struct is also [LuaCallCSharp], here
+        // or in a referenced assembly with generated bindings. A packable
+        // PackAsTable struct is pushed as a Lua table, whose fields need no
+        // wrapper. Only the structs this assembly configures: a referenced
+        // assembly reports its own.
+        static List<string> UnboundStructs(StructSet structs, MemberContext ctx, Dictionary<string, string> elsewhere)
+        {
+            return structs.Values.Concat(structs.Tables)
+                .Where(s => s.Own && !s.IsEnum && s.Type.IsValueType && s.Fields.Count > 0 && !(s.Flag == 1 && s.Size != -1)
+                    && !ctx.Wrapped.Contains(s.Clr) && !elsewhere.ContainsKey(s.Clr))
+                .Select(s => s.Clr + "|" + s.Type.ToDisplayString() + "|" + string.Join(", ", s.Fields.Select(f => f.Name)))
+                .Distinct().OrderBy(x => x, StringComparer.Ordinal).ToList();
         }
 
         // XLua compiled with GEN_CODE_MINIMIZE declares XLua.CSharpWrapper, and

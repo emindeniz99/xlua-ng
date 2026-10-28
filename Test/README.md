@@ -202,7 +202,12 @@ declares `XLua.CSharpWrapper` exactly when the suite has `GEN_CODE_MINIMIZE`.
 With the preset the reflection run and the `--source-gen` passes therefore use
 the GCM wrappers (the launcher prints `XLUA_SOURCE_GEN_GCM` in the plain pass
 too), and the generator must not warn XLSG013; `--define XLUA_NO_GCM` next to
-the preset keeps the plain wrappers in xLua and in the generator. One of them, `XLUA_NO_REFLECTION`, turns
+the preset keeps the plain wrappers in xLua and in the generator. In the
+source-gen passes without reflection the generator must warn XLSG014
+(a `[GCOptimize]` struct without bindings, since 2026-10-28) for exactly
+`Coverage.MultiListedVec` and `Coverage.MultiListedPair`, the structs of
+`CaseMultiTypeLists`, which is in `needs_reflection.lua`
+(`EXPECTED_XLSG014`), and in no other pass. One of them, `XLUA_NO_REFLECTION`, turns
 off the reflection fallback and CodeEmit
 ([presets.md](../docs/design/presets.md#reflection-fallback-and-codeemit-as-implemented)):
 then only the source-gen passes run without it. The first pass binds through
@@ -1529,8 +1534,8 @@ checker (2026-10-17, Linux arm64: 2 of 46 on 5.5.1, 3 of 46 on 5.3.6, 4 of 48
 on 5.4.9); `xlua.c` stays at 100% of branches (390, 390 and 404).
 
 **Coverage gate (since 2026-10-28):** `coverage.sh` fails when a file's branch
-coverage is below `MIN_BRANCH_COVERAGE`, default `xlua.c=100` (more files:
-`MIN_BRANCH_COVERAGE="xlua.c=100 xlua_core.c=95"`; empty turns it off). It
+coverage is below `MIN_BRANCH_COVERAGE`, default
+`xlua.c=100 xlua_core.c=98 xlua_core_limits.c=93` (empty turns it off). It
 measures every runtime first and prints an `XLUA_COVERAGE_GATE` line per
 runtime and file (`Test/Native/coverage_gate.py` reads llvm-cov's
 `summary.json`); the analysis workflow's `coverage` job runs it with the
@@ -1548,8 +1553,43 @@ The same day's main had fewer branches in `xlua.c` (338 on 5.3.6, 352 on
 5.4.9 and 5.5.1); on it the container run (arm64, reflection only, no .NET
 SDK) measured 351 of 352 on 5.5.1 before these tests and 100% on all three
 runtimes after them (338 of 338, 352 of 352 and 352 of 352; the check taken
-22 times on 5.5.1), so the default is now 100. With a .NET SDK the source
-generator's passes run too. Since
+22 times on 5.5.1), so the default is now 100. The core runtimes (`VERSIONS=core-...`) build
+`xlua_core_limits.c` without the bridge that calls its hooks, so they take
+`CORE_MIN_BRANCH_COVERAGE` instead (empty by default: no gate).
+
+**Owner decision (2026-10-28), the gate's files and triggers:** `xlua.c` keeps
+its gate (100% since the tests above); `xlua_core.c` and `xlua_core_limits.c`
+join the gate just below their values that day. Measured with `coverage.sh`
+in `xlua-analysis:26.04` (`docker run --memory 6g`, Linux arm64, Clang
+21.1.8, Mono 6.14.1, reflection only, as the CI job), after merging main at
+`50d29bc2`:
+
+| File | 5.3.6 | 5.4.9 | 5.5.1 | Threshold |
+|---|---|---|---|---|
+| `xlua.c` | 338 of 338 (100%) | 352 of 352 (100%) | 352 of 352 (100%) | 100 |
+| `xlua_core.c` | 63 of 64 (98.44%) | 73 of 74 (98.65%) | 85 of 86 (98.84%) | 98 |
+| `xlua_core_limits.c` | no branches (stubs) | 152 of 162 (93.83%) | 152 of 162 (93.83%) | 93 |
+
+The same values came from main at `3042ef63`, before the merge, except
+`xlua.c`'s untaken branch on 5.4.9 and 5.5.1. The ten untaken branches of
+`xlua_core_limits.c` are all of `xlua_core_check_stop`, which nothing in the
+bridge's suites calls; the one of `xlua_core.c` is the true side of
+`lua_toboolean(L, lua_upvalueindex(2))` at `xlua_core.c:631`, in the GCM
+wrapper caller, which only the source generator's GCM pass reaches. The
+hosted runner's image has a .NET SDK, so CI runs those passes: in run
+40673348494 (`ci/coverage-auto`, Linux x86_64) `xlua_core.c` was at 100% on
+all three runtimes (64, 74 and 86 branches), `xlua.c` at 100% and
+`xlua_core_limits.c` at 152 of 162 on 5.4.9 and 5.5.1, all passing the gate.
+The thresholds keep the lower, reflection-only values, so a machine without
+the SDK passes too.
+
+Since that day the `coverage` job also runs by itself, on pushes to `main`
+and on pull requests that change `build/`, `coverage.sh`, `coverage_gate.py`,
+the Mono installer `.github/scripts/mono.sh` or `analysis.yml`; the
+workflow's other jobs stay manual (`.github/CI.md`). Its path filter is
+narrower than the managed suite and the native checks it runs: a change that
+lowers coverage only through them shows in the next run. With a .NET SDK the
+source generator's passes run too. Since
 `build/CMakeLists.txt` records sources as `build/...`
 ([reproducible builds](../build/README.md#reproducible-builds)),
 `coverage.sh` passes `-path-equivalence=build,<checkout>/build` to llvm-cov.
@@ -1635,6 +1675,13 @@ driver ended (and lists every call). The seeds are 16 fixed random inputs
 of 1 KB, which the script writes, and `Test/Fuzz/corpus/bridge` (the
 reduced input of crash-inventory item 27: on legacy Lua 5.3.6 it replaces the
 metatable of an all-weak `_G` between GC steps).
+It runs for 60 seconds in every native-build (`sanitizers` job, legacy,
+Lua 5.5.1), and for 30 minutes every Monday in `analysis.yml`'s `fuzz-bridge`
+job (owner decision 2026-10-28) on legacy 5.5.1, legacy LuaJIT, minimal 5.4.9
+and core 5.5.1. The weekly job keeps the corpus it grows in the Actions cache
+(one entry per configuration), so each week starts from the last; a crash
+uploads its reproducer and `fuzz.log` as an artifact for 30 days. Add a minimised
+reproducer of every fixed crash to `native_regression.py` or the seed corpus.
 On 2026-10-28 (Linux arm64 container, Clang 21.1.8) the target ran for about
 2 hours 40 minutes of CPU in fork mode: legacy 15 minutes on each runtime,
 minimal 10, core 15 on 5.4.9 and 5.5.1, plus re-runs after the fixes. It
@@ -1714,9 +1761,27 @@ ignored). Run on 2026-10-28, it found these, now fixed:
 - the Editor OS of `x86_64/libxlua.so` and `x86/libxlua.so` was AnyOS (now
   Linux) and of `arm64/libxlua.dylib` AnyOS (now OSX).
 
-Upstream's Android `x86` and WSA `x86`/`x64` CPU names are lower case where
-Unity 2021.3 writes `X86`; the check compares without case and they were left
-as they are. Checked by breaking a copy of the repository: removing the
+**Owner decision (2026-10-28): CPU names in Unity's spelling.** The check
+compares CPU and OS names exactly, and the files use the spelling Unity
+writes. That spelling depends on the platform, read from the importers'
+enums in Unity 2021.3.45f2 and 6000.6.6f1 (`UnityEditor.dll` and
+`UnityEditor.CoreModule.dll`, `UnityEditor.Android.Extensions.dll` of
+2021.3.45f2 and 6000.6.4f1, disassembled with `ikdasm`) and confirmed by the
+`.meta` files those editors ship and re-saved in our test projects:
+
+| Importer | CPU names | Source |
+|---|---|---|
+| Android | `ARMv7`, `ARM64`, `X86`, `X86_64` | `AndroidPluginCPUArchitecture` (2021.3), `AndroidArchitecture` (6000.6) |
+| Standalone (Win, Win64, Linux64, OSXUniversal) | `None`, `AnyCPU`, `x86`, `x86_64`, `ARM64` | `DesktopPluginCPUArchitecture`, the same in both |
+| Editor | `AnyCPU`, `x86_64`, `ARM64` | `EditorPluginCPUArchitecture`, the same in both |
+
+So only the Android `x86` library changed (`x86` to `X86`); the desktop
+names were already Unity's. Two things were left as they are: the WSA names
+(`ARM`, `ARM64`, `x64`, `x86`, upstream's), since no Universal Windows
+Platform module was installed to read its importer; and the Editor CPU `x86`
+of the 32-bit `x86/xlua.dll` and `x86/libxlua.so`, which is not a value of
+the Editor's enum in either version (no 32-bit Editor exists). Checked by
+breaking a copy of the repository: removing the
 Android x86_64 `.meta` files (the gap closed on 2026-10-19), a copied GUID,
 an orphan `.meta` with a malformed GUID and a wrong Android CPU each fail it,
 and a `.hidden` file and a `New~` folder do not. `make_upm_package.py` now
