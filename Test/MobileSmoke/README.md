@@ -165,6 +165,18 @@ The player logs `XLUA_NG_SMOKE_PASS` or `XLUA_NG_SMOKE_FAIL` and writes
 `xlua-smoke-result.txt` under `Application.persistentDataPath`. A successful
 export or APK build alone does not establish that these runtime checks passed.
 
+The panic experiment: with `XLUA_SMOKE_PANIC` in `XLUA_SMOKE_DEFINES` (applied
+by `SmokeBuild.ApplyDefines` like the others) the player and
+`SmokeBuild.CheckEditor` run only `PanicSmoke` (`XluaSmoke.cs`), which makes
+Lua call xLua's panic handler on purpose (`lua_rawset` with a nil key from C#,
+with no protected call around it), twice, and checks the env after each. It
+logs `XLUA_NG_PANIC <step> ...` lines as it goes and `XLUA_NG_PANIC_RESULT:
+...` at the end. Since 2026-10-28 an IL2CPP player ends at the first panic
+instead, after `xLua: unprotected error in call to Lua API (...)` (Unity's
+log) and `xLua: Lua panic, ...` (IL2CPP's FailFast message); the Editor gives
+the result line. Results:
+[crash-inventory.md](../../docs/research/crash-inventory.md), item 9.
+
 The iOS 15 setting belongs to this modern Unity smoke project. It does not
 verify or define a legacy iOS support promise for the standalone library.
 
@@ -257,6 +269,16 @@ rebuilt sources. An Android ARM64 IL2CPP APK (Unity 6000.3.21f1, plugin
 built with NDK r30) ran on an Android 16 (API 36) emulator with 16 KB pages.
 A Unity 6000.6.4f1 WebGL player ran in headless Chrome 155. Unity compiled
 `xlua_webgl.cpp` with its Emscripten 4.0.20.
+
+### 2026-10-28: the panic experiment
+
+`XLUA_SMOKE_PANIC` players (above), Lua 5.5.1, Unity 6000.3.21f1, Android
+ARM64 IL2CPP, Minimal stripping, release and Development, on a moto g play
+2024 (Android 14, 4 KB pages) and the `xlua16k` AVD (Android 16, 16 KB pages).
+Before the change of that day each player caught `LuaException` twice and
+kept a working env; after it each ends at the first panic with the messages
+above and a SIGTRAP tombstone. Details:
+[crash-inventory.md](../../docs/research/crash-inventory.md), item 9.
 
 ### 2026-10-28: strict minimal players
 

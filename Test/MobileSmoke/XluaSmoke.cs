@@ -49,6 +49,9 @@ public class XluaSmoke : MonoBehaviour {
  const string ExpectedVersion = "Lua 5.4";
 #endif
  public static string Run() {
+#if XLUA_SMOKE_PANIC
+  return PanicSmoke.Run();
+#endif
   var env = new LuaEnv();
   string features;
   try {
@@ -241,6 +244,11 @@ public class XluaSmoke : MonoBehaviour {
  // between frames, when the stack is empty, so a GC.Collect in the frame that dropped the
  // delegates leaves their bridges alive and LuaEnv.Dispose throws.
  IEnumerator Start() {
+#if XLUA_SMOKE_PANIC
+  // The panic experiment replaces the smoke checks (PanicSmoke below).
+  PanicSmoke.Run();
+  yield break;
+#endif
   string result = null;
   var env = new LuaEnv();
   string features = null;
@@ -258,3 +266,98 @@ public class XluaSmoke : MonoBehaviour {
 #endif
  }
 }
+
+#if XLUA_SMOKE_PANIC
+// The panic experiment (docs/research/crash-inventory.md, item 9), only with
+// XLUA_SMOKE_PANIC in XLUA_SMOKE_DEFINES. It raises a Lua error with no protected call
+// around it: lua_rawset with a nil key ("table index is nil") called straight from C#,
+// so Lua calls the panic handler (StaticLuaCallbacks.Panic). The state pointer is read
+// by reflection, because LuaEnv's state is internal to XLua. Each step logs a line at
+// once, so the log shows how far a player got if it dies. In the Editor, on Mono and
+// with XLUA_GENERAL the handler throws a LuaException, which the catch below receives;
+// in an IL2CPP player it logs the error and ends the process with Environment.FailFast.
+public static class PanicSmoke {
+ static int step;
+
+ static void Log(string line) {
+  Debug.Log("XLUA_NG_PANIC " + (++step) + " " + line);
+ }
+
+ static IntPtr State(LuaEnv env) {
+  var field = typeof(LuaEnv).GetField("rawL", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+  return (IntPtr)field.GetValue(env);
+ }
+
+ static void RaiseUnprotected(IntPtr L) {
+  XLua.LuaDLL.Lua.lua_createtable(L, 0, 0);
+  XLua.LuaDLL.Lua.lua_pushnil(L);
+  XLua.LuaDLL.Lua.lua_pushnil(L);
+  XLua.LuaDLL.Lua.lua_rawset(L, -3);
+ }
+
+ // One panic; returns what the C# catch saw.
+ static string Panic(LuaEnv env, int n) {
+  IntPtr L = State(env);
+  int top = XLua.LuaDLL.Lua.lua_gettop(L);
+  Log("panic " + n + ": calling lua_rawset with a nil key, stack top " + top);
+  string seen;
+  try {
+   RaiseUnprotected(L);
+   seen = "returned without an exception";
+  } catch (LuaException e) {
+   seen = "caught LuaException: " + e.Message;
+  } catch (Exception e) {
+   seen = "caught " + e.GetType().FullName + ": " + e.Message;
+  }
+  Log("panic " + n + ": " + seen + "; stack top now " + XLua.LuaDLL.Lua.lua_gettop(L));
+  XLua.LuaDLL.Lua.lua_settop(L, top);
+  return seen;
+ }
+
+ // Lua, a C# call from Lua, a coroutine, pcall and a full collection after a panic.
+ static string Usable(LuaEnv env, int n) {
+  try {
+   object sum = env.DoString("return 40 + 2")[0];
+   object twice = env.DoString("return CS.SmokeApi.Twice(21)")[0];
+   object co = env.DoString("local c = coroutine.wrap(function() coroutine.yield(1) return 2 end) return c() + c()")[0];
+   var error = (string)env.DoString("local ok, e = pcall(error, 'boom') return tostring(e)")[0];
+   env.FullGc();
+   string result = "DoString " + sum + ", C# call " + twice + ", coroutine " + co + ", pcall '" + error + "', FullGc ok";
+   bool ok = Convert.ToInt64(sum) == 42 && Convert.ToInt64(twice) == 42 && Convert.ToInt64(co) == 3 && error == "boom";
+   Log("after panic " + n + ": env " + (ok ? "usable" : "WRONG") + ": " + result);
+   return ok ? "usable" : "wrong results (" + result + ")";
+  } catch (Exception e) {
+   Log("after panic " + n + ": env FAILED: " + e.GetType().FullName + ": " + e.Message);
+   return "failed (" + e.GetType().Name + ")";
+  }
+ }
+
+ public static string Run() {
+  step = 0;
+  Log("start: " + Application.platform + (Debug.isDebugBuild ? " development" : " release") + ", " + IntPtr.Size * 8 + "-bit");
+  var env = new LuaEnv();
+  Log("before: " + env.DoString("return _VERSION .. ' ' .. (40 + 2)")[0]);
+  string first = Panic(env, 1);
+  string usable1 = Usable(env, 1);
+  string second = Panic(env, 2);
+  string usable2 = Usable(env, 2);
+  string disposed;
+  try {
+   GC.Collect();
+   GC.WaitForPendingFinalizers();
+   env.Dispose();
+   var fresh = new LuaEnv();
+   disposed = "Dispose ok, new LuaEnv " + fresh.DoString("return 1 + 1")[0];
+   fresh.Dispose();
+  } catch (Exception e) {
+   disposed = "Dispose or new LuaEnv failed: " + e.GetType().Name + ": " + e.Message;
+  }
+  Log(disposed);
+  string result = "XLUA_NG_PANIC_RESULT: panic 1 " + first + "; env " + usable1 + "; panic 2 " + second +
+   "; env " + usable2 + "; " + disposed;
+  Debug.Log(result);
+  try { File.WriteAllText(Path.Combine(Application.persistentDataPath, "xlua-smoke-result.txt"), result); } catch (Exception) { }
+  return result;
+ }
+}
+#endif
