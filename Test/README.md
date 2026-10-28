@@ -2269,7 +2269,7 @@ stopping on their missing `.meta`. Not checked in a Unity editor.
   scenes, Unity update callbacks and UI events with the source generator's
   IL2CPP bridges.
 - [The general suite in an IL2CPP player](#the-general-suite-in-an-il2cpp-player)
-  (below): the 522 cases of `run_managed.py` in an Android IL2CPP player.
+  (below): the cases of `run_managed.py` in an Android IL2CPP player.
 - [Artifact CI](../.github/CI.md): manual native builds and test artifacts with
   no release creation. The real-editor matrix covers Unity 2021.3 LTS, 2022.3
   LTS, 6.0 LTS, 6.3 LTS, and the current 6.6 line when license secrets are
@@ -2350,8 +2350,10 @@ in the player (5 s in strict) against 4 s on the host. The first runs gave
 498/522 and 506/522; the causes (fixtures only the host compiled, stripping,
 generic methods in IL2CPP reflection wrappers, players' [BlackList] rules,
 the reduced debug library, Android paths, IL2CPP's empty environment
-variables) are in [il2cpp-suite.md](../docs/research/il2cpp-suite.md). Not
-run: a phone, iOS, High stripping, Development players, other Unity
+variables) are in [il2cpp-suite.md](../docs/research/il2cpp-suite.md). After
+merging main at `9f2e51d2` (523 cases) all three passed 523/523 again, with
+the same differences. An X86_64 strict APK (the CI path) built, 15,394,397
+bytes, but did not run. Not run: a phone, iOS, High stripping, Development players, other Unity
 versions, the x86_64 APK on an emulator, Lua 5.3, 5.4 and LuaJIT.
 
 `unity-matrix.yml` builds X86_64 APKs of the three configurations

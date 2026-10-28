@@ -1,6 +1,6 @@
-"""Run the general Lua suite (Test/UnitTest, the 522 luaunit cases that
-Test/Native/run_managed.py runs on the host under Mono) inside an Android IL2CPP
-player.
+"""Run the general Lua suite (Test/UnitTest, the luaunit cases that
+Test/Native/run_managed.py runs on the host under Mono, EXPECTED_TESTS of them)
+inside an Android IL2CPP player.
 
 The project: Test/MobileSmoke/prepare.py --source-gen --no-smoke gives xLua in
 its asmdefs, the Editor code (the plugin selector and the generator's link.xml
