@@ -1790,7 +1790,8 @@ there also checks the LuaJIT-only helpers and `..` on the int64 userdata. A cras
 reproducer in `$FUZZ_OUT/<target>/`. Since 2026-10-28 `run.sh replay` (in place of the
 seconds) runs each target once over its committed seeds (`-runs=0`) and fails on the first
 seed that crashes, `run.sh build` only builds and prepares the seeds, `FUZZ_JOBS=N` runs N
-libFuzzer processes per target (`-jobs=N -workers=N`, logs `<target>/fuzz-<n>.log`),
+libFuzzer processes per target (since the same day in fork mode, `-fork=N
+-ignore_crashes=0 -ignore_timeouts=0 -ignore_ooms=0`; before, `-jobs=N -workers=N`),
 `FUZZ_RSS_MB` sets `-rss_limit_mb` (default 2048), `FUZZ_MERGE=1` merges the grown corpus
 with `-merge=1` into a fresh directory that replaces it, and `FUZZ_INSTRUMENT=coverage`
 builds with source-based coverage instead of the sanitizers (`corpus_coverage.sh`, below).
@@ -1848,11 +1849,15 @@ first weekly run (`call-chain-cycle`, item 30, from minimal 5.4.9, and
 `profiler-call-loop`, from legacy LuaJIT, not reduced) and `shr-mininteger`
 (2026-10-28, 9 bytes reduced with `-minimize_crash=1` from 1,039: on legacy
 Lua 5.3.6 before the `OP_SHR` patch, UBSan's "negation of
--9223372036854775808" at `lvm.c:986`).
+-9223372036854775808" at `lvm.c:986`), and since 2026-10-28 the nine `ext-*`
+seeds of the extended operations (below). Every native-build replays them on
+legacy 5.5.1 and LuaJIT, and since the same day on legacy 5.3.6 and minimal
+5.4.9 too, where three of the reproducers came from.
 It runs for 60 seconds in every native-build (`sanitizers` job, legacy,
 Lua 5.5.1, after the replay of every target's seeds), and for 30 minutes every Monday in `analysis.yml`'s `fuzz-bridge`
 job (owner decision 2026-10-28) on legacy 5.5.1, legacy LuaJIT, minimal 5.4.9
-and core 5.5.1, with four libFuzzer jobs since the decisions below. The weekly job keeps the corpus it grows, merged, in the Actions cache
+and core 5.5.1, with four libFuzzer processes since the decisions below (in fork mode
+since 2026-10-28). The weekly job keeps the corpus it grows, merged, in the Actions cache
 (one entry per configuration), so each week starts from the last; a crash
 uploads its reproducer and the logs as an artifact for 30 days. Add a minimised
 reproducer of every fixed crash to `native_regression.py` or the seed corpus.
@@ -1881,6 +1886,55 @@ are errors of the `__gc` metamethods the driver sets from its pool (LuaJIT
 prints them and goes on), not a finding; on arm64 that configuration's RSS
 reached 1.6 GB in 10 minutes, with the old driver too.
 
+**Extended operations (2026-10-28).** The corpus coverage of the decisions
+below showed whole areas the driver had no operation for (the list at the
+end of "Fuzzing in CI and corpus coverage"). Inputs whose first byte has bits
+2 and 6 set (`(b & 0x44) == 0x44`) now get four more driver operations and
+ten more natives; every other input reads its bytes as before, so the
+committed reproducers keep their meaning (the three from Lua 5.3.6 and
+5.4.9 make the same calls as with the old driver in their own
+configurations). The
+operations: the limits and stop API (`xlua_core_interrupt`, once or twice,
+`xlua_core_watch`, `xlua_core_get_stats` against the limits the harness set,
+`xlua_core_set_memory_limit` from inside a C# function, which then
+allocates over the new limit so that the trampoline raises the overdraft,
+and `xlua_core_set_limits` while a call runs, as C#'s InstructionLimit
+setter allows); `CopyByValue`'s pack and unpack of all 12 field kinds
+(`float3` to `float5` included) at any offset, which must succeed exactly
+when the field fits, return what the struct holds and round-trip; the
+`_checked` push functions, also with a registry reference that holds a
+number, `xlua_tostruct` and `xlua_ref_indirect`/`xlua_getref_indirect`;
+`lua_setfenv` on functions whose `_ENV` is not upvalue 1 and on stripped
+copies (the harness's own `lua_dump` with strip); and the C budget: long
+`gsub`, `find` (quadratic and plain), `match` with backtracking and
+`table.move` loops, with `gsub` calling `xlua_core_interrupt` between two
+charges. Bits 3 and 4 pick a core state's limits: the instruction limit
+alone, a one-hour time limit with `XLUA_LIMITS_INTERRUPT`, a time limit
+that has run out at once (the hook checks the instruction limit first, so
+only the watchdog's poll and the C budget see it, and runs stay
+deterministic), or a one-hour limit with WebGL's clock check. In the core
+preset the extended inputs also call `load` (with a reader function),
+`require` (a resolver that returns the name as the module's text),
+`h.limits` (the same API and `xlua_gc` from inside a host function) and
+`h.call` (`xlua_core_call` from inside a host function: by dotted name, as
+a coroutine that is then resumed and closed, through a function handle, a
+chunk and its compile; the status must be a documented one). Bit 1 now
+also runs `xlua_check_registry_refs` and the `_checked` push functions, as
+LuaEnv does with the bridge checks. Two harness bugs were fixed on the way:
+the host function's `NEXT` and `INEXT` handle operations never started an
+iteration (so `next_body` never ran), and on Lua 5.3 and LuaJIT the
+`uint64` and int64 natives were taken in `lua_next` order, which the random
+string hash seed changes from run to run (three runs of one input gave
+three call traces), so reproducers of those runtimes did not replay; they
+are sorted by name there now (`profiler-call-loop` therefore no longer
+replays the calls of the run that found it). Nine seeds, `ext-*` in
+`Test/Fuzz/corpus/bridge`, start the fuzzer on the new operations.
+After the change, 10 minutes per configuration (one process, Docker
+`xlua-analysis:26.04` with `--memory 6g`, Linux arm64, Clang 21.1.8):
+30,756 runs on legacy 5.5.1, 37,528 on legacy LuaJIT, 19,372 on minimal
+5.4.9 and 32,507 on core 5.5.1, no finding; peak RSS 0.6 to 1.4 GB. The
+coverage is in "What the corpora reach" below.
+
 `Test/Native/check_webgl_exports.py` does the import check for the Unity WebGL
 plugin. It reads `llvm-nm --defined-only` output for the object file that
 Emscripten builds from `Assets/Plugins/WebGL/xlua_webgl.cpp`; see the WebGL
@@ -1907,13 +1961,29 @@ Handbook ([appsec.guide](https://appsec.guide/)):
   committed seed and each fixed crash's reproducer in `Test/Fuzz/corpus`
   runs once (`-runs=0`) on every push and pull request.
 - **Q65: the weekly jobs run four libFuzzer processes** (`FUZZ_JOBS=4`,
-  `-jobs=4 -workers=4`) with `-rss_limit_mb=2048` each: 8 GB at most on the
+  `-jobs=4 -workers=4` at first, fork mode since the change below) with `-rss_limit_mb=2048` each: 8 GB at most on the
   16 GB, 4-core public runner, so the limit stays at 2048 (the largest peaks
   measured so far were 1.6 to 1.8 GB). No `-ignore_crashes`: a job stops at
   its first crash and the step fails; the other jobs run to the end of
   their time. Besides the bridge's 30 minutes, `analysis.yml`'s `fuzz` job
   now runs the other five targets every Monday, 5 minutes each on Lua 5.5.1
   (and the i64 target on LuaJIT), with cached corpora like `fuzz-bridge`.
+- **Fork mode (2026-10-28, the coordinator's choice under the owner's
+  instruction "do what is best").** `FUZZ_JOBS=N` runs `-fork=N
+  -ignore_crashes=0 -ignore_timeouts=0 -ignore_ooms=0` instead of `-jobs=N
+  -workers=N`: the parent runs the starting corpus once and hands parts of
+  it to N child processes in turn, and the first crash, timeout or
+  out-of-memory of any of them stops the run, which fits "stop at the first
+  crash" and saves the 5 minutes per 30 in which every job ran the cached
+  corpus (below). Fork mode ignores timeouts and out-of-memory unless told
+  otherwise, hence the two flags; and its parent leaks 32 bytes of its own,
+  which LeakSanitizer reported at exit as a crash after a clean run, so the
+  parent runs with `leak_check_at_exit=0` (the children still check each
+  input for leaks). Its parent prints no `stat::` lines; the scripts print
+  its last progress line. Locally (legacy 5.5.1, 60 seconds, four
+  processes): 6,735 runs, 1,402 inputs merged into 1,201, which reach 356
+  of `xlua.c`'s 434 branches; `run.sh`'s path target for 30 seconds the
+  same way. The corpus merge and `corpus_coverage.sh` steps are unchanged.
 - **Q66: measure what the corpora reach.** `Test/Fuzz/corpus_coverage.sh
   <output dir> [TARGET=DIR ...]` builds the targets with Clang source-based
   coverage instead of the sanitizers (`FUZZ_INSTRUMENT=coverage`:
@@ -1947,8 +2017,7 @@ corpus once and stopped there (about 8 inputs per second per job, past
 its 60 seconds); the merge took 3 minutes (2,917 inputs
 into 1,975) and `corpus_coverage.sh` 1.5 minutes. In a 30-minute week, the
 four jobs repeat that start, about 5 minutes each. The core bridge merged
-3,228 inputs into 1,416. `-fork=4` would run the corpus once and stop
-everything at the first crash, but it is not what was decided.
+3,228 inputs into 1,416. Fork mode (above) runs the corpus once.
 
 **What the corpora reach (2026-10-28).** Functions and branches called of
 all, from `corpus_coverage.sh`. The seeds column is the committed corpus
@@ -1991,32 +2060,54 @@ the run.sh targets, `struct` reaches the most of `xlua.c` (193 branches),
 then `lua` (92); `xlua_core.c` is not used by them (0).
 
 **Largest functions no input reached** (`unreached.txt` of the CI
-corpora), as suggestions for extending `fuzz_bridge.c`; the driver is not
-changed by these decisions:
+corpora above, before the extended operations of 2026-10-28): the C budget
+and stop API of `xlua_core_limits.c` (`xlua_core_budget`, `xlua_core_watch`,
+`xlua_core_interrupt`, and in `xlua_core.c` `xlua_core_get_stats`,
+`xlua_core_set_memory_limit` and `raise_overdraft`); `xlua_pack_float3` to
+`float5` and their unpack functions (the driver's `kind % 9` never chose
+them), `xlua_tostruct` and the `_checked` push functions; in the core
+preset's sandbox `co_body`, `core_require`, `push_global`, `next_body`,
+`xlua_gc` and `core_reader`; and `env_upvalue`, `set_registry_metatable`,
+`xlua_ref_indirect` and `xlua_check_registry_refs`.
 
-1. **The C budget and stop API of `xlua_core_limits.c`** (all bridge
-   configurations): `xlua_core_budget` (12 branches), `xlua_core_watch` (6),
-   `xlua_core_interrupt` (5), and in `xlua_core.c` `xlua_core_get_stats`
-   (3), `xlua_core_set_memory_limit` and `raise_overdraft`. The driver sets
-   limits once per state; an operation that charges the C budget, changes
-   the memory limit, reads the statistics and interrupts the state (from a
-   hook or host function on the same thread) would reach them.
-2. **Struct packing in `xlua.c`**: `xlua_pack_float3` to `float5` and their
-   unpack functions are never called (the driver's `kind % 9` picks only
-   the scalars, `float2`, `float6` and `decimal`), and `xlua_pack_float6`,
-   `xlua_pack_double`, `xlua_pack_decimal`, `xlua_tostruct`,
-   `xlua_pushstruct_checked` and `xlua_pushcsobj_checked` were not reached
-   in this corpus. A pack operation over every kind on one valid struct,
-   and calls of the checked push functions, would.
-3. **The core preset's sandbox** (bridge, core 5.5.1): `co_body` (14
-   branches; a coroutine started and resumed through `xlua_core_call`),
-   `core_require` (10; the `fuzz_core.c` target reaches it, the bridge does
-   not), `push_global` (10; a call by global name), `next_body` (6; the
-   handle `next` and `inext` operations), `xlua_gc` (7) and `core_reader`.
-4. **Smaller ones in `xlua.c` and `i64lib.c`**: `env_upvalue`,
-   `set_registry_metatable`, `xlua_ref_indirect` and
-   `xlua_check_registry_refs`; the `print_*` debug helpers are not worth a
-   driver operation.
+**After the extended operations (2026-10-28).** Functions and branches of
+`corpus_coverage.sh`, local (Docker `xlua-analysis:26.04`, Linux arm64,
+Clang 21.1.8). Seeds before: the committed corpus and the 16 random seeds
+with the old driver (20 inputs); seeds after: the same with the new driver
+and the nine `ext-*` seeds (29 inputs); 10 minutes: the corpus of one
+10-minute process with the new driver, unmerged. The CI corpus column above
+(old driver, a 30-minute run with four jobs plus 60 seconds) is the
+comparison for the last column.
+
+| Configuration | File | Seeds before | Seeds after | 10 minutes, new driver |
+|---|---|---|---|---|
+| legacy 5.5.1 | `xlua.c` | 80 of 126, 164 of 434 (37.8%) | 105 of 126, 273 of 434 (62.9%) | 117 of 126, 393 of 434 (90.6%), 2,931 inputs |
+| | `xlua_core.c` | 18 of 23, 62 of 94 | 21 of 23, 75 of 94 | 22 of 23, 81 of 94 |
+| | `xlua_core_limits.c` | 16 of 28, 49 of 156 | 24 of 28, 98 of 156 | 27 of 28, 112 of 156 |
+| | `i64lib.c` | 12 of 15, 6 of 8 | 13 of 15, 6 of 8 | 13 of 15, 8 of 8 |
+| legacy LuaJIT | `xlua.c` | 77 of 122, 147 of 430 (34.2%) | 103 of 122, 257 of 430 (59.8%) | 112 of 122, 370 of 430 (86.0%), 1,481 inputs |
+| | `i64lib.c` | 34 of 41, 82 of 150 | 37 of 41, 92 of 150 | 37 of 41, 119 of 150 |
+| | `xlua_core.c` | 12 of 18, 23 of 42 | 14 of 18, 25 of 42 | 15 of 18, 30 of 42 |
+| minimal 5.4.9 | `xlua.c` | 81 of 124, 175 of 432 (40.5%) | 106 of 124, 280 of 432 (64.8%) | 115 of 124, 382 of 432 (88.4%), 2,250 inputs |
+| | `xlua_core.c` | 19 of 24, 52 of 82 | 22 of 24, 65 of 82 | 23 of 24, 71 of 82 |
+| | `xlua_core_limits.c` | 16 of 28, 49 of 156 | 24 of 28, 98 of 156 | 27 of 28, 112 of 156 |
+| core 5.5.1 | `xlua_core_sandbox.c` | 28 of 42, 182 of 570 (31.9%) | 37 of 42, 288 of 570 (50.5%) | 41 of 42, 418 of 570 (73.3%), 2,210 inputs |
+| | `xlua_core.c` | 8 of 14, 72 of 136 | 11 of 14, 88 of 136 | 12 of 14, 112 of 136 |
+| | `xlua_core_buffer.c` | 19 of 27, 36 of 102 | 16 of 27, 29 of 102 | 24 of 27, 53 of 102 |
+| | `xlua_core_limits.c` | 18 of 28, 48 of 158 | 26 of 28, 93 of 158 | 27 of 28, 110 of 158 |
+
+The seeds of the core preset reach slightly less of the buffer library
+than before: some of the random seeds are extended inputs now and read
+their bytes differently. After 10 minutes, what no input reached is the
+`print_*` debug helpers and exports without a C# caller and without
+branches (`xlua_gl`, `load_error_func`, `xlua_pushlstring` ...) on the
+bridge presets; on LuaJIT also a few i64lib conversions
+(`push_int64_kind`, `number_to_uint64`) and `xlua_core_newstate` (no core
+state there); in the core preset three buffer helpers (`to_float`,
+`check_count`, `store_le`) and `raise_overdraft`, which only an
+allocation inside a host function under a lowered limit reaches (the
+bridge presets reach it). The weekly job's merged corpora will show what
+30 minutes with four processes add.
 
 ### Linux container
 
