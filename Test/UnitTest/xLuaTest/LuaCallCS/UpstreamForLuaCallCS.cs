@@ -58,7 +58,10 @@ namespace Upstream
 
     // Tencent/xLua#1114: ref struct (Span<T>, ReadOnlySpan<T>) parameters,
     // returns and properties cannot be boxed, so wrappers must leave those
-    // members out and keep the overloads that take ordinary types.
+    // members out and keep the overloads that take ordinary types. The .NET
+    // Framework has Span<T> only in the System.Memory package, so its run
+    // (run_managed.py --runtime netfx, XLUA_TEST_NO_SPAN) compiles the
+    // ordinary members only.
     public class SpanOverloads
     {
         public int Offset = 0;
@@ -68,6 +71,7 @@ namespace Upstream
             return s.Length;
         }
 
+#if !XLUA_TEST_NO_SPAN
         public static int Len(ReadOnlySpan<char> s)
         {
             return s.Length + 1000;
@@ -82,12 +86,14 @@ namespace Upstream
         {
             get { return "abc".AsSpan(); }
         }
+#endif
 
         public int Count(byte[] bytes)
         {
             return bytes.Length + Offset;
         }
 
+#if !XLUA_TEST_NO_SPAN
         public int Count(Span<byte> bytes)
         {
             return bytes.Length + 1000;
@@ -97,6 +103,7 @@ namespace Upstream
         {
             get { return new Span<byte>(new byte[2]); }
         }
+#endif
     }
 
 #if XLUA_GENERAL

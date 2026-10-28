@@ -105,8 +105,10 @@ def sources(name):
     return [str((project.parent / x.attrib["Include"].replace("\\", "/")).resolve())
             for x in tree.iter() if x.tag.endswith("}Compile")]
 compiler = [a.mono, a.compiler] if a.compiler.endswith(".exe") and not netfx else [a.compiler]
-# Roslyn's csc: C# 12 for the ref readonly fixtures (roslyn_fixtures.py), and no logo.
-roslyn = ["-nologo", "-langversion:12"] if netfx else []
+# Roslyn's csc: C# 12 for the ref readonly fixtures (roslyn_fixtures.py), and no logo. The .NET
+# Framework has no Span<T> (only the System.Memory package): XLUA_TEST_NO_SPAN leaves the test
+# fixtures' Span members out.
+roslyn = ["-nologo", "-langversion:12", "-define:XLUA_TEST_NO_SPAN"] if netfx else []
 # The minimal preset turns reflection off unless XLUA_REFLECTION is defined
 # (Tools/presets.py); XLUA_NO_REFLECTION can also be given alone. The passes
 # that bind through reflection (the first and --source-gen-fallback) bring it
