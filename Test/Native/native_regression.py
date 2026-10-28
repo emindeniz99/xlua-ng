@@ -1341,6 +1341,25 @@ else
     assert(s(uint64.parse("7") / 2) == "3")
 end
 """)
+    # A light userdata that debug.setmetatable gave the int64 metatable is no int64:
+    # the checks read 16 bytes at the address it holds (found by fuzz_bridge.c).
+    if not is_luajit(state):
+        return
+    for name in ("lua_isint64", "lua_isuint64", "lua_toint64"):
+        getattr(lib, name).argtypes = [P, C.c_int]
+    lib.lua_isint64.restype = lib.lua_isuint64.restype = C.c_int
+    lib.lua_toint64.restype = C.c_int64
+    block = (C.c_int64 * 2)(0xFFFFFFFF, 1234)  # fake_id -1, type Int, value 1234 on little-endian
+    lib.lua_settop(state, 0)
+    lib.lua_pushlightuserdata(state, C.addressof(block))
+    lib.lua_setglobal(state, b"xlua_test_lud")
+    run(state, "debug.setmetatable(xlua_test_lud, getmetatable(uint64.parse('1')))")
+    push_results(state, "return xlua_test_lud", 1)
+    assert lib.lua_isint64(state, 1) == 0 and lib.lua_isuint64(state, 1) == 0
+    assert lib.lua_toint64(state, 1) == 0
+    lib.lua_settop(state, 0)
+    run(state, "local ok, e = pcall(function() return xlua_test_lud .. 'x' end) assert(not ok, e) "
+               "debug.setmetatable(xlua_test_lud, nil) xlua_test_lud = nil")
 
 
 def check_luajit_int64_helpers(state):
