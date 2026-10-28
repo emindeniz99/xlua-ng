@@ -20,7 +20,7 @@ namespace XLua.SourceGenerator
     public sealed class XLuaBindingGenerator : IIncrementalGenerator
     {
         // The XLua.Binding.BindingApi.Version this generator writes code for.
-        public const int ApiVersion = 1;
+        public const int ApiVersion = 2;
 
         public void Initialize(IncrementalGeneratorInitializationContext context)
         {
