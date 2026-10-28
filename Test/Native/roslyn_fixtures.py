@@ -41,7 +41,8 @@ def roslyn_sources(files, repo, folder):
     result = []
     for f in files:
         f = Path(f)
-        rel = str(f.relative_to(repo)) if f.is_relative_to(repo) else None
+        # as_posix: the keys above use / on Windows too (run_managed.py --runtime netfx).
+        rel = f.relative_to(repo).as_posix() if f.is_relative_to(repo) else None
         if rel not in ROSLYN_FIXTURES:
             result.append(f)
             continue

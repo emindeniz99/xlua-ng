@@ -84,7 +84,10 @@ namespace Upstream
 
     // Tencent/xLua#1114: ref struct (Span<T>, ReadOnlySpan<T>) parameters,
     // returns and properties cannot be boxed, so wrappers must leave those
-    // members out and keep the overloads that take ordinary types.
+    // members out and keep the overloads that take ordinary types. The .NET
+    // Framework has Span<T> only in the System.Memory package, so its run
+    // (run_managed.py --runtime netfx, XLUA_TEST_NO_SPAN) compiles the
+    // ordinary members only.
     public class SpanOverloads
     {
         public int Offset = 0;
@@ -94,6 +97,7 @@ namespace Upstream
             return s.Length;
         }
 
+#if !XLUA_TEST_NO_SPAN
         public static int Len(ReadOnlySpan<char> s)
         {
             return s.Length + 1000;
@@ -108,12 +112,14 @@ namespace Upstream
         {
             get { return "abc".AsSpan(); }
         }
+#endif
 
         public int Count(byte[] bytes)
         {
             return bytes.Length + Offset;
         }
 
+#if !XLUA_TEST_NO_SPAN
         public int Count(Span<byte> bytes)
         {
             return bytes.Length + 1000;
@@ -123,6 +129,7 @@ namespace Upstream
         {
             get { return new Span<byte>(new byte[2]); }
         }
+#endif
     }
 
 #if XLUA_GENERAL
@@ -822,6 +829,26 @@ namespace Upstream
 
         const string NoCounter = "no scan counter (ObjectTranslator.CSharpCallLuaScan.scans): every LuaEnv scans the loaded types; ";
 
+        // Whether the scan includes a dynamic assembly, which it cannot keep
+        // (a dynamic assembly can gain types): then every env scans again.
+        // The scan leaves out assemblies whose ManifestModule is a
+        // ModuleBuilder and XLuaCodeEmit. On Mono that is every
+        // AssemblyBuilder; the .NET Framework lists the runtime assembly behind
+        // a builder, so a builder made by the program (defineLater below)
+        // turns the cache off there (docs/research/windows-host.md).
+        static bool scansDynamic()
+        {
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (assembly.IsDynamic && !(assembly.ManifestModule is System.Reflection.Emit.ModuleBuilder)
+                    && assembly.GetName().Name != "XLuaCodeEmit")
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         // n envs in a row with the same assemblies loaded scan once at most,
         // and each still bridges a CSharpCallLua delegate and interface.
         // Nothing scans with generated delegate bridges or without CodeEmit.
@@ -846,7 +873,7 @@ namespace Upstream
                     env.Dispose();
                 }
             }
-            return errors + EmitCache.Check("scans for " + n + " envs", (int)scans.GetValue(null) - before, 0);
+            return errors + EmitCache.Check("scans for " + n + " envs", (int)scans.GetValue(null) - before, scansDynamic() ? n : 0);
         }
 
 // Mono only: .NET 5 and later have no AssemblyBuilderAccess.Save
@@ -929,7 +956,7 @@ namespace Upstream
             int after = (int)scans.GetValue(null);
             if (after == before) errors += "no scan after " + iface.Assembly.GetName().Name + " was loaded; ";
             errors += twiceInNewEnv(iface);
-            return errors + EmitCache.Check("scans for the env after that", (int)scans.GetValue(null), after);
+            return errors + EmitCache.Check("scans for the env after that", (int)scans.GetValue(null), after + (scansDynamic() ? 1 : 0));
         }
 #else
         public static string LaterAssembly()
@@ -2014,6 +2041,150 @@ namespace Upstream
             if (!direct.Contains(expected)) return "from Lua: " + direct;
             if (!coroutine.Contains(expected)) return "from a coroutine: " + coroutine;
             return after == 5 ? "" : "the env does not work after the refusal";
+        }
+    }
+
+    // Lua errors raised while C# frames are on the stack. zlua reports SEH
+    // crashes on LuaJIT for Win64 when an error unwinds through reverse
+    // P/Invoke frames (docs/research/focus-creative-games.md). In xLua C# never
+    // raises a Lua error itself: luaL_error and lua_error record it, and the C
+    // trampoline raises it after the managed frames have returned
+    // (build/xlua_core.c, csharp_function_wrap). A C# exception in a bound
+    // method becomes such an error, and a Lua error inside LuaFunction.Call
+    // comes back to C# as a LuaException from lua_pcall. Check nests Lua and C#
+    // frames, raises in each way, and checks that pcall gets the error and the
+    // state still works. windows-host.yml runs it on LuaJIT for Win64 under
+    // .NET Framework and Mono (docs/research/windows-host.md).
+    public static class CallbackErrors
+    {
+        public static void Throw(string message)
+        {
+            throw new InvalidOperationException(message);
+        }
+
+        // f(n) from C#: f's Lua error reaches C# as a LuaException, which the
+        // bridge passes back to Lua as an error.
+        public static object CallLua(LuaFunction f, int n)
+        {
+            return f.Call(n)[0];
+        }
+
+        public static string Handler(string message)
+        {
+            return "handled: " + message;
+        }
+
+        // Builtin loaders (LuaEnv.AddBuildin): C# functions that Lua calls
+        // through the trampoline and that raise with LuaAPI.luaL_error and
+        // LuaAPI.lua_error.
+        [MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
+        static int RaiseString(IntPtr L)
+        {
+            return XLua.LuaDLL.Bridge.luaL_error(L, "raw luaL_error from C#");
+        }
+
+        [MonoPInvokeCallback(typeof(XLua.LuaDLL.lua_CSFunction))]
+        static int RaiseNumber(IntPtr L)
+        {
+            XLua.LuaDLL.Bridge.lua_pushnumber(L, 42);
+            return XLua.LuaDLL.Bridge.lua_error(L);
+        }
+
+        const string Chunk = @"
+            local Errors = CS.Upstream.CallbackErrors
+            local failures = {}
+            local function expect(ok, err, text, what)
+                if ok or not string.find(tostring(err), text, 1, true) then
+                    failures[#failures + 1] = what .. ': ' .. tostring(ok) .. ', ' .. string.sub(tostring(err), 1, 200)
+                end
+            end
+            for i = 1, 300 do
+                -- LuaJIT's require leaves its loading mark in package.loaded
+                -- when the loader raises (loop or previous error loading module).
+                package.loaded.raise_string, package.loaded.raise_number = nil, nil
+                local ok, err = pcall(require, 'raise_string')
+                expect(ok, err, 'raw luaL_error from C#', 'luaL_error')
+                ok, err = pcall(require, 'raise_number')
+                if ok or err ~= 42 then failures[#failures + 1] = 'lua_error: ' .. tostring(ok) .. ', ' .. tostring(err) end
+                ok, err = pcall(Errors.Throw, 'thrown ' .. i)
+                expect(ok, err, 'thrown ' .. i, 'exception')
+            end
+            local function nest(n)
+                if n == 0 then Errors.Throw('deep C#') end
+                return Errors.CallLua(nest, n - 1)
+            end
+            local function nestLua(n)
+                if n == 0 then error('deep Lua') end
+                return Errors.CallLua(nestLua, n - 1)
+            end
+            for i = 1, 30 do
+                local ok, err = pcall(nest, 8)
+                expect(ok, err, 'deep C#', 'nested C# error')
+                ok, err = pcall(nestLua, 8)
+                expect(ok, err, 'deep Lua', 'nested Lua error')
+            end
+            local resumed, ok, err = coroutine.resume(coroutine.create(function() return pcall(nest, 4) end))
+            if not resumed then failures[#failures + 1] = 'resume: ' .. tostring(ok) end
+            expect(ok, err, 'deep C#', 'nested error in a coroutine')
+            resumed, err = coroutine.resume(coroutine.create(function() Errors.Throw('in a coroutine') end))
+            expect(resumed, err, 'in a coroutine', 'resume')
+            local xok, msg = xpcall(function() Errors.Throw('xpcall') end, function(m) return Errors.Handler(tostring(m)) end)
+            expect(xok, msg, 'xpcall', 'xpcall')
+            if string.sub(tostring(msg), 1, 9) ~= 'handled: ' then failures[#failures + 1] = 'handler: ' .. tostring(msg) end
+            return table.concat(failures, '; ')";
+
+        public static string Check()
+        {
+            var env = new LuaEnv();
+            try
+            {
+                env.AddBuildin("raise_string", RaiseString);
+                env.AddBuildin("raise_number", RaiseNumber);
+                string failures = (string)env.DoString(Chunk, "CallbackErrors")[0];
+                if (failures != "") return failures;
+                // No pcall in Lua: the error reaches DoString's own lua_pcall,
+                // below the C# frame that called it.
+                string top = "no exception";
+                try
+                {
+                    env.DoString("CS.Upstream.CallbackErrors.Throw('top level')");
+                }
+                catch (LuaException e)
+                {
+                    top = e.Message;
+                }
+                if (!top.Contains("top level")) return "DoString: " + top;
+                return Convert.ToInt32(env.DoString("return 1 + 1")[0]) == 2 ? "" : "the env does not work afterwards";
+            }
+            finally
+            {
+                env.Dispose();
+            }
+        }
+    }
+}
+
+// Tencent/xLua#1081 and #1179: types whose names are not ASCII. The bridge
+// creates a type's metatable with luaL_newmetatable under the type's full name
+// (Utils.MetatableKey) and finds it with luaL_getmetatable, which pushes the
+// name as UTF-8. On .NET Framework the luaL_newmetatable import passed the name
+// in the ANSI code page, so the two names differed (and both types below were
+// registered as "Upstream.Utf8Names.?").
+namespace Upstream.Utf8Names
+{
+    public class 甲
+    {
+        public int Value()
+        {
+            return 1;
+        }
+    }
+
+    public class 乙
+    {
+        public int Value()
+        {
+            return 2;
         }
     }
 }

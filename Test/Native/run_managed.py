@@ -34,6 +34,14 @@ the test that hung. No test host is left running.
 first pass binds through reflection, and --source-gen-fallback registers
 nothing, so both add XLUA_REFLECTION; their xLua and test assemblies are
 compiled apart from the source-gen passes'.
+
+--runtime netfx runs the first pass on the .NET Framework of a Windows host
+instead of Mono (windows-host.yml): --compiler is then a Roslyn csc.exe (the
+one of Visual Studio or its Build Tools), which runs as it is and gets the
+fixtures rewritten for Roslyn (roslyn_fixtures.py), and the test program runs
+without a host. The .NET Framework marshals string parameters in the ANSI code
+page, unlike Mono and .NET on macOS and Linux (Tencent/xLua#1081). The
+source generator passes and --coverage need Mono.
 """
 import argparse
 import json
@@ -50,6 +58,8 @@ p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--plugin", type=Path, required=True)
 p.add_argument("--output", type=Path, required=True)
 p.add_argument("--mono", default="mono")
+p.add_argument("--runtime", choices=["mono", "netfx"], default="mono",
+               help="mono, or netfx: the .NET Framework on Windows, with --compiler a Roslyn csc.exe (first pass only)")
 p.add_argument("--compiler", default="mcs")
 p.add_argument("--mono-version", default="6.14.1",
                help="required Mono version, or 'any' to skip the check")
@@ -122,14 +132,17 @@ def run(cmd, check=False, capture=False, **kwargs):
 if a.gen_code or a.gen_code_minimize or a.gen_assembly:
     p.error("--gen-code, --gen-code-minimize and --gen-assembly were removed with the legacy generator (source generator "
             "milestone M11); use --source-gen, --source-gen-minimize and --source-gen-fallback")
-if a.mono_version != "any":
+netfx = a.runtime == "netfx"
+if netfx and (a.source_gen or a.source_gen_minimize or a.source_gen_fallback or a.coverage or a.update_surface):
+    p.error("--runtime netfx runs the first pass only; the source generator passes and --coverage need Mono")
+if a.mono_version != "any" and not netfx:
     banner = run([a.mono, "--version"], capture=True, check=True).stdout
     found = re.search(r"version (\S+)", banner)
     if not found or found.group(1) != a.mono_version:
         raise SystemExit("Expected Mono " + a.mono_version + ", found: " + banner.splitlines()[0])
 repo = Path(__file__).resolve().parents[2]
 # Lua test cases in Test/UnitTest/StreamingAssets; each mode must run and pass all of them.
-EXPECTED_TESTS = 497
+EXPECTED_TESTS = 499
 out = a.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 def sources(name):
@@ -137,7 +150,11 @@ def sources(name):
     tree = ET.parse(project)
     return [str((project.parent / x.attrib["Include"].replace("\\", "/")).resolve())
             for x in tree.iter() if x.tag.endswith("}Compile")]
-compiler = [a.mono, a.compiler] if a.compiler.endswith(".exe") else [a.compiler]
+compiler = [a.mono, a.compiler] if a.compiler.endswith(".exe") and not netfx else [a.compiler]
+# Roslyn's csc: C# 12 for the ref readonly fixtures (roslyn_fixtures.py), and no logo. The .NET
+# Framework has no Span<T> (only the System.Memory package): XLUA_TEST_NO_SPAN leaves the test
+# fixtures' Span members out.
+roslyn = ["-nologo", "-langversion:12", "-define:XLUA_TEST_NO_SPAN"] if netfx else []
 # The minimal preset turns reflection off unless XLUA_REFLECTION is defined
 # (Tools/presets.py); XLUA_NO_REFLECTION can also be given alone. The passes
 # that bind through reflection (the first and --source-gen-fallback) bring it
@@ -156,6 +173,8 @@ if a.coverage:
 
 def mono(name, assemblies):
     """The Mono command for one process; with --coverage it also records a profile."""
+    if netfx:
+        return []
     if not a.coverage:
         return [a.mono]
     xml = coverage_dir / (name + ".xml")
@@ -166,11 +185,17 @@ def mono(name, assemblies):
 
 if strict:
     print("Reflection is off in this build (XLUA_NO_REFLECTION); the reflection pass and --source-gen-fallback add XLUA_REFLECTION")
-run(compiler + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug + [
+test_sources = sources("XLuaUnitTest")
+if netfx:
+    # Roslyn rejects the attributes that the fixtures spell out for mcs.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from roslyn_fixtures import roslyn_sources
+    test_sources = [str(f) for f in roslyn_sources(test_sources, repo, out / "roslyn-fixtures")]
+run(compiler + roslyn + ["-target:library", "-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug + [
     "-out:" + str(out / "XLua.Mini.dll")] + sources("XLua.Mini"), check=True)
-run(compiler + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug + [
+run(compiler + roslyn + ["-unsafe", "-define:XLUA_GENERAL"] + extra_defines + debug + [
     "-r:" + str(out / "XLua.Mini.dll"), "-out:" + str(out / "XLuaUnitTest.exe")]
-    + sources("XLuaUnitTest"), check=True)
+    + test_sources, check=True)
 shutil.copy2(a.plugin, out / a.plugin.name)
 # Preserve the relative layout expected by LuaTestCommon without writing to the checkout.
 shutil.copytree(repo / "Test/UnitTest", out / "Test/UnitTest", dirs_exist_ok=True)

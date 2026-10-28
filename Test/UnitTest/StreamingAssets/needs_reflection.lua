@@ -192,6 +192,7 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseEnvReflectionReused"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEnvScanReused"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEnvScanSeesLaterAssembly"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseErrorsThroughCSharpCallbacks"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseFinalizerQueueReleasesAll"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseGCOptimizeBoolCharPointerFields"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseInDefaultTypeLoads"] = true,
@@ -216,4 +217,5 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseUnityObjectFieldRefusesTable"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseUnityObjectParameterRefusesTable"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseUtf8StringParameters"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseUtf8TypeNames"] = true,
 }
