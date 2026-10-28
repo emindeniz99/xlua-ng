@@ -1925,7 +1925,14 @@ def check_registry_checks(state):
             lib.lua_settop(L, -1 - got)
             return bool(got)
 
-        # Intact references: the same as the plain exports.
+        # Intact references: the same as the plain exports, which the managed suite no
+        # longer calls (it runs with the bridge checks), with and without the cache.
+        lib.xlua_pushcsobj.argtypes = [P, C.c_int, C.c_int, C.c_int, C.c_int]
+        for push in (lib.xlua_pushcsobj, lib.xlua_pushcsobj_checked):
+            push(L, 4, meta, 0, cache)
+            assert lib.lua_gettop(L) == 1 and has_meta()
+            lib.lua_settop(L, 0)
+            assert lib.xlua_tryget_cachedud_checked(L, 4, cache) == 0 and lib.lua_gettop(L) == 0
         lib.xlua_pushcsobj_checked(L, 5, meta, 1, cache)
         assert lib.lua_gettop(L) == 1 and has_meta()
         lib.lua_settop(L, 0)
