@@ -91,6 +91,23 @@ serial-based Professional license. Set the
 repository variable `UNITY_MAX_PARALLEL` to control license concurrency; the
 default is two.
 
+Two more jobs, added 2026-10-28 (owner decisions), follow the same pattern
+(the script with `--prepare-only --platform linux`, unity-builder for the
+editor launches, the script with `--verify-only`) and are skipped without
+the secrets too. **hotfix Linux player** runs
+`Test/UnityMatrix/hotfix_player.py` on 6000.3.26f1 in two legs,
+`--no-assembly-csharp` (xLua in its asmdefs, every runtime script in an
+asmdef `Main`, so the player has no `Assembly-CSharp.dll`) and `--package`
+(xLua as the UPM package): Hotfix Inject In Editor and the Linux x86_64 Mono
+player build (`HotfixPlayerSteps.BuildLinux`, `-xluaBuildLog`) are two
+unity-builder steps, and the check runs the player in batch mode inside the
+editor image, where it must patch and restore the fixture's `[Hotfix]` types
+(job timeout 60 minutes). **LuaCATS** runs
+`Test/UnityMatrix/luacats_unity.py` on 2021.3.45f2 (`--no-ref-readonly`) and
+6000.6.6f1: one unity-builder step runs `LuaCATSStep.Run`, and the check
+compares `LuaTypes/` and `.luarc.json` with `Test/LuaCATS` (job timeout 45
+minutes). Neither has run on hosted runners yet.
+
 The preparation script also accepts `--platform macos` for a local Apple
 Silicon Editor check; CI uses its default Linux project because GameCI runs the
 matrix in Linux editor containers.
@@ -194,9 +211,12 @@ checked for `lj_assert_fail`), runs `apicheck_probe.py`, `check_exports.py`,
 suite's first pass on the .NET Framework (`run_managed.py --runtime netfx`,
 Visual Studio's Roslyn csc) and on Mono 6.12.0.206 for Windows (`mcs`), each
 check with its own 15-minute timeout and run even after another failed. On
-5.5.1, `ansi_control.py` turns the UTF-8 imports of `LuaDLLBridge.cs`, then of
-`LuaDLL.cs`, back to ANSI and requires the matching UTF-8 case to fail, which
-shows that the .NET Framework run exercised the ANSI marshalling of
+5.5.1 the .NET Framework pass runs again with `--define NATIVE_LUA_PUSHSTRING`
+(since 2026-10-28), and `ansi_control.py` turns the UTF-8 imports of
+`LuaDLLBridge.cs`, then of `LuaDLL.cs`, then the `lua_pushstring` import of
+`NATIVE_LUA_PUSHSTRING` alone back to ANSI and requires the matching UTF-8
+case to fail, which shows that the .NET Framework runs exercised the ANSI
+marshalling of
 [Tencent/xLua#1081](https://github.com/Tencent/xLua/issues/1081). The logs are
 uploaded as `windows-host-<lua>`. Runs (all from pushes to `ci/windows-host`,
 since `gh workflow run` refuses a workflow that is not on `main` yet):
@@ -211,7 +231,12 @@ control's check failed), [40645581045](https://github.com/emindeniz99/xlua-ng/ac
 (after merging `main`: configure stopped at the `/pathmap` check of the
 reproducible builds, an invalid CMake escape, fixed in `build/CMakeLists.txt`)
 and [40646848333](https://github.com/emindeniz99/xlua-ng/actions/runs/40646848333)
-(everything passed again).
+(everything passed again). From `ci/utf8-pushstring` with `gh workflow run`
+(the workflow is on `main` now):
+[40669037845](https://github.com/emindeniz99/xlua-ng/actions/runs/40669037845)
+(the scan skipping dynamic assemblies and `NATIVE_LUA_PUSHSTRING` in UTF-8,
+owner decisions of 2026-10-28: everything passed, the control's new variant
+included).
 
 The Unity editor matrix does not run mobile players. Device tests, UWP, OHOS,
 Windows x86, macOS Intel and old iOS deployment targets are outside this new
@@ -277,9 +302,10 @@ it.
   `check_meta.py`, `make_upm_package.py` and itself (Test/README.md "Unity
   .meta files"). It takes seconds, so a `.meta`-only change does not start
   `build.yml`'s multi-platform build.
-- `unity-matrix.yml` runs for everything `prepare.py` and `hotfix_il2cpp.py`
-  copy or build: `Assets/` except the guides in `Assets/XLua/Doc`, `General/`,
-  `Tools/`, `Test/`, `build/`, `mise.toml` and the NDK installer.
+- `unity-matrix.yml` runs for everything `prepare.py`, `hotfix_il2cpp.py`,
+  `hotfix_player.py` and `luacats_unity.py` copy or build: `Assets/` except
+  the guides in `Assets/XLua/Doc`, `General/`, `Tools/`, `Test/`, `build/`,
+  `mise.toml`, the NDK installer and `mono.sh`.
 - `codeql.yml` skips pushes and pull requests that change only Markdown,
   `docs/` or `Assets/XLua/Doc`; it analyzes C, C++ and C# only, and its weekly
   run covers everything.
