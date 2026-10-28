@@ -925,6 +925,21 @@ def check_protected_helpers(state):
     assert results == [(1, 1), (1, 1)], results
     assert lib.xlua_running(state) == 0
     lib.lua_settop(state, 0)
+    # xlua_getloaders (LuaEnv.AddSearcher) after a script replaced package or gave
+    # _G an __index that raises: nil, where it raised with no handler (Lua's panic;
+    # found by Test/Fuzz/fuzz_bridge.c).
+    lib.xlua_getloaders.argtypes = [P]
+    lib.xlua_getloaders(state)
+    assert lib.lua_gettop(state) == 1 and lib.lua_type(state, 1) == 5  # LUA_TTABLE
+    lib.lua_settop(state, 0)
+    for code in ["package = nil", "package = true",
+                 "setmetatable(_G, {__index = function() error('no globals') end}) package = nil"]:
+        run(state, "saved_package = saved_package or package " + code)
+        lib.xlua_getloaders(state)
+        assert lib.lua_gettop(state) == 1 and lib.lua_type(state, 1) == 0, code  # LUA_TNIL
+        lib.lua_settop(state, 0)
+        run(state, "setmetatable(_G, nil) package = saved_package")
+    run(state, "saved_package = nil")
 
 
 def check_csharp_functions(state):

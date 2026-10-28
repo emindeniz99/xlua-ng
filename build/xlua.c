@@ -366,14 +366,27 @@ LUA_API lua_Number lua_tonumber (lua_State *L, int idx) {
 #define lua_absindex(L, index) (((index) > 0 || (index) <= LUA_REGISTRYINDEX) ? (index) : lua_gettop(L) + (index) + 1)
 #endif
 
-LUA_API void xlua_getloaders (lua_State *L) {
+static int c_getloaders(lua_State *L) {
 	lua_getglobal(L, "package");
 #if LUA_VERSION_NUM == 501
-    lua_getfield(L, -1, "loaders");
+	lua_getfield(L, -1, "loaders");
 #else
 	lua_getfield(L, -1, "searchers");
 #endif
-	lua_remove(L, -2);
+	return 1;
+}
+
+/* package.searchers (LuaJIT: package.loaders) for LuaEnv.AddSearcher, or nil.
+ * A script can set the global package to nil or another value, or give _G an
+ * __index that raises; the lookup then raised with no handler (Lua's panic,
+ * crash-inventory item 9) or through C# frames. It now runs under lua_pcall,
+ * and any error gives nil, which C# reports as "Can not set searcher!". */
+LUA_API void xlua_getloaders (lua_State *L) {
+	push_helper(L, c_getloaders);
+	if (lua_pcall(L, 0, 1, 0) != 0) {
+		lua_pop(L, 1);
+		lua_pushnil(L);
+	}
 }
 
 LUA_API void xlua_rawgeti (lua_State *L, int idx, int64_t n) {
