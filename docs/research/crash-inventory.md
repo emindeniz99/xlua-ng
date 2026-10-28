@@ -1180,8 +1180,19 @@ at 645 MB after 229,000 runs; a 30-minute arm64 run may reach
 `-rss_limit_mb=2048` [U]. Also run: `native_regression.py call_chain` on
 5.4.9 before ("2001") and after the fix (pass), the official Lua 5.4.9 suite
 with the patch on macOS arm64 (`lua_tests.py`: basic, complete and internal,
-final OK), both CI reproducers with the new driver (29 and 59 ms), and
-`sanitize.sh` (below).
+final OK), and both CI reproducers with the new driver (29 and 59 ms).
+After merging main (2f012dbd): `sanitize.sh` passes for legacy 5.4.9,
+minimal 5.4.9 and core-5.4.9 (export check, native regression checks,
+profiler smoke, managed suite through reflection: 515 tests in each of two
+modes; core smoke 147 cases); 120 s of each fuzz configuration and both
+reproducers again, no finding. On LuaJIT `sanitize.sh` stops at
+`native_regression.py memory_snapshot_out_of_memory`: "lua_newstate with a
+custom allocator returned NULL", on every run [C]. Not from these changes:
+under the preloaded ASan runtime `realloc` returns addresses above 2^47
+(0xfe2f89bec500 in the container), and LuaJIT's GC64 `lua_newstate` refuses
+a state there (`checkptrGC`, `lj_state.c:271`); the uninstrumented LuaJIT
+library passes the check. The other checks and the managed suite pass
+under ASan on LuaJIT when run without it (515 tests in each of two modes).
 
 ## Fixed earlier (for completeness)
 
