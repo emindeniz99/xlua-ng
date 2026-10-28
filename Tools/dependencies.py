@@ -169,7 +169,9 @@ MISE_INFO = {
                "(8.0 or later). 10.0.401 ships runtime 10.0.12 (2026-09-08); 10.0.402 (runtime 10.0.13, 2026-10-13) was "
                "inside the seven-day window when checked. .NET 10 is LTS, supported to 2028-11-14. mise.toml sets "
                "dotnet.isolated, so each SDK has its own folder. CI installs only this tool, in the coverage step of "
-               "native-build.yml and before prepare.py in unity-matrix.yml (mise-action install_args). mise's core:dotnet backend runs Microsoft's dotnet-install "
+               "native-build.yml and before prepare.py in unity-matrix.yml (mise-action install_args). Test/Docker/Dockerfile "
+               "downloads the same version's linux-arm64 or linux-x64 archive into /opt/dotnet and checks it with sha512sum "
+               "against the values below. mise's core:dotnet backend runs Microsoft's dotnet-install "
                "script, which compares the archive size, not a hash, and mise.lock records no checksum for it (mise "
                "2026.10.12). Microsoft's SHA-512 of the archives (releases.json): "
                + "; ".join("%s %s" % kv for kv in DOTNET_SDK_SHA512.items()) + "."),
@@ -180,7 +182,8 @@ MISE_INFO = {
 
 # Files that use a mise tool, beyond mise.toml itself. name -> where.
 MISE_USERS = {
-    "dotnet": "`Test/Native/coverage_cs_dotnet.py`, `.github/workflows/native-build.yml`, `.github/workflows/unity-matrix.yml`",
+    "dotnet": "`Test/Native/coverage_cs_dotnet.py`, `.github/workflows/native-build.yml`, `.github/workflows/unity-matrix.yml`, "
+              "`Test/Docker/Dockerfile`",
 }
 
 # lua-language-server: latest from the GitHub releases API, checked 2026-10-18.
@@ -564,6 +567,10 @@ def build():
             "https://brew.sh/", "n/a", "unknown",
             "Installs Mono 6.14.1 on macOS and Linux runners. The formula's mono version is the one run_managed.py requires.", ctype="application", vdisp="unpinned"))
     need("Test/Docker/Dockerfile", "ubuntu:26.04@sha256:c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944")
+    # The image's .NET SDK stage: the mise.toml pin and the recorded SHA-512 of its Linux archives.
+    need("Test/Docker/Dockerfile", "ARG DOTNET_SDK_VERSION=" + mise["dotnet"] + "\n")
+    need("Test/Docker/Dockerfile", "ARG DOTNET_SDK_SHA512_LINUX_ARM64=" + DOTNET_SDK_SHA512["linux-arm64"] + "\n")
+    need("Test/Docker/Dockerfile", "ARG DOTNET_SDK_SHA512_LINUX_X64=" + DOTNET_SDK_SHA512["linux-x64"] + "\n")
     add(row("devtools", "ubuntu (Docker Official Image)", "26.04", "`Test/Docker/Dockerfile`", "Various (Ubuntu packages)",
             "https://hub.docker.com/_/ubuntu", "26.04", "current",
             "Digest-pinned sha256:c098726dd9b9, the base of the local Linux analysis image. Its apt packages are Ubuntu's at build time and not pinned.",

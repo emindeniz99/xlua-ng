@@ -3563,6 +3563,23 @@ runs were before decision 10's message change.
    `sanitize.sh` source generator pass, with
    `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` because the image has no
    `libicu` ([Test/README.md](../../Test/README.md#the-checks-the-round-left-out-2026-10-28)).
+
+   **Owner's decision of 2026-10-29: add it.** `Test/Docker/Dockerfile`
+   has a `dotnet` stage that downloads the SDK `mise.toml` pins (10.0.401)
+   for the image's architecture, checks the archive with `sha512sum -c`
+   against the SHA-512 that `Tools/dependencies.py` records
+   (`DOTNET_SDK_SHA512`; its `--check` fails when the Dockerfile's version or
+   hashes differ from the pin), and extracts it to `/opt/dotnet`; the image
+   sets `DOTNET_ROOT`, `PATH` and `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`.
+   Rebuilt here (arm64; 1.78 GB to 2.69 GB on disk), `VERSIONS=5.5.1
+   sanitize.sh` ran in it with nothing mounted but the checkout: the
+   reflection pass and both source generator passes, 523 tests each
+   (`XLUA_MANAGED_SOURCE_GEN_PASS`, `..._MINIMIZE`). CI needed nothing:
+   native-build's sanitizer jobs already install the SDK with mise-action
+   and run those passes under ASan and UBSan. Run 40756275338 (main,
+   2026-10-28) prints both markers for 5.3.6, 5.4.9, 5.5.1 and LuaJIT in
+   `linux / ASan + UBSan`, and for the minimal preset, LuaScript and
+   `luajit-uint` in the extra sanitizer job.
 7. **A release package without the generator:** `make_upm_package.py` still
    builds one without `--source-gen` (the tests use that for the reflection
    run). Make `--source-gen` required for anything but tests?

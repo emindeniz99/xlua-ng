@@ -2165,7 +2165,14 @@ bridge presets reach it). The weekly job's merged corpora will show what
 `Test/Docker/Dockerfile` builds the Linux image these scripts were run in:
 Ubuntu 26.04, pinned by digest, with Clang and libFuzzer, clang-tidy, GCC,
 CMake and Mono 6.14.1 (as built on 2026-10-17: Clang 21.1.8, GCC 15.2, CMake
-4.2.3). macOS has no libFuzzer runtime in Apple clang and no clang-tidy, so use
+4.2.3), and since 2026-10-29 the .NET SDK that `mise.toml` pins, in
+`/opt/dotnet` (owner's decision of 2026-10-29): a build stage downloads the
+archive from `builds.dotnet.microsoft.com` and checks it with `sha512sum -c`
+against the SHA-512 in `Tools/dependencies.py`, whose `--check` keeps the
+Dockerfile's version and hashes equal to the pin. The image sets
+`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`, since it has no `libicu`. With the
+SDK, `sanitize.sh` and `coverage.sh` run the managed suite's source generator
+passes too. macOS has no libFuzzer runtime in Apple clang and no clang-tidy, so use
 it there. Mount the checkout and an output directory outside it:
 
 ```sh
@@ -2175,8 +2182,9 @@ docker run --rm -v "$PWD":/src -v /path/to/empty-dir:/out -w /src xlua-analysis:
 ```
 
 `coverage.sh`, `sanitize.sh` and `Test/Fuzz/run.sh` run the same way. The
-image is about 1.8 GB; OrbStack and Docker Desktop keep it in their data
-directory, which can be moved off the startup disk.
+image is about 2.7 GB with the SDK (1.8 GB without); OrbStack and Docker Desktop keep it in their data
+directory, which can be moved off the startup disk. After a rebuild,
+`docker image prune` removes the image it replaced.
 
 ## Unity .meta files
 
@@ -3686,15 +3694,17 @@ runtime (`build_source_generator.dotnet_environment`), so the generator and
 csc are not instrumented; the native library and Mono are, as in the
 reflection pass.
 
-To have this in the image itself, the cheapest change is a build stage in
-`Test/Docker/Dockerfile` that downloads that archive, checks it with
-`sha512sum -c` against the pin, and extracts it to `/opt/dotnet`, with
-`ENV DOTNET_ROOT=/opt/dotnet PATH=/opt/dotnet:$PATH
-DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`: about 230 MB compressed, and one
-more place to update when `mise.toml`'s pin moves. Ubuntu's own `dotnet-sdk`
-package would follow the archive's version instead of the pin. Not changed
-here: the image is the owner's decision (open question 6 of
-[source-generator.md](../docs/design/source-generator.md)).
+Since 2026-10-29 the image has that SDK itself (owner's decision of
+2026-10-29, question 6 of
+[source-generator.md](../docs/design/source-generator.md); the
+[Linux container](#linux-container) section), so the command above needs
+neither the `$SDK` mount nor the `PATH`, `DOTNET_ROOT` and globalization
+variables any more. Rebuilt on 2026-10-29,
+`VERSIONS=5.5.1 sanitize.sh` in it ran the reflection pass and both source
+generator passes (523 tests each) with only the checkout and the output
+mounted. CI did not depend on the image: native-build's sanitizer jobs
+install the SDK with mise-action and print `XLUA_MANAGED_SOURCE_GEN_PASS`
+and `..._MINIMIZE` for every Lua version (run 40756275338).
 
 **Harness note:** `prepare.py`'s `--platform` defaults to `linux`, which
 installs the plugin as `Plugins/x86_64/libxlua.so`. On macOS without
