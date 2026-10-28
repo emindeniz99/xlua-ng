@@ -401,6 +401,51 @@ Any other result fails the run. `--define` works as in `run_managed.py`; each
 Mono run has a timeout (`--timeout`, 300 s) and its process group is killed
 after it.
 
+### Windows hosts: the .NET Framework and Mono (2026-10-28)
+
+`run_managed.py --runtime netfx --compiler <csc.exe>` runs the first pass
+(reflection and CodeEmit) on a Windows host's .NET Framework instead of Mono:
+the compiler is a Roslyn `csc.exe` (Visual Studio's or the Build Tools'),
+which gets the fixtures rewritten for Roslyn (`roslyn_fixtures.py`) and
+`-define:XLUA_TEST_NO_SPAN` (the .NET Framework has no `Span<T>` outside the
+System.Memory package, so the `Span` members of `Upstream.SpanOverloads` are
+left out), and the test program runs without a host. The source generator
+passes and `--coverage` need Mono and are refused. The .NET Framework
+marshals `string` parameters in the ANSI code page, so this is the run that
+checks the UTF-8 imports of `XLUA_GENERAL`
+([Tencent/xLua#1081](https://github.com/Tencent/xLua/issues/1081)).
+On Mono for Windows the ordinary runner works with `--mono <Mono>/bin/mono.exe
+--compiler <Mono>/lib/mono/4.5/mcs.exe --mono-version 6.12.0` (the Windows
+build reports 6.12.0).
+
+`python Test/Native/ansi_control.py --compiler <csc.exe> --plugin xlua.dll
+--output DIR` is the control for that run: it turns the UTF-8 imports of
+`Assets/XLua/Src/LuaDLLBridge.cs`, then of `Assets/XLua/Core/LuaDLL.cs`, back
+to ANSI (the code before the fixes; the file's bytes are restored), runs the
+suite on the .NET Framework, and requires `CaseUtf8StringParameters`, then
+`CaseUtf8TypeNames`, not to pass while the other passes. With
+`LuaDLL.cs` in ANSI an `XLUA_APICHECK` build aborts in Lua's API check
+before `CaseUtf8TypeNames` reports, which counts as not passing.
+
+`windows-host.yml` runs both, with the native checks and
+`apicheck_probe.py`, on MSVC `XLUA_APICHECK` builds of Lua 5.3.6, 5.4.9,
+5.5.1, LuaJIT GC64 and LuaJIT without GC64
+([.github/CI.md](../.github/CI.md), [windows-host.md](../docs/research/windows-host.md)).
+Run [40645581045](https://github.com/emindeniz99/xlua-ng/actions/runs/40645581045)
+passed: 496 tests in each of two modes on the .NET Framework and on Mono
+6.12.0 for every leg, and the control on 5.5.1. Three cases came from these
+runs: `CaseUtf8TypeNames` (two types with one-character CJK names; it fails
+without the `luaL_newmetatable` fix on the .NET Framework only),
+`CaseErrorsThroughCSharpCallbacks` (`Upstream.CallbackErrors`: Lua errors
+raised from C# functions, C# exceptions and errors through nested Lua, C# and
+`LuaFunction.Call` frames, in coroutines and with a C# message handler, for
+the SEH unwinding of LuaJIT on Win64), and the dynamic-assembly expectations
+of `CaseEnvScanReused` and `CaseEnvScanSeesLaterAssembly`: the .NET Framework
+lists the runtime assembly behind an `AssemblyBuilder`, which the
+`[CSharpCallLua]` scan includes and therefore does not keep, so each later
+env scans again; Mono lists the builder, which the scan leaves out. Not run on
+Windows: the source generator passes, .NET (Core), Unity.
+
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
 `Test/UnitTest/StreamingAssets` into a Unity project's `Assets` folder and run
 `xLuaTest/main.unity`. This is a manual path, not the current CI entry point;
@@ -440,7 +485,19 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 `python3 Test/Native/managed_imports.py --write` regenerates it.
 `native_regression.py` also calls exports that `LuaDLL.cs` does not import
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
-library.
+library. Its `global_state_key` check (2026-10-28) requires `xlua_gl`, the
+key by which C# finds an env, to stay the same for a state and its threads
+across collections and to differ for another state; on LuaJIT without GC64 it
+read the wrong layout before the fix ([windows-host.md](../docs/research/windows-host.md#luajit-without-gc64)).
+
+`python3 Test/Native/apicheck_probe.py [--luajit] PLUGIN` checks that a
+library built with `-DXLUA_APICHECK=ON` has Lua's C API checks: a child
+process misuses the API once (`lua_pushvalue(L, 100)` on an empty stack; on
+LuaJIT `lua_rawgeti` on a number) and must abort with the check's message,
+and a correct call must return. A Release build without the checks fails
+it (checked on macOS). `windows-host.yml` runs it on the MSVC builds, where
+`XLUA_APICHECK` also sends a failed check to stderr instead of a message box
+(`build/xlua_apicheck_msvc.c`).
 
 `python3 Test/Native/crash_repro.py --plugin /absolute/path/libxlua.dylib --output DIR [case ...]`
 runs the reproductions of [crash-inventory.md](../docs/research/crash-inventory.md)
