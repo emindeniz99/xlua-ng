@@ -213,7 +213,7 @@ namespace XLua.SourceGenerator
             // could bind them.
             bool runtimeItself = SymbolEqualityComparer.Default.Equals(
                 compilation.GetTypeByMetadataName("XLua.Binding.BindingApi").ContainingAssembly, compilation.Assembly);
-            var unbound = NoReflectionDefined(compilation) && !runtimeItself ? UnboundStructs(structs, ctx, elsewhere) : new List<string>();
+            bool strictMinimal = NoReflectionDefined(compilation) && !runtimeItself;
             var models = new List<TypeModel>();
             var skipped = new List<string>();
             foreach (var t in luaCallCSharp)
@@ -227,9 +227,6 @@ namespace XLua.SourceGenerator
                 }
                 models.Add(ModelOf(t, ctx, compilation));
             }
-            // Before the struct set is trimmed to what the wrappers use: a
-            // Nullable<T> or an array element is pushed boxed.
-            var exposed = NoReflectionDefined(compilation) && !runtimeItself ? ExposedStructs(structs, ctx, elsewhere, models) : new List<string>();
             var set2 = new WrapperSet
             {
                 Types = new EquatableArray<TypeModel>(models.OrderBy(m => m.LuaName, StringComparer.Ordinal).ToImmutableArray()),
@@ -239,7 +236,12 @@ namespace XLua.SourceGenerator
                 GcmMismatch = gcmDefined != ctx.Gcm ? (gcmDefined ? "on" : "off") + "|" + (ctx.Gcm ? "with" : "without") : "",
             };
             ExtensionMap(set2, compilation, entries, typed, luaCallCSharp, ctx);
-            CallLuaBridges(set2, compilation, entries, typed, ctx, notWrapped, ct);
+            var callLuaUses = new List<string>();
+            CallLuaBridges(set2, compilation, entries, typed, ctx, notWrapped, callLuaUses, ct);
+            // XLSG014: before the struct set is trimmed to what the wrappers
+            // use (a Nullable<T> or an array element is pushed boxed).
+            var unbound = strictMinimal ? UnboundStructs(structs, ctx, elsewhere, callLuaUses) : new List<string>();
+            var exposed = strictMinimal ? ExposedStructs(structs, ctx, elsewhere, models, callLuaUses) : new List<string>();
             HotfixBridges(set2, compilation, entries, ctx);
             set2.NotWrapped = string.Join("\n", notWrapped.OrderBy(x => x, StringComparer.Ordinal));
             var trimmed = structs.Copy();
@@ -310,14 +312,36 @@ namespace XLua.SourceGenerator
         // or in a referenced assembly with generated bindings. A packable
         // PackAsTable struct is pushed as a Lua table, whose fields need no
         // wrapper. Only the structs this assembly configures: a referenced
-        // assembly reports its own.
-        static List<string> UnboundStructs(StructSet structs, MemberContext ctx, Dictionary<string, string> elsewhere)
+        // assembly reports its own. Reported whether or not anything passes the
+        // struct; since owner decision Q58 of 2026-10-28 the warning names the
+        // first [CSharpCallLua] delegate or interface that passes it, if any
+        // (callLuaUses, CallLuaStructUses), as the last part of the line.
+        static List<string> UnboundStructs(StructSet structs, MemberContext ctx, Dictionary<string, string> elsewhere, List<string> callLuaUses)
         {
+            var users = FirstUsers(callLuaUses);
             return structs.Values.Concat(structs.Tables)
                 .Where(s => s.Own && !s.IsEnum && s.Type.IsValueType && s.Fields.Count > 0 && !(s.Flag == 1 && s.Size != -1)
                     && !ctx.Wrapped.Contains(s.Clr) && !elsewhere.ContainsKey(s.Clr))
-                .Select(s => s.Clr + "|" + s.Type.ToDisplayString() + "|" + string.Join(", ", s.Fields.Select(f => f.Name)))
+                .Select(s =>
+                {
+                    string user;
+                    return s.Clr + "|" + s.Type.ToDisplayString() + "|" + string.Join(", ", s.Fields.Select(f => f.Name))
+                        + "|" + (users.TryGetValue(s.Clr, out user) ? user : "");
+                })
                 .Distinct().OrderBy(x => x, StringComparer.Ordinal).ToList();
+        }
+
+        // "CLR name|user" lines as a map, the first line of each struct.
+        static Dictionary<string, string> FirstUsers(IEnumerable<string> lines)
+        {
+            var users = new Dictionary<string, string>();
+            foreach (var line in lines)
+            {
+                int bar = line.IndexOf('|');
+                string clr = line.Substring(0, bar);
+                if (!users.ContainsKey(clr)) users.Add(clr, line.Substring(bar + 1));
+            }
+            return users;
         }
 
         // XLSG014 for the structs a referenced assembly configures (owner
@@ -327,8 +351,11 @@ namespace XLua.SourceGenerator
         // Reported only where a member this assembly binds passes one between
         // Lua and C# (its parameters, result, property or field type), naming
         // the first such member: a project that never exposes Vector3 hears
-        // nothing about it.
-        static List<string> ExposedStructs(StructSet structs, MemberContext ctx, Dictionary<string, string> elsewhere, List<TypeModel> models)
+        // nothing about it. Since owner decision Q58 of 2026-10-28 also where a
+        // [CSharpCallLua] delegate or interface of this assembly passes one
+        // (callLuaUses), named when no bound member passes it.
+        static List<string> ExposedStructs(StructSet structs, MemberContext ctx, Dictionary<string, string> elsewhere, List<TypeModel> models,
+            List<string> callLuaUses)
         {
             var candidates = new Dictionary<string, StructType>();
             foreach (var s in structs.Values.Concat(structs.Tables))
@@ -346,8 +373,12 @@ namespace XLua.SourceGenerator
                 foreach (var line in m.StructUses.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries))
                 {
                     var parts = line.Split('|');
-                    if (candidates.ContainsKey(parts[0]) && !first.ContainsKey(parts[0])) first.Add(parts[0], parts[1]);
+                    if (candidates.ContainsKey(parts[0]) && !first.ContainsKey(parts[0])) first.Add(parts[0], "'" + parts[1] + "'");
                 }
+            }
+            foreach (var kv in FirstUsers(callLuaUses))
+            {
+                if (candidates.ContainsKey(kv.Key) && !first.ContainsKey(kv.Key)) first.Add(kv.Key, kv.Value);
             }
             return first.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv =>
             {
@@ -365,14 +396,7 @@ namespace XLua.SourceGenerator
         {
             var first = new Dictionary<string, string>();
             string owner = type.ToDisplayString();
-            Action<ITypeSymbol, string> use = (t, member) =>
-            {
-                while (t is IArrayTypeSymbol array) t = array.ElementType;
-                if (t is INamedTypeSymbol n && n.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T) t = n.TypeArguments[0];
-                if (t == null || t.TypeKind != TypeKind.Struct || MemberContext.IsPrimitive(t) || t.SpecialType == SpecialType.System_Decimal) return;
-                string clr = Names.Clr(t);
-                if (!first.ContainsKey(clr)) first.Add(clr, owner + "." + member);
-            };
+            Action<ITypeSymbol, string> use = (t, member) => UseStruct(first, t, owner + "." + member);
             Action<IMethodSymbol, IEnumerable<IParameterSymbol>, string> method = (m, parameters, member) =>
             {
                 use(m.ReturnType, member);
@@ -386,6 +410,55 @@ namespace XLua.SourceGenerator
             foreach (var i in info.Indexers) method(i, i.Parameters, "this[]");
             foreach (var i in info.NewIndexers) method(i, i.Parameters, "this[]");
             return string.Join("\n", first.Select(kv => kv.Key + "|" + kv.Value));
+        }
+
+        // Records user as the first that passes t, when t is a struct (not a
+        // primitive, enum, decimal or Nullable<T>; the T of a Nullable<T> or an
+        // array) that first does not have yet (XLSG014).
+        static void UseStruct(Dictionary<string, string> first, ITypeSymbol t, string user)
+        {
+            while (t is IArrayTypeSymbol array) t = array.ElementType;
+            if (t is INamedTypeSymbol n && n.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T) t = n.TypeArguments[0];
+            if (t == null || t.TypeKind != TypeKind.Struct || MemberContext.IsPrimitive(t) || t.SpecialType == SpecialType.System_Decimal) return;
+            string clr = Names.Clr(t);
+            if (!first.ContainsKey(clr)) first.Add(clr, user);
+        }
+
+        // XLSG014 for [CSharpCallLua] delegates and interfaces (owner decision
+        // Q58 of 2026-10-28): the structs that the bridged delegates (Invoke's
+        // parameters and result) and interfaces (their methods' parameters and
+        // results, their properties' and indexers' types) pass between Lua and
+        // C#, as "CLR name|user" lines, the first user each, delegates and
+        // interfaces in name order. user is the phrase the warning prints.
+        static List<string> CallLuaStructUses(List<INamedTypeSymbol> delegates, List<KeyValuePair<INamedTypeSymbol, List<ISymbol>>> interfaces)
+        {
+            var first = new Dictionary<string, string>();
+            foreach (var d in delegates.OrderBy(d => d.ToDisplayString(), StringComparer.Ordinal))
+            {
+                var invoke = d.DelegateInvokeMethod;
+                string user = "the [CSharpCallLua] delegate '" + d.ToDisplayString() + "'";
+                if (!invoke.ReturnsVoid) UseStruct(first, invoke.ReturnType, user);
+                foreach (var p in invoke.Parameters) UseStruct(first, p.Type, user);
+            }
+            foreach (var kv in interfaces.OrderBy(kv => kv.Key.ToDisplayString(), StringComparer.Ordinal))
+            {
+                foreach (var member in kv.Value)
+                {
+                    string user = "the [CSharpCallLua] interface member '" + kv.Key.ToDisplayString() + "."
+                        + (member is IPropertySymbol ip && ip.IsIndexer ? "this[]" : member.Name) + "'";
+                    if (member is IMethodSymbol m)
+                    {
+                        if (!m.ReturnsVoid) UseStruct(first, m.ReturnType, user);
+                        foreach (var p in m.Parameters) UseStruct(first, p.Type, user);
+                    }
+                    else if (member is IPropertySymbol prop)
+                    {
+                        UseStruct(first, prop.Type, user);
+                        foreach (var p in prop.Parameters) UseStruct(first, p.Type, user);
+                    }
+                }
+            }
+            return first.Select(kv => kv.Key + "|" + kv.Value).ToList();
         }
 
         // XLua compiled with GEN_CODE_MINIMIZE declares XLua.CSharpWrapper, and

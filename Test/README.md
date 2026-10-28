@@ -198,7 +198,13 @@ decisions of 2026-10-28). `CaseParityEnumArgs` does the same for enum
 parameters and fields (Q34), `CaseParityStructOtherObject` for a C# object
 of another class passed for a struct (Q36), and `CaseParityStructResults`
 checks that a struct C# reads back from a delegate or `LuaFunction.Func`
-where Lua returns nothing is `default(S)` (Q35), through `Coverage.ParityResults`. `CaseLazyBlackListed` and
+where Lua returns nothing is `default(S)` (Q35), through `Coverage.ParityResults`;
+it also checks that `LuaTable.Get<T>` of a missing key raises for every value
+type and that `ContainsKey` and `Get<object>` do not (Q55).
+`CaseParityStructResultKinds` checks that a struct read back from a
+delegate, an interface bridge (`Coverage.IParityResults`), `LuaFunction.Func`
+or `LuaTable.Get` given a number, a string, a boolean, a function or a C#
+object of another class raises `S expected, got <kind>` (Q56). `CaseLazyBlackListed` and
 `CaseObsoleteOperator` cover `[DoNotGen]` with `[BlackList]` and `[Obsolete]`
 operators and indexers in generated code. The modes run in separate
 processes, so a case compares a mode with an expected value or with the
