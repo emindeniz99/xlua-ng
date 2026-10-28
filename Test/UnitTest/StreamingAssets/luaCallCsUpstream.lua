@@ -289,6 +289,27 @@ function CMyTestCaseLuaCallCSUpstream.CaseUtf8StringParameters(self)
     ASSERT_EQ(string.find(tostring(err), "\228\184\173\230\150\135\233\148\153\232\175\175", 1, true) ~= nil, true)
 end
 
+-- Tencent/xLua#1081 and #1179: the metatables of C# types whose names are
+-- not ASCII (two one-character CJK names in Upstream.Utf8Names) are created
+-- and found under the same UTF-8 name, and the two types keep apart.
+function CMyTestCaseLuaCallCSUpstream.CaseUtf8TypeNames(self)
+    local names = CS.Upstream.Utf8Names
+    local a = names["\231\148\178"]()
+    local b = names["\228\185\153"]()
+    ASSERT_EQ(a:Value(), 1)
+    ASSERT_EQ(b:Value(), 2)
+    ASSERT_EQ(a:GetType().FullName, "Upstream.Utf8Names.\231\148\178")
+    ASSERT_EQ(b:GetType().FullName, "Upstream.Utf8Names.\228\185\153")
+end
+
+-- Lua errors raised while C# frames are on the stack: luaL_error and lua_error
+-- from C# functions, C# exceptions, errors through nested LuaFunction.Call,
+-- in coroutines and with a C# message handler (Upstream.CallbackErrors; the
+-- SEH report for LuaJIT on Win64 in docs/research/focus-creative-games.md).
+function CMyTestCaseLuaCallCSUpstream.CaseErrorsThroughCSharpCallbacks(self)
+    ASSERT_EQ(CS.Upstream.CallbackErrors.Check(), "")
+end
+
 -- Tencent/xLua#1189: with debug.sethook(h, "cr"), calling a function twice
 -- on one line (`_ = f() and f().x`) must report as many returns as calls,
 -- for a Lua function and for a C# method.
@@ -524,4 +545,20 @@ end
 
 function CMyTestCaseLuaCallCSUpstream.CaseDisposeWhileRunningThrows(self)
     ASSERT_EQ(CS.Upstream.UnprotectedRaises.DisposeWhileRunning(), "")
+end
+
+-- Two threads in one LuaEnv, or a C# finalizer that calls Lua, crashed
+-- (docs/research/crash-inventory.md, items 5 and 6): with the bridge checks a
+-- use from a thread that does not own the env throws, SetOwnerThread hands it
+-- over, and the finalizers of xLua's own objects only queue their release.
+function CMyTestCaseLuaCallCSUpstream.CaseOwnerThreadCheck(self)
+    ASSERT_EQ(CS.Upstream.OwnerThread.Check(), "")
+    ASSERT_EQ(CS.Upstream.OwnerThread.Finalizers(), "")
+    ASSERT_EQ(CS.Upstream.OwnerThread.OptionsAndStatistics(), "")
+end
+
+-- Deep C# <-> Lua recursion: "C stack overflow" at the same depth on every Lua
+-- version; LuaJIT crashed (crash-inventory.md, item 7).
+function CMyTestCaseLuaCallCSUpstream.CaseDeepCSharpRecursion(self)
+    ASSERT_EQ(CS.Upstream.DeepRecursion.Check(), "")
 end

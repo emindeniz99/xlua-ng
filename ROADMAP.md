@@ -57,7 +57,11 @@ Each item says what is left and where the runs that passed are recorded.
   sizes in [build/SIZE.md](build/SIZE.md)). Left: a release player on a
   phone, players from other Unity versions, an iPhone (a Development player
   passed in the iOS Simulator), WebGL, and the GCM mode on iOS, WebGL and a
-  phone.
+  phone. The strict minimal preset (no reflection fallback, the generator
+  binding everything the smoke uses) passed in a release and a Development
+  player on the emulator on 2026-10-28
+  ([Test/MobileSmoke/README.md](Test/MobileSmoke/README.md#2026-10-28-strict-minimal-players));
+  left for it: High stripping, iOS, WebGL and a phone.
 - **UPM package** (`Tools/make_upm_package.py`, source generator M6): the
   editor suite, hotfix players, the IL2CPP smoke and a Development WebGL
   player in headless Chrome pass from it
@@ -78,25 +82,36 @@ Each item says what is left and where the runs that passed are recorded.
   [source-generator.md](docs/design/source-generator.md#m8-as-implemented-2026-10-18).
   The host check passes: `obfuscation_check.py` renames the generated
   assembly with Cecil and runs it with Lua 5.5.1 and LuaJIT.
-- **LuaCATS with the source generator on Roslyn 4.3.1** (M10): M10's Unity
+- **LuaCATS with the source generator in the editor** (M10): M10's Unity
   steps passed on 6000.6.6f1 on 2026-10-28 (`LuaTypes/` equal to
   `Test/LuaCATS/expected`, Validate Setup's label and Generate Code problems;
   [Test/README.md](Test/README.md#after-m11-on-every-local-editor-2026-10-28)),
-  and M9's steps 1 and 2 on 2021.3.45f2. Left: the LuaCATS comparison on
-  2021.3 to 6000.3, which needs a `Sample.cs` without its `ref readonly`
-  parameters (Roslyn 4.3.1 cannot compile them).
+  and M9's steps 1 and 2 on 2021.3.45f2. The comparison is a script since
+  then (`Test/UnityMatrix/luacats_unity.py`) and passed on 2021.3.45f2 and
+  6000.3.21f1 with `Sample.cs` without its `ref readonly` members
+  (`LUACATS_NO_REF_READONLY`, `Test/LuaCATS/expected-no-ref-readonly`) and
+  on 6000.6.6f1 with them
+  ([Test/README.md](Test/README.md#luacats-from-the-editor-and-the-strict-minimal-player-2026-10-28)).
+  Left: 2022.3 and 6000.0, the Linux and Windows editors, and adding the
+  script to `unity-matrix.yml`.
 - **Windows ARM64**: load `Plugins/arm64/xlua.dll` in a Unity 2023.1+ Windows
   ARM64 player (and the Windows on Arm Editor), and run the `windows-arm64`
   job of `build.yml` once. `native-build.yml` built the Lua 5.3.6, 5.4.9,
   5.5.1 and LuaJIT plugins on `windows-11-arm` and passed the native checks on
   2026-10-17 (run 39059626940); no Unity process has loaded them yet.
-- **Windows .NET Framework** (an `XLUA_GENERAL` host): run the suite there for
-  [#1081](https://github.com/Tencent/xLua/issues/1081) and
-  [#1179](https://github.com/Tencent/xLua/issues/1179). It marshals `string`
-  P/Invoke parameters with the ANSI code page; the bridge imports in
-  `LuaDLLBridge.cs` pass UTF-8 bytes under `XLUA_GENERAL` since 2026-10-18,
-  and Mono and .NET on macOS marshal UTF-8 either way. `Core/LuaDLL.cs`
-  (`luaL_newmetatable`, ASCII names only) is unchanged.
+- **Windows hosts** (`windows-host.yml`, since 2026-10-28): the managed suite
+  on the .NET Framework and on Mono 6.12.0 for Windows, the MSVC
+  `XLUA_APICHECK` builds of Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT (GC64 and
+  not) and errors through C# callbacks on LuaJIT Win64 pass (run
+  40645581045; [windows-host.md](docs/research/windows-host.md)). The runs
+  confirmed [#1081](https://github.com/Tencent/xLua/issues/1081) on the .NET
+  Framework and fixed `luaL_newmetatable`'s ANSI import and `xlua_gl` on
+  LuaJIT without GC64. Left: owner questions 1 to 3 in windows-host.md (the
+  `[CSharpCallLua]` scan and dynamic assemblies, the cost of the `xlua_gl`
+  fix, `NATIVE_LUA_PUSHSTRING`); the source generator passes, .NET (Core)
+  and the console code page of #1179 on Windows; and a `gh workflow run` of
+  the workflow from `main` (until the merge it ran from pushes to
+  `ci/windows-host`).
 
 ## Upcoming Unity versions
 
@@ -132,8 +147,9 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
 - Lua's C API checks (`XLUA_APICHECK`) are clean on Lua 5.3.6, 5.4.9, 5.5.1
   and LuaJIT, in the legacy, minimal and core presets and with
   `XLUA_LUASCRIPT=ON`, on macOS and under ASan and UBSan on Linux
-  ([apicheck-runs.md](docs/research/apicheck-runs.md)). Left: a Windows
-  (MSVC) run. Decided 2026-10-18 by the owner: a second CI sanitizer job
+  ([apicheck-runs.md](docs/research/apicheck-runs.md)), and with MSVC on
+  Windows since 2026-10-28 (`windows-host.yml`, legacy preset only).
+  Decided 2026-10-18 by the owner: a second CI sanitizer job
   (`sanitizers-extra`) runs the core, minimal, `XLUA_LUASCRIPT` and
   `luajit-uint` runs, and a `webgl` job compiles the WebGL source with
   Emscripten 4.0.20 (`.github/CI.md`). Both sanitizer jobs failed in their
@@ -155,9 +171,9 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
 - The P2 rows of UPSTREAM.md that are not closed:
   [#741](https://github.com/Tencent/xLua/issues/741) (fixed, needs a WebGL
   player that runs finalizers during an allocation),
-  [#1081](https://github.com/Tencent/xLua/issues/1081) and
-  [#1179](https://github.com/Tencent/xLua/issues/1179) (need the Windows .NET
-  Framework run above), [#1149](https://github.com/Tencent/xLua/issues/1149)
+  [#1179](https://github.com/Tencent/xLua/issues/1179) (its console code page
+  part; the ANSI imports are fixed and checked on the .NET Framework,
+  2026-10-28), [#1149](https://github.com/Tencent/xLua/issues/1149)
   (not reproduced; a likely cause and fix in
   [crash-inventory.md](docs/research/crash-inventory.md#11-the-old-walker-1149)).
   [#999](https://github.com/Tencent/xLua/issues/999) is fixed (2026-10-19).

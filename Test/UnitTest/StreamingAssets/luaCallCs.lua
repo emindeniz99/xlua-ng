@@ -2862,6 +2862,33 @@ function CMyTestCaseLuaCallCS.CaseNoReflectionBridges(self)
 	end
 end
 
+-- System.Object and System.Type have no bindings in the suite, as in a minimal
+-- project that does not add them (owner decision 2026-10-28): tostring() works
+-- through __tostring for objects and types, and without reflection the error for
+-- their members says so.
+function CMyTestCaseLuaCallCS.CaseNoReflectionObjectAndType(self)
+    self.count = 1 + self.count
+	local api = CS.NoReflection.Api
+	local Unbound = CS.NoReflection.Unbound
+	local u = api.MakeUnbound()
+	ASSERT_EQ(tostring(u):match("^NoReflection%.Unbound: %-?%d+$") ~= nil, true)
+	ASSERT_EQ(tostring(typeof(Unbound)):match("^NoReflection%.Unbound: %-?%d+$") ~= nil, true)
+	if not CS.LuaTestCommon.NoReflection() then
+		ASSERT_EQ(u:ToString(), "NoReflection.Unbound")
+		ASSERT_EQ(typeof(Unbound).Name, "Unbound")
+		return
+	end
+	local err = noBindingsError(function() return u:ToString() end)
+	has(err, "cannot use System.Object.ToString: System.Object has no generated bindings")
+	has(err, "tostring(obj) gives obj:ToString()")
+	-- typeof gives a System.RuntimeType, which is not public; its Name or the
+	-- one of a public base class.
+	err = noBindingsError(function() return typeof(Unbound).Name end)
+	has(err, ".Name: ")
+	has(err, "tostring(typeof(CS.T)) gives the type's name")
+	has(err, "[assembly: XLua.LuaCallCSharp(typeof(System.Type))]")
+end
+
 -- xlua.private_accessible (without XLUA_RESTRICT_PRIVATE_ACCESS, or with
 -- HOTFIX_ENABLE) asks for reflection on one type: under XLUA_NO_REFLECTION a
 -- type without bindings then gets its public and private members and its
@@ -3752,6 +3779,37 @@ function CMyTestCaseLuaCallCS.CaseOverloadReferenceTypes(self)
 		{"BaseDerived", NIL, "base"}, {"DerivedBase", NIL, "derived"},
 		{"ObjectTable", {}, "object"},
 	}), "")
+end
+
+-- The cost of a C# object is cached per pair of object and parameter type:
+-- the same call site sees a derived class, its base class and an unrelated
+-- class in turn, in both orders, three times over.
+function CMyTestCaseLuaCallCS.CaseOverloadTypeCache(self)
+	self.count = 1 + self.count
+	local base, derived, other = CS.OverloadBase(), CS.OverloadDerived(), CS.OverloadOther()
+	local cases = {}
+	for _ = 1, 3 do
+		for _, case in ipairs({
+			{"ObjectBase", derived, "base"}, {"ObjectBase", base, "base"}, {"ObjectBase", other, "object"},
+			{"ObjectBase", base, "base"}, {"ObjectBase", derived, "base"},
+			{"InterfaceBase", derived, "base"}, {"InterfaceBase", base, "base"}, {"InterfaceBase", other, "interface"},
+			{"InterfaceBase", derived, "base"},
+			{"BaseDerived", derived, "derived"}, {"BaseDerived", base, "base"}, {"BaseDerived", derived, "derived"},
+			{"DerivedBase", base, "base"}, {"DerivedBase", derived, "derived"}, {"DerivedBase", base, "base"},
+		}) do
+			table.insert(cases, case)
+		end
+	end
+	local failures = {overloadRun(cases)}
+	-- An unrelated class matches neither overload, also after the others.
+	for _, class in ipairs(overloadClasses) do
+		for _, name in ipairs({"BaseDerived", "DerivedBase"}) do
+			if pcall(class[2][name], other) then
+				table.insert(failures, class[1] .. "." .. name .. "(OverloadOther) did not fail")
+			end
+		end
+	end
+	ASSERT_EQ(table.concat(failures, "\n"), "")
 end
 
 function CMyTestCaseLuaCallCS.CaseOverloadParamsAndDefaults(self)

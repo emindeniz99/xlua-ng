@@ -87,6 +87,23 @@ no `socket.core` in `package.preload`), `io on, LuaSocket on` for legacy, and
 with `XLUA_SMOKE_MINIMAL_PLUGIN` a player with the wrong one fails. The Editor
 always loads the default plugin.
 
+Strict minimal, the preset as shipped: the minimal preset has no reflection
+fallback (`XLUA_NO_REFLECTION`) unless `XLUA_REFLECTION` is defined, and
+without the generator nothing is bound, so a minimal project without
+`--source-gen` needs `XLUA_SMOKE_DEFINES=XLUA_PRESET_MINIMAL;XLUA_REFLECTION`.
+With `--source-gen` and `XLUA_SMOKE_DEFINES=XLUA_PRESET_MINIMAL` alone,
+`SgSmoke.cs` (under `XLUA_NO_REFLECTION`, which its preset block defines) also
+binds what Lua uses outside `SgApi`: `[assembly: LuaCallCSharp(typeof(SmokeApi))]`
+for the integer rule and the delegate argument, and `typeof(SgPoint)` for the
+fields of the `[GCOptimize]` struct that `SgApi.Swap` returns (`[GCOptimize]`
+generates only its pusher and reader). The `[ReflectionUse]` type must then
+raise `cannot construct SgReflected: SgReflected has no generated bindings ...
+(XLUA_NO_REFLECTION ...)` instead of working; the `[DoNotGen]` method and the
+init-only setter keep their per-member fallback, as the preset documents. The
+preset implies `GEN_CODE_MINIMIZE`, so the generator's checks run in GCM mode,
+and the source generator part of the pass line starts with `no reflection
+fallback`.
+
 The core-only smoke (`LuaScript` without the bridge,
 [core-luascript.md](../../docs/design/core-luascript.md) section 8.10):
 `--package --core --android-plugin CORE_LIB` installs the package with a core
@@ -241,6 +258,40 @@ built with NDK r30) ran on an Android 16 (API 36) emulator with 16 KB pages.
 A Unity 6000.6.4f1 WebGL player ran in headless Chrome 155. Unity compiled
 `xlua_webgl.cpp` with its Emscripten 4.0.20.
 
+### 2026-10-28: strict minimal players
+
+The first players of the minimal preset as shipped, without the reflection
+fallback (strict minimal, above). Main at `aadd1d87` with this branch,
+whose runtime C# and native code equal `d37515c2`'s (the run below), and the
+same Lua 5.5.1 plugins: `build/make_android_lua55.sh` (NDK r30) with and
+without `XLUA_VARIANT=minimal XLUA_PRESET=minimal`. `prepare.py
+--android-plugin ... --android-minimal-plugin ... --macos-plugin ...
+--source-gen BUILD_DIR`, `XLUA_SMOKE_DEFINES=XLUA_PRESET_MINIMAL` applied by
+`SmokeBuild.ApplyDefines` in a launch of its own, Unity 6000.3.21f1, Android
+ARM64 IL2CPP, Minimal stripping, the `xlua16k` AVD (Android 16, API 36, 16 KB
+pages) headless, `adb install --no-streaming`. Both players and the Editor
+(`SmokeBuild.CheckEditor` with the Android target) printed
+`XLUA_NG_SMOKE_PASS`, and both builds logged the minimal plugin variant:
+
+| Build | APK | Pass line (features) |
+| --- | ---: | --- |
+| Editor | | template on, xlua.util off, perf.profiler on, SignatureLoader off, debug full, io on, LuaSocket on, `source generator (no reflection fallback, GCM, 4 methods of W_SgApi_0217fb75, 12 generated types, ...)` |
+| release | 12,819,054 | integer rule, delegates generic, `Func<int, int> by signature`, template, xlua.util, perf.profiler, SignatureLoader off, **debug reduced**, io off, LuaSocket off, `source generator (no reflection fallback, GCM, 4 methods of W_SgApi_0217fb75, 9 generated types, bridge XLua.Generated.Assembly_CSharp_b37fdd7b.Bridges.__Gen_Delegate_Imp0)` |
+| Development | 18,535,511 | the same with perf.profiler on and **debug full**, and the init-only setter's warning once |
+
+The first Editor run failed with `cannot use SgPoint.X: SgPoint has no
+generated bindings`: the `[GCOptimize]` struct's fields went through
+reflection before, so the strict configuration binds `SgPoint` too (above).
+The APKs are larger than the minimal players below (12,775,158 and
+18,494,755) because this project also has the generator and `SgSmoke.cs`;
+the size of the preset itself is measured with the size probe
+([build/SIZE.md](../../build/SIZE.md#reflection-off-in-the-minimal-preset),
+`size_report.py --configs strict`: +499,162 bytes over the baseline strict,
++489,970 with `XLUA_REFLECTION`).
+
+Not run: strict minimal with High stripping, from the package, on iOS, WebGL,
+a phone and other Unity versions.
+
 ### 2026-10-28: the minimal preset's reduced debug library and main after M11
 
 Main at `d37515c2` with the `debug` check above (a first round at `b3adc8e8`
@@ -282,7 +333,8 @@ again ([build/SIZE.md](../../build/SIZE.md#reflection-off-in-the-minimal-preset)
 
 Not run: a minimal player without `XLUA_REFLECTION` (the smoke calls
 `SmokeApi`, which nothing binds, and `SgSmoke.cs` checks members that reach
-C# through reflection on purpose), Development and High stripping players
+C# through reflection on purpose; strict minimal players ran later the same
+day, above), Development and High stripping players
 with the generator, other Unity versions, iOS, WebGL and a phone.
 
 ### 2026-10-18: without the legacy generator (milestone M11)

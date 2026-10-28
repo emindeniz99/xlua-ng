@@ -498,6 +498,20 @@ def build():
             "https://www.mono-project.com/", "6.14.1 (WineHQ source mirror and Homebrew)", "current",
             "run_managed.py refuses other versions. Mono is now maintained by the Wine project; mono/mono on GitHub has seen no push since 2024-08.",
             purl="pkg:generic/mono@6.14.1?download_url=https://dl.winehq.org/mono/sources/mono/mono-6.14.1.tar.xz", ctype="application"))
+    # Mono for Windows, the MSI that .github/scripts/install-mono-windows.ps1 checks and installs.
+    mono_ps1 = read(".github/scripts/install-mono-windows.ps1")
+    mono_win = re.search(r"^\$Version = '([\d.]+)'$", mono_ps1, re.M).group(1)
+    mono_win_sha = re.search(r"^\$Sha256 = '([0-9a-f]{64})'$", mono_ps1, re.M).group(1)
+    need(".github/workflows/windows-host.yml", "install-mono-windows.ps1")
+    mono_win_url = (f"https://download.mono-project.com/archive/{mono_win.rsplit('.', 1)[0]}/windows-installer/"
+                    f"mono-{mono_win}-x64-0.msi")
+    add(row("managed", "Mono for Windows (x64 MSI)", mono_win,
+            "`.github/scripts/install-mono-windows.ps1`, `.github/workflows/windows-host.yml`", "MIT and others; see upstream",
+            "https://www.mono-project.com/download/stable/#download-win", f"{mono_win} (last Windows release)", "current",
+            "CI tool, not shipped: runs the managed suite on Mono for Windows. The script checks the MSI's SHA-256 "
+            "(the same as Chocolatey's mono package on 2026-10-28). Mono 6.14 from WineHQ has no Windows installer.",
+            purl=f"pkg:generic/mono@{mono_win}?download_url={mono_win_url}", ctype="application",
+            hashes=[{"alg": "SHA-256", "content": mono_win_sha}]))
     need("Test/Native/editor_compile_check.py", 'shutil.which("csc")')
     add(row("managed", "Roslyn csc (bundled with Mono)", "3.9.0-6.21124.20", "`Test/Native/editor_compile_check.py` (`--compiler system`)", "MIT",
             "https://github.com/dotnet/roslyn", "not tracked (fixed by Mono 6.14.1)", "unknown",

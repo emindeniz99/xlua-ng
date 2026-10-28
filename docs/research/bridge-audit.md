@@ -1483,6 +1483,10 @@ wins (`ObjectCasters.cs` `OverloadScore`, documented at the class):
 1. `3.0` on Lua 5.3+ is a float and prefers `double`; on LuaJIT it is the
    integer 3 (no subtype), as the integer check already treated it. So
    `Foo(6 / 2)` calls `Foo(double)` on Lua 5.4 and `Foo(int)` on LuaJIT.
+   **Confirmed 2026-10-28 (owner):** a float with an integer value stays a
+   float on Lua 5.3+ and prefers `double`; `math.tointeger(x)` (or `//`)
+   forces the `int` overload. No code change; the FAQ ("Can Lua call
+   overloaded C# methods?") gives `Foo(math.tointeger(6 / 2))`.
 2. Where C# betterness prefers narrower types, this rule prefers the type
    that holds every value: after `int`, `long` before `short` or `byte`,
    and `double` before `float` for an integer (C# picks `float` over
@@ -1559,6 +1563,110 @@ configurations: 588 ok, 7 skipped) pass; `coverage_cs_dotnet.py` reports
 suite. `sanitize.sh` (Linux) did not run; the native change is one function
 over `value_to_integer`, which the fuzzers already cover. No Unity editor or
 player ran; IL2CPP is not covered.
+
+**Faster scoring (2026-10-28).** The owner kept overload selection in every
+preset (2026-10-28) and asked for it to cost less with the same results.
+Where the time went, from the generated `Num` and `Obj` wrappers of
+`Test/Native/Benchmark.cs` at b3adc8e8 [C]:
+
+- Each candidate's check read the argument, and its cost read it again: for
+  `Num(i)` with `Num(double)` and `Num(int)`, `lua_type`, `xlua_number_kind`
+  and `xlua_isinteger_number`, three native calls where one tells all
+  three.
+- For `Obj(o)` with `Obj(object)` and `Obj(BenchTarget)`, the checks were
+  `translator.Assignable<object>` and `Assignable<BenchTarget>` (each
+  `lua_type`, `xlua_tocsobj_safe` and the object pool), and the costs
+  `ArgScore`'s `lua_type` twice and `UserdataType` (`xlua_tocsobj_safe` and
+  the pool) again.
+- A C# object's cost tested `IsAssignableFrom` and walked the base classes
+  on every call (`Distance`).
+- CodeEmit checked every argument through `ObjectTranslator.Assignable`
+  (`lua_type`, a checker lookup, the checker's own native call).
+
+The change (`perf(runtime)`, `perf(generator)`), in scored groups only;
+groups that are not scored keep their checks, except that a generated
+`object` check is one call (`BindingApi.ObjectCheck`) [C]:
+
+- A number parameter's check comes from the argument's `xlua_number_kind`,
+  read at the first check that needs it and shared by the candidates:
+  0 means not a number, so `lua_type == LUA_TNUMBER` is `kind != 0` and
+  `xlua_isinteger_number` is `kind >= 2`. Generated code writes the test
+  inline (`gen_n<pos>`); CodeEmit calls `BindingApi.NumberCheck`;
+  reflection `OverloadMethodWrap.Check(L, numbers)`; reflection indexers
+  `OverloadScore.NumberCheck`. A userdata (`long`, `ulong` and `decimal`
+  take some) still goes through the checker, as does a number when a
+  checker was registered for a number type (`AddChecker`,
+  `RegisterChecker`; `ObjectCheckers.defaultNumberChecks`).
+- The cost of an `int`, smaller integer, `double` or `float` argument that
+  its check found to be a number is `BindingApi.NumberCost`, one read of
+  `OverloadScore.NumberCosts`, a table built from `Number`.
+- A class, struct, interface, enum, delegate or `object` parameter is
+  checked and costed by one call, `OverloadScore.CheckedArg`
+  (`BindingApi.CheckedArgScore`), which follows `Assignable` step by step
+  and returns the cost or -1; the argument's `lua_type` is shared by the
+  candidates (`gen_t<pos>` in generated code, a local in CodeEmit). For
+  `object`, `Assignable` is true for every value unless a checker was
+  registered for `object` (`ObjectCheckers.defaultObjectCheck`).
+- The distance from an object's type to a parameter type that differs from
+  it is cached per translator, in a table of 64 entries indexed by the two
+  types' hash codes; a pair whose slot is taken replaces the entry.
+- Nothing allocates (managed bytes per call equal before and after). The
+  early stop at cost 0 was already in every path: reflection
+  `MethodWrap.Call` and `Utils.IndexerKeys.Pick`, CodeEmit (`Brfalse` to
+  the dispatch), generated code (`break`).
+
+`Test/Native/benchmark.py`, `--runs 7`, Lua 5.5.1 and LuaJIT host plugins
+(`-DBUILD_SILICON=ON`, RelWithDebInfo) from the same `build/` tree, three
+interleaved rounds of b3adc8e8 and of this change (with
+`overload_obj_derived` added to both): the minimum over the rounds of the
+per-round median, in ns per call, macOS 27 arm64, Mono 6.14.1. Other agents
+loaded the machine (load average 21 to 80); per-run minimums agree, and
+differences under about 5% are noise. [C]
+
+| Case, Lua 5.5.1 | reflection | CodeEmit | source generator | `GEN_CODE_MINIMIZE` |
+|---|---|---|---|---|
+| `overload_disjoint` (never scored) | 392 → 398 | 154 → 152 | 56.0 → 55.7 | 59.6 → 62.8 |
+| `overload_num_integer` | 459 → 429 | 262 → 77.0 | 83.9 → 58.7 | 86.8 → 64.8 |
+| `overload_num_float` | 432 → 421 | 172 → 73.0 | 70.8 → 60.6 | 72.6 → 67.0 |
+| `overload_obj_class` | 565 → 554 | 209 → 111 | 254 → 112 | 264 → 107 |
+| `overload_obj_derived`: a `BenchDerived` to `Obj(object)` and `Obj(BenchTarget)` | 703 → 666 | 316 → 127 | 357 → 125 | 371 → 124 |
+
+| Case, LuaJIT | reflection | CodeEmit | source generator | `GEN_CODE_MINIMIZE` |
+|---|---|---|---|---|
+| `overload_disjoint` | 388 → 410 | 157 → 160 | 63.0 → 64.0 | 67.1 → 70.3 |
+| `overload_num_integer` | 467 → 464 | 261 → 87.3 | 106 → 68.3 | 99.0 → 70.6 |
+| `overload_num_float` | 419 → 431 | 157 → 73.2 | 80.8 → 59.9 | 72.8 → 76.4 |
+| `overload_obj_class` | 566 → 575 | 219 → 123 | 252 → 118 | 263 → 124 |
+| `overload_obj_derived` | 686 → 647 | 321 → 138 | 351 → 133 | 368 → 129 |
+
+- Generated code: the scored calls now cost about what the first-match
+  calls did before overload selection (54.6 for `Num` and 153 for `Obj` at
+  d48b78df, above): numbers 4 to 10 ns above that, objects 40 ns below it,
+  since the `object` candidate no longer looks the object up.
+- CodeEmit: scored calls are cheaper than unscored ones now, whose checks
+  still go through `Assignable` (`overload_disjoint`).
+- Reflection: within the noise except for numbers and derived classes on
+  Lua 5.5.1 (5 to 7% faster); its checks are the checker delegates, which
+  CheckedArg does not replace, and the call itself dominates.
+- Size: `XLua.Mini.dll` (Mono, mcs) 312,320 → 315,904 bytes (+1.1%);
+  the suite's test assembly with the generated wrappers (csc) 965,632 →
+  971,776 (+0.6%) plain and 883,200 → 888,320 (+0.6%) with
+  `GEN_CODE_MINIMIZE`, the same fixtures on both sides. The native plugin
+  does not change. IL2CPP code size and speed were not measured.
+
+Tests [C]: `CaseOverloadTypeCache` (new) calls the same wrappers with an
+`OverloadDerived`, an `OverloadBase` and an `OverloadOther` in turn and in
+both orders, three times over, and checks that the unrelated class still
+matches neither class overload; it passes on b3adc8e8 too. The four
+existing overload cases are unchanged. `run_managed.py --source-gen
+--source-gen-minimize --source-gen-fallback` passes 495 tests in each of
+its four runs on Lua 5.5.1 and LuaJIT, and with `--define
+XLUA_PRESET_MINIMAL` on minimal-preset plugins of both; the generator unit
+test `OverlappingOverloadsAreScored` checks the new checks
+(`build_source_generator.py --test`, 43 tests); `editor_compile_check.py`
+(7 editors, 85 configurations: 588 ok, 7 skipped). Not run: Lua 5.3.6 and
+5.4.9, `sanitize.sh`, the native checks (no native change), the Unity
+editor suite, players and IL2CPP.
 
 ### C# runtime, from the coverage suite (2026-10-18)
 

@@ -1,6 +1,9 @@
 // Fixture for Test/Native/luacats_check.py: one small API per case the LuaCATS
 // generator has to map. Compiled with the xLua source generator against
 // XLua.Mini.dll, with its configuration in SampleAttributes.cs; never run.
+// With LUACATS_NO_REF_READONLY it leaves out the C# 12 `ref readonly`
+// members, which Roslyn before 4.8 (Unity 2021.3 to 6000.3 ship 4.3.1) cannot
+// compile; Test/LuaCATS/expected-no-ref-readonly has what then differs.
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -25,10 +28,12 @@ namespace LuaCATSSample
     // Roslyn emits: [In] ref with IsReadOnlyAttribute.
     public delegate double Measure([In, IsReadOnly] ref Point p, ref int calls);
 
+#if !LUACATS_NO_REF_READONLY
     // C# 12 `ref readonly` parameters are treated like `in`. Roslyn emits
     // [In] ref with RequiresLocationAttribute (defined at the end of this file
     // because Mono's BCL lacks it; Roslyn embeds such a copy itself).
     public delegate double Gauge([In, RequiresLocation] ref Point p, ref int calls);
+#endif
 
     // On LuaJIT, long and ulong values that Lua supplies take numbers too:
     // what a Lua function returns for a delegate, indexer keys and operator
@@ -78,7 +83,9 @@ namespace LuaCATSSample
         public Action<int> Callback;
         public Scorer Score;
         public Measure Measurer;
+#if !LUACATS_NO_REF_READONLY
         public Gauge Gauger;
+#endif
 
         public event Action<Circle> Changed;
         public static event Action Reset;
@@ -100,7 +107,9 @@ namespace LuaCATSSample
 
         public double Reach([In, IsReadOnly] ref double by, ref int steps) { steps++; return Radius + by; }
 
+#if !LUACATS_NO_REF_READONLY
         public double Stretch([In, RequiresLocation] ref double by, ref int steps) { steps++; return Radius * by; }
+#endif
 
         // [In] ref without IsReadOnlyAttribute is a normal ref.
         public void Nudge([In] ref int steps) { steps++; }
@@ -158,7 +167,9 @@ namespace LuaCATSSample
 
         // The same for a by-value and `ref readonly` pair.
         public static float Angle(Point a, Point b) { return 0; }
+#if !LUACATS_NO_REF_READONLY
         public static float Angle([In, RequiresLocation] ref Point a, [In, RequiresLocation] ref Point b) { return 0; }
+#endif
     }
 
     public static class ShapeExtensions

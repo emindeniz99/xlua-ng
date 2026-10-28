@@ -282,7 +282,14 @@ source generator, compiles `Test/LuaCATS/Sample.cs` with the generator and
 rewrites the mcs spellings of `in` and `ref readonly`), writes LuaCATS
 definitions from the manifest the generator wrote into it (milestone M10;
 configuration lists are not read since M11) and compares them with `Test/LuaCATS/expected` and the `.luarc.json` beside them
-with `expected-luarc.json` (`--update` rewrites them). It checks strict mode
+with `expected-luarc.json` (`--update` rewrites them). It compiles
+`Sample.cs` a second time with `LUACATS_NO_REF_READONLY` at C# 9, which
+leaves out its C# 12 `ref readonly` members as Roslyn 4.3.1 (Unity 2021.3 to
+6000.3) needs, and compares those definitions with the overlay
+`Test/LuaCATS/expected-no-ref-readonly` over `expected` (`CS.lua` without the
+`Gauge` delegate, `Circle` without `Gauger` and `Stretch`; Lua 5.x plugins
+only). `Test/UnityMatrix/luacats_unity.py` compares an editor's output with
+the same files ([below](#luacats-from-the-editor-and-the-strict-minimal-player-2026-10-28)). It checks strict mode
 against `expected-strict`, the file suffix, the `.luarc.json` ownership rules,
 Clear and Generate, byte-identical output on a second run, under the tr-TR
 culture and from CRLF sources (`Test/LuaCATS/CultureLauncher.cs` sets tr-TR
@@ -420,6 +427,51 @@ Any other result fails the run. `--define` works as in `run_managed.py`; each
 Mono run has a timeout (`--timeout`, 300 s) and its process group is killed
 after it.
 
+### Windows hosts: the .NET Framework and Mono (2026-10-28)
+
+`run_managed.py --runtime netfx --compiler <csc.exe>` runs the first pass
+(reflection and CodeEmit) on a Windows host's .NET Framework instead of Mono:
+the compiler is a Roslyn `csc.exe` (Visual Studio's or the Build Tools'),
+which gets the fixtures rewritten for Roslyn (`roslyn_fixtures.py`) and
+`-define:XLUA_TEST_NO_SPAN` (the .NET Framework has no `Span<T>` outside the
+System.Memory package, so the `Span` members of `Upstream.SpanOverloads` are
+left out), and the test program runs without a host. The source generator
+passes and `--coverage` need Mono and are refused. The .NET Framework
+marshals `string` parameters in the ANSI code page, so this is the run that
+checks the UTF-8 imports of `XLUA_GENERAL`
+([Tencent/xLua#1081](https://github.com/Tencent/xLua/issues/1081)).
+On Mono for Windows the ordinary runner works with `--mono <Mono>/bin/mono.exe
+--compiler <Mono>/lib/mono/4.5/mcs.exe --mono-version 6.12.0` (the Windows
+build reports 6.12.0).
+
+`python Test/Native/ansi_control.py --compiler <csc.exe> --plugin xlua.dll
+--output DIR` is the control for that run: it turns the UTF-8 imports of
+`Assets/XLua/Src/LuaDLLBridge.cs`, then of `Assets/XLua/Core/LuaDLL.cs`, back
+to ANSI (the code before the fixes; the file's bytes are restored), runs the
+suite on the .NET Framework, and requires `CaseUtf8StringParameters`, then
+`CaseUtf8TypeNames`, not to pass while the other passes. With
+`LuaDLL.cs` in ANSI an `XLUA_APICHECK` build aborts in Lua's API check
+before `CaseUtf8TypeNames` reports, which counts as not passing.
+
+`windows-host.yml` runs both, with the native checks and
+`apicheck_probe.py`, on MSVC `XLUA_APICHECK` builds of Lua 5.3.6, 5.4.9,
+5.5.1, LuaJIT GC64 and LuaJIT without GC64
+([.github/CI.md](../.github/CI.md), [windows-host.md](../docs/research/windows-host.md)).
+Run [40645581045](https://github.com/emindeniz99/xlua-ng/actions/runs/40645581045)
+passed: 496 tests in each of two modes on the .NET Framework and on Mono
+6.12.0 for every leg, and the control on 5.5.1. Three cases came from these
+runs: `CaseUtf8TypeNames` (two types with one-character CJK names; it fails
+without the `luaL_newmetatable` fix on the .NET Framework only),
+`CaseErrorsThroughCSharpCallbacks` (`Upstream.CallbackErrors`: Lua errors
+raised from C# functions, C# exceptions and errors through nested Lua, C# and
+`LuaFunction.Call` frames, in coroutines and with a C# message handler, for
+the SEH unwinding of LuaJIT on Win64), and the dynamic-assembly expectations
+of `CaseEnvScanReused` and `CaseEnvScanSeesLaterAssembly`: the .NET Framework
+lists the runtime assembly behind an `AssemblyBuilder`, which the
+`[CSharpCallLua]` scan includes and therefore does not keep, so each later
+env scans again; Mono lists the builder, which the scan leaves out. Not run on
+Windows: the source generator passes, .NET (Core), Unity.
+
 For the original Unity unit scene, copy `Test/UnitTest/xLuaTest` and
 `Test/UnitTest/StreamingAssets` into a Unity project's `Assets` folder and run
 `xLuaTest/main.unity`. This is a manual path, not the current CI entry point;
@@ -459,7 +511,19 @@ list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 `python3 Test/Native/managed_imports.py --write` regenerates it.
 `native_regression.py` also calls exports that `LuaDLL.cs` does not import
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
-library.
+library. Its `global_state_key` check (2026-10-28) requires `xlua_gl`, the
+key by which C# finds an env, to stay the same for a state and its threads
+across collections and to differ for another state; on LuaJIT without GC64 it
+read the wrong layout before the fix ([windows-host.md](../docs/research/windows-host.md#luajit-without-gc64)).
+
+`python3 Test/Native/apicheck_probe.py [--luajit] PLUGIN` checks that a
+library built with `-DXLUA_APICHECK=ON` has Lua's C API checks: a child
+process misuses the API once (`lua_pushvalue(L, 100)` on an empty stack; on
+LuaJIT `lua_rawgeti` on a number) and must abort with the check's message,
+and a correct call must return. A Release build without the checks fails
+it (checked on macOS). `windows-host.yml` runs it on the MSVC builds, where
+`XLUA_APICHECK` also sends a failed check to stderr instead of a message box
+(`build/xlua_apicheck_msvc.c`).
 
 `python3 Test/Native/crash_repro.py --plugin /absolute/path/libxlua.dylib --output DIR [case ...]`
 runs the reproductions of [crash-inventory.md](../docs/research/crash-inventory.md)
@@ -2482,7 +2546,49 @@ Not run: `compile_time.py`, the device examples (`Test/Examples`),
 `--build-target WebGL` (no WebGL module for 6000.3.21f1 or 6000.6.6f1), the
 hotfix variants (another lane ran them the same day, above), M10's LuaCATS
 step on 2021.3.45f2 (`Sample.cs` has `ref readonly` parameters, which
-Roslyn 4.3.1 cannot compile), the Linux and Windows editors.
+Roslyn 4.3.1 cannot compile; ran later the same day, below), the Linux and
+Windows editors.
+
+### LuaCATS from the editor and the strict minimal player (2026-10-28)
+
+`Test/UnityMatrix/luacats_unity.py --unity EXE --unity-version V --plugin
+LIBXLUA.dylib --output EMPTY_DIR [--no-ref-readonly]` repeats M10's LuaCATS
+step in a real editor: an asmdef-layout project with the generator in
+`Assets/XLua/Src/Analyzers`, `Test/LuaCATS/Sample.cs` (the Roslyn copy) and
+`SampleAttributes.cs` in Assembly-CSharp, XLua > Generate LuaCATS Definitions
+in batch mode, and `LuaTypes/` and `.luarc.json` compared with the files
+`luacats_check.py` compares on the host. By default it compiles with
+`-langversion:12` against `Test/LuaCATS/expected` (Unity 6000.6); with
+`--no-ref-readonly` it defines `LUACATS_NO_REF_READONLY` and compares with
+`expected-no-ref-readonly` over `expected` (Unity 2021.3 to 6000.3, Roslyn
+4.3.1). Main at `aadd1d87` with this branch, macOS ARM64, the Lua 5.5.1
+Editor plugin built from `d37515c2` (the native code is the same), one
+editor at a time:
+
+| Unity | Fixture | Result |
+| --- | --- | --- |
+| 2021.3.45f2 (Package Manager under Rosetta 2) | `--no-ref-readonly` | 15 files equal, `.luarc.json` equal |
+| 6000.3.21f1 | `--no-ref-readonly` | 15 files equal, `.luarc.json` equal |
+| 6000.6.6f1 | `-langversion:12` | 15 files equal `expected`, `.luarc.json` equal |
+| 6000.3.21f1 | `-langversion:12` (control) | fails as expected: `error CS1617: Invalid option '12' for /langversion` |
+
+Each log has "the configuration of Assembly-CSharp, XLua comes from the
+xLua source generator's manifest (8 wrapped types)". `luacats_check.py`
+passed on the host with the new overlay (`LUACATS_GOLDEN_PASS:
+no-ref-readonly, 15 files match`), and its `--update` left every other
+expected file unchanged.
+
+The strict minimal smoke player (the minimal preset without
+`XLUA_REFLECTION`, with the generator binding what the smoke calls) passed
+in release and Development builds on the `xlua16k` emulator from Unity
+6000.3.21f1
+([MobileSmoke/README.md](MobileSmoke/README.md#2026-10-28-strict-minimal-players)),
+and `size_report.py --configs strict` measured the preset as shipped
+([build/SIZE.md](../build/SIZE.md#reflection-off-in-the-minimal-preset)).
+
+Not run: LuaCATS on 2022.3.62f3 and 6000.0.85f1 (Roslyn 4.3.1 as well),
+LuaLS over the editor's output in this script (the editor suite does that
+with its own fixture), the Linux and Windows editors.
 
 ### Compile check without Unity
 
@@ -2925,7 +3031,12 @@ plugin selector (`Editor/PluginVariants.cs`) picks it during the build, as in a
 project; `--configs minimal` builds `baseline`, `ng-5.5` and `ng-5.5+minimal`
 for Android (Minimal stripping) and iOS, and the report's JSON says, per player,
 whether the packed `libxlua.so` or the iOS link map has `luaopen_io` and
-`luaopen_socket_core` (the minimal library has neither). Results in
+`luaopen_socket_core` (the minimal library has neither). `+minimal` has no
+reflection fallback and nothing bound, so its probe does not run:
+`+minimal+reflection` adds `XLUA_REFLECTION`, and `+minimal+strict` installs
+the source generator in `Assets/XLua/Src/Analyzers` and binds what the probe
+calls (`SizeProbe.cs` with `XLUA_SIZE_STRICT`), the preset as shipped;
+`--configs strict` builds the baseline and the three for Android. Results in
 [build/SIZE.md](../build/SIZE.md#presets). Keep `--work` short: Unity's build
 pipes live in `TMPDIR` (`WORK/tmp`): with a 69-character `--work` Unity
 6000.3.21f1 failed before compiling with `SocketAddress.Size` from

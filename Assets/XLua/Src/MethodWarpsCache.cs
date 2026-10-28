@@ -224,6 +224,9 @@ namespace XLua
         Type[] scoreTypes;
         int scoreSkip;
         int fixedCount;
+        // The kind of each number parameter whose check Check(L, numbers) reads
+        // from the number kind (OverloadScore.NumberMatches), 0 for the others.
+        int[] numberChecks;
 
         public bool HasDefalutValue{ get; private set; }
 
@@ -268,16 +271,30 @@ namespace XLua
             var argTypes = signature.argTypes;
             checkArray = new ObjectCheck[argTypes.Length];
             castArray = new ObjectCast[argTypes.Length];
+            numberChecks = new int[argTypes.Length];
             for (int i = 0; i < argTypes.Length; i++)
             {
                 checkArray[i] = objCheckers.GetChecker(argTypes[i]);
                 castArray[i] = objCasters.GetArgCaster(argTypes[i]);
+                int kind = scoreKinds[i];
+                if (objCheckers.defaultNumberChecks && OverloadScore.IsNumeric(kind) && kind < OverloadScore.KindNullable)
+                {
+                    numberChecks[i] = kind;
+                }
             }
 
             args = new object[signature.parameterCount];
         }
 
         public bool Check(RealStatePtr L)
+        {
+            return Check(L, null);
+        }
+
+        // numbers: while the overloads are scored, the number kind of each
+        // argument (-1 until read, as for Score), from which the checks of the
+        // number parameters are read.
+        internal bool Check(RealStatePtr L, int[] numbers)
         {
             int luaTop = LuaAPI.lua_gettop(L);
             int luaStackPos = luaStackPosStart;
@@ -292,7 +309,8 @@ namespace XLua
                 {
                     return false;
                 }
-                else if(luaStackPos <= luaTop && !checkArray[i](L, luaStackPos))
+                else if(luaStackPos <= luaTop && !(numbers != null && numberChecks[i] != 0 && luaStackPos < numbers.Length
+                    ? NumberCheck(L, luaStackPos, i, numbers) : checkArray[i](L, luaStackPos)))
                 {
                     return false;
                 }
@@ -305,6 +323,13 @@ namespace XLua
 
             return paramsType != null ? (luaStackPos < luaTop + 1 ? 
                 checkArray[checkArray.Length - 1](L, luaStackPos) : true) : luaStackPos == luaTop + 1;
+        }
+
+        bool NumberCheck(RealStatePtr L, int pos, int i, int[] numbers)
+        {
+            if (numbers[pos] < 0) numbers[pos] = LuaAPI.xlua_number_kind(L, pos);
+            int number = numbers[pos];
+            return number != 0 ? OverloadScore.NumberMatches(number, numberChecks[i]) : checkArray[i](L, pos);
         }
 
         // The cost of the arguments for this overload, after Check passed
@@ -530,7 +555,7 @@ namespace XLua
                 for (int i = 0; i < overloads.Count; ++i)
                 {
                     var overload = overloads[i];
-                    if (overload.Check(L))
+                    if (overload.Check(L, numbers))
                     {
                         int score = overload.Score(L, luaTop, numbers);
                         if (score < bestScore)

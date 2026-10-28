@@ -214,6 +214,39 @@ namespace XLua.Binding
             return OverloadScore.NumberArg(L, index, kind, ref number);
         }
 
+        // NumberScore once the number kind is read and is not 0, for a
+        // numeric kind 1 to 7 (not Nullable<>): small enough to be inlined.
+        public static int NumberCost(int number, int kind)
+        {
+            return OverloadScore.NumberCosts[kind * 6 + number];
+        }
+
+        // translator.Assignable(L, index, type) for a number type of this
+        // kind (1 to 7), from the argument's number kind cached in number as
+        // for NumberScore. For emitted wrappers.
+        public static bool NumberCheck(ObjectTranslator translator, RealStatePtr L, int index, Type type, int kind, ref int number)
+        {
+            return OverloadScore.NumberCheck(translator, L, index, type, kind, ref number);
+        }
+
+        // translator.Assignable(L, index, type) and ArgScore(translator, L,
+        // index, 0, type) in one call, for a class, struct, interface, enum or
+        // delegate parameter type (not Nullable<>), or object (kind 8): the
+        // cost, or -1 when the value does not match. The argument's lua_type
+        // is cached in luaType, which starts at -2 and is shared by the
+        // candidates of one call.
+        public static int CheckedArgScore(ObjectTranslator translator, RealStatePtr L, int index, Type type, ref int luaType)
+        {
+            return OverloadScore.CheckedArg(translator, L, index, type, ref luaType);
+        }
+
+        // translator.Assignable(L, index, typeof(object)) in one call: true
+        // for every value unless a checker was registered for object.
+        public static bool ObjectCheck(ObjectTranslator translator, RealStatePtr L, int index)
+        {
+            return translator.objectCheckers.defaultObjectCheck || translator.Assignable(L, index, typeof(object));
+        }
+
         // The sum of ArgScore for the arguments from first to last: the
         // elements of a params array.
         public static int ArgScores(ObjectTranslator translator, RealStatePtr L, int first, int last, int kind, Type type)

@@ -6,9 +6,9 @@ reproduce on a host: each starts `mono CrashRepro.exe <case>` in a new process
 group with a timeout, kills the group after it, and prints the exit status
 (exit code, signal or TIMEOUT) and the first lines of output. A case that ends
 in a managed exception or returns prints REPRO_OK; a crash prints nothing more.
-Nothing is asserted: some cases still crash by design (two threads in one
-LuaEnv, a C# stack overflow) or on one runtime only (deep C#/Lua recursion on
-LuaJIT), and the inventory records which.
+Nothing is asserted: some cases still crash by design (a C# stack overflow;
+two threads in one LuaEnv where the bridge checks are off, which this build of
+XLUA_GENERAL keeps on), and the inventory records which.
 
 xLua (XLua.Mini.csproj) and CrashRepro.cs are compiled with mcs for XLUA_GENERAL,
 so the bridges are emitted or reflected; the generated-code paths are covered by

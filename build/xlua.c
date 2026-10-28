@@ -20,9 +20,7 @@
 #include <stdint.h>
 #include "i64lib.h"
 
-#if defined(USING_LUAJIT)
-#include "lj_obj.h"
-#elif !defined(XLUA_AMALGAMATION)
+#if !defined(USING_LUAJIT) && !defined(XLUA_AMALGAMATION)
 #include "lstate.h"
 #endif
 
@@ -1673,8 +1671,19 @@ LUA_API int css_clone(lua_State *L) {
 	return 1;
 }
 
+/* An identifier of L's global state, the same for all its threads; the C#
+ * side finds an env's translator by it (ObjectTranslatorPool). */
 LUA_API void* xlua_gl(lua_State *L) {
-	return G(L); // NOLINT(bugprone-casting-through-void,performance-no-int-to-ptr): LuaJIT's G() decodes its own pointer encoding
+#if defined(USING_LUAJIT)
+	/* The registry table, one per global state. LuaJIT's G() reads lua_State
+	 * through lj_obj.h, whose layout depends on the GC64 mode the library was
+	 * built with (LUAJIT_DISABLE_GC64), which this file cannot see: with a
+	 * non-GC64 library it read glref and the next field as one 64-bit pointer
+	 * and got a different value from call to call. */
+	return (void *)(uintptr_t)lua_topointer(L, LUA_REGISTRYINDEX); // NOLINT(performance-no-int-to-ptr): drops const from an opaque key, never written through
+#else
+	return G(L);
+#endif
 }
 
 static const luaL_Reg xlualib[] = {

@@ -501,14 +501,43 @@ LUA_API int get_error_func_ref(lua_State *L) {
 	return luaL_ref(L, LUA_REGISTRYINDEX);
 }
 
+#if defined(USING_LUAJIT)
+/* LuaJIT has no limit on nested C calls: a recursion Lua -> C# -> lua_pcall
+ * -> Lua -> C# ... ran until the C stack overflowed (SIGSEGV at about 10,240
+ * levels on an 8 MB stack, docs/research/crash-inventory.md item 7). PUC Lua
+ * stops it at LUAI_MAXCCALLS (200) nested C calls with "C stack overflow":
+ * with the outermost call from C#, the 199th C# function's call into Lua
+ * fails. The trampolines count the C# functions running on this thread and
+ * raise the same error when a 200th would start, so a script gets the error
+ * at the same depth on every Lua version. Per thread, as the C stack is;
+ * LuaJIT runs coroutines on the caller's C stack. A Lua error that crossed a
+ * trampoline without returning through it would leave the count high, but
+ * that is undefined behaviour already (a raising API call inside C#, such as
+ * a failed allocation: crash-inventory.md item 17). */
+#define XLUA_CSHARP_MAX_DEPTH 199
+#if defined(__cplusplus)
+static thread_local int csharp_depth;
+#elif defined(_MSC_VER)
+static __declspec(thread) int csharp_depth;
+#else
+static _Thread_local int csharp_depth;
+#endif
+#endif
+
 /* Around the call of a C# function: in a core state, a managed frame is now
- * on the C stack, so the allocator must not refuse (see xlua_core_alloc). */
+ * on the C stack, so the allocator must not refuse (see xlua_core_alloc). On
+ * LuaJIT, counts the nesting instead and refuses a call too deep. */
 static xlua_core_t *managed_enter(lua_State *L) {
 	xlua_core_t *xc = xlua_core_of(L);
 #if !defined(USING_LUAJIT)
 	if (xc != NULL) {
 		xc->unprotected++;
 	}
+#else
+	if (csharp_depth >= XLUA_CSHARP_MAX_DEPTH) {
+		luaL_error(L, "C stack overflow");
+	}
+	csharp_depth++;
 #endif
 	return xc;
 }
@@ -524,6 +553,7 @@ static void managed_leave(lua_State *L, xlua_core_t *xc) {
 #else
 	(void)L;
 	(void)xc;
+	csharp_depth--;
 #endif
 }
 

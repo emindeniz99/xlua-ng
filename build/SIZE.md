@@ -633,6 +633,45 @@ legacy by 8,152; not split by change. `libunity.so` is unchanged (+4,444 /
 +10,720 for minimal). A first run on main at `b3adc8e8`, before the
 reproducible builds, gave the same numbers within 16 bytes.
 
+**The minimal player as shipped, 2026-10-28.** The `minimal` row above has
+no reflection fallback and no generated bindings, so its size probe cannot
+run: on the `xlua16k` emulator the player raised `cannot use
+SizeProbeApi.Add: SizeProbeApi has no generated bindings ...`. Two working
+alternatives, measured with `size_report.py run --configs strict` (new
+variants, the same setup, main at `aadd1d87`, whose runtime C# and native code equal
+`d37515c2`'s, with the same plugins): `+reflection` adds `XLUA_REFLECTION`,
+and `+strict` installs the source generator in the Assets layout and binds
+what the probe calls (`[assembly: LuaCallCSharp(typeof(SizeProbeApi))]`), in
+the GCM mode the preset implies. Both probes printed `XLUA_SIZE_PROBE: Lua
+5.5 42` on the emulator. Deltas over the baseline (12,279,048):
+
+| variant | APK | over baseline | `libil2cpp.so` | `global-metadata.dat` | stripped `XLua.dll` | stripped `Assembly-CSharp.dll` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| minimal, nothing bound (does not run) | 12,722,698 | +443,650 | +256,980 / +902,784 | +44,008 / +139,040 | 196,096 | 5,632 |
+| minimal with `XLUA_REFLECTION` | 12,769,018 | +489,970 | +302,051 / +1,089,632 | +45,274 / +142,200 | 202,240 | 5,632 |
+| strict minimal (source generator) | 12,778,210 | +499,162 | +307,828 / +1,156,008 | +48,540 / +150,400 | 212,480 | 7,680 |
+
+`libxlua.so` (136,412 / 310,016) and `libunity.so` are the same in all
+three. The unbound row matches the table above within 32 bytes.
+
+- **Strict costs 9,192 bytes more than keeping reflection** for this one
+  bound method, and 55,512 more than the unbound row. Most of it is what the
+  generator writes into `XLua.dll` itself, which it compiles in a generator
+  project whatever the project binds (`XLua.dll` before stripping: 339,456
+  bytes without the generator, 360,448 with it; after stripping +16,384 over
+  the unbound row, +10,240 over reflection). `Assembly-CSharp.dll` grows by
+  2,048 with `SizeProbeApi`'s GCM wrapper and its registration. The
+  reflection wrappers that `XLUA_NO_REFLECTION` leaves out (about 43 KB,
+  [above](#reflection-off-in-the-minimal-preset)) are still out in the
+  strict row.
+- So a project that binds a handful of methods pays about the same either
+  way; the generator's fixed part is not split further here (which
+  generated types of `XLua.dll` it is: not checked symbol by symbol).
+
+Not measured: iOS, High stripping, a project with more bindings (the
+`+pkg+sg` rows of [Generated bindings](#generated-bindings-generate-code-gcm-and-the-source-generator)
+are the legacy preset).
+
 ### The core preset
 
 Measured 2026-10-18 after milestone 5 of
