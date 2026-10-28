@@ -1049,6 +1049,12 @@ return "ok"
 --- expect: bad argument #2 to 'fill' (buffer access out of bounds (offset 7 in a buffer of 6 bytes))
 buffer.fill(buffer.create(6), 7, 0)
 
+--- buffer: fill refuses a negative offset
+--- libs: buffer
+--- status: 2
+--- expect: bad argument #2 to 'fill' (buffer access out of bounds (offset -1 in a buffer of 6 bytes))
+buffer.fill(buffer.create(6), -1, 0)
+
 --- buffer: fill checks its count
 --- libs: buffer
 --- status: 2

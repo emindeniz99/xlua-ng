@@ -85,10 +85,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends clang llvm
       - name: Wait for the managed test tools
         run: .github/scripts/mono.sh wait
-      - name: Measure coverage for Lua 5.3.6, 5.4.9 and 5.5.1
-        # Fails when a file's branch coverage is below coverage.sh's MIN_BRANCH_COVERAGE
-        # (xlua.c=100 xlua_core.c=98 xlua_core_limits.c=93, Test/README.md); the reports are
-        # uploaded either way.
+      - name: Measure coverage of the legacy, core, minimal and bytecode-only builds
+        # Every runtime of coverage.sh's default VERSIONS. Fails when a file's branch
+        # coverage is below its gate (MIN_BRANCH_COVERAGE and the core, minimal and
+        # bytecode variants, mostly 100; Test/README.md); the reports are uploaded either way.
         run: Test/Native/coverage.sh "$RUNNER_TEMP/coverage"
       - name: Upload coverage reports
         if: always()
