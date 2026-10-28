@@ -740,6 +740,18 @@ def build():
             "Dependency update bot, manual runs only. The pin is a release older than seven days; Renovate bumps it using npm release dates.",
             purl=f"pkg:docker/renovatebot/renovate@{renovate}?repository_url=ghcr.io", ctype="container",
             vcs="https://github.com/renovatebot/renovate"))
+    # CodeQL query pack. Latest: the GHCR tag list of trailofbits/cpp-queries and
+    # gh api repos/trailofbits/codeql-queries/releases (checked 2026-10-28).
+    codeql = read(".github/workflows/codeql.yml")
+    tob = re.search(r"^\s*packs:\s*trailofbits/cpp-queries@([\d.]+):\S+\s*$", codeql, re.M).group(1)
+    tob_digest = re.search(r"^\s*pack-digest:\s*sha256:([0-9a-f]{64})\s*$", codeql, re.M).group(1)
+    add(row("ci", "Trail of Bits CodeQL queries (trailofbits/cpp-queries)", tob, "`.github/workflows/codeql.yml`",
+            "AGPL-3.0", "https://github.com/trailofbits/codeql-queries", "0.3.0 (2026-04-17)", compare(tob, "0.3.0"),
+            "Query pack run by the C/C++ CodeQL analysis (its security suite, tob-cpp-security.qls), not shipped. "
+            f"Pinned by version; the workflow checks the GHCR manifest digest sha256:{tob_digest[:12]} before "
+            "CodeQL downloads it. Running the queries puts no AGPL obligation on xLua's code.",
+            purl=f"pkg:generic/trailofbits/cpp-queries@{tob}?repository_url=ghcr.io", ctype="application",
+            vcs="https://github.com/trailofbits/codeql-queries", hashes=[{"alg": "SHA-256", "content": tob_digest}]))
     for label, files in sorted(parse_runners().items()):
         status, note = RUNNERS.get(label, ("unknown", "New runner label: add it to RUNNERS."))
         add(row("ci", f"Runner image {label}", None, ", ".join(f"`.github/workflows/{f}`" for f in sorted(files)), "n/a",
