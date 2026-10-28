@@ -221,6 +221,17 @@ other. What changed:
   included (Windows ARM64 through `make_win_arm64_luajit.bat`, where CMake's
   check accepted the GC64 library, and the Linux sanitizer, minimal preset
   and LuaCATS builds).
+- Later the same day the two LuaJIT scripts were fixed: they open a
+  developer prompt for the newest Visual Studio through `vswhere`, let CMake
+  pick its generator, and stop with exit code 1 at a failure, as every
+  desktop Windows script now does (`build/make_win64_luajit.bat`,
+  `build/make_win32_luajit.bat`). `build.yml` runs them from `cmd` and
+  checks every DLL. Run
+  [40671930012](https://github.com/emindeniz99/xlua-ng/actions/runs/40671930012)
+  built the x64 DLL (1,047,040 bytes; CMake's GC64 check accepted
+  `lua51.lib`) and the x86 DLL (836,096 bytes) with Visual Studio 2022
+  17.14, and `check_exports.py` and `native_regression.py` passed on x64,
+  `check_exports.py` on x86 with a 32-bit Python 3.15.1. [C]
 - Bytecode precompiled for the old Windows x64 plugin does not load any
   more (`BCDUMP_F_FR2`, `lj_bcread.c:403`); [MIGRATING.md](../MIGRATING.md)
   says to recompile it.
@@ -351,7 +362,8 @@ and on Mono 6.14.1 (macOS arm64) in every binding mode. [C]
   imports cover it the same way; not run. [U]
 - The source generator passes on Windows, and the debug or `RelWithDebInfo`
   runtime. [U]
-- Windows ARM64 and 32-bit x86. [U]
+- Windows ARM64 and 32-bit x86 beyond loading the DLLs (`check_exports.py`
+  loads the x86 DLLs in `build.yml` since 2026-10-28). [U]
 - The console code page part of #1179. [U]
 
 ## Questions for the owner
