@@ -5,7 +5,7 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, struct_bounds, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, csharp_functions, setfenv, uint_conversion,
+struct_accessors, struct_clone, struct_bounds, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, gc_errors, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
@@ -1176,6 +1176,43 @@ def check_weak_table_metatable(state):
             end
         end
         collectgarbage()
+    """)
+
+
+def check_gc_errors(state):
+    """An error in a __gc finalizer during a collection outside a protected call:
+    LuaEnv.FullGc and Dispose call lua_gc unprotected, and any allocation can run
+    a step (docs/research/crash-inventory.md, item 8; owner decision of
+    2026-10-28). Lua 5.3.6 raised it from the collection, which ended in the
+    panic handler and abort(); xLua's 5.3.6 now writes it to stderr and keeps
+    collecting, as 5.4 and 5.5 turn it into a warning (off unless a script turns
+    warnings on) and LuaJIT prints it. All pending finalizers run."""
+    lib.xlua_gc.argtypes = [P, C.c_int, C.c_int]
+    lib.xlua_gc.restype = C.c_int
+    run(state, """
+        gc_errors_finalized = 0
+        local function finalizable(gc)  -- LuaJIT, as Lua 5.1, finalizes userdata only
+            if newproxy then
+                local p = newproxy(true)
+                getmetatable(p).__gc = gc
+                return p
+            end
+            return setmetatable({}, {__gc = gc})
+        end
+        local function raising() gc_errors_finalized = gc_errors_finalized + 1 error("error in __gc (native_regression gc_errors)") end
+        local function counting() gc_errors_finalized = gc_errors_finalized + 1 end
+        for i = 1, 3 do
+            finalizable(raising)
+            finalizable(counting)
+            finalizable(function() error({}) end)  -- an error object that is not a string
+        end
+    """)
+    lib.xlua_gc(state, 2, 0)  # LUA_GCCOLLECT, unprotected
+    lib.xlua_gc(state, 2, 0)
+    run(state, """
+        assert(gc_errors_finalized == 6, gc_errors_finalized)
+        gc_errors_finalized = nil
+        assert(collectgarbage() == 0)  -- a protected collection does not fail either
     """)
 
 
@@ -3225,7 +3262,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "struct_bounds", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "csharp_functions", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "struct_bounds", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "gc_errors", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",

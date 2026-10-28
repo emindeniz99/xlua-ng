@@ -532,6 +532,12 @@ function CMyTestCaseLuaCallCSUpstream.CaseBridgeAfterDisposeThrows(self)
     ASSERT_EQ(CS.Upstream.DisposedEnvBridges.DisposeTwice(), "")
 end
 
+-- An error in __gc no longer escapes LuaEnv.FullGc or LuaEnv.Dispose; on Lua
+-- 5.3.6 it ended in the panic handler (crash-inventory.md, item 8).
+function CMyTestCaseLuaCallCSUpstream.CaseGcErrorsAreWarnings(self)
+    ASSERT_EQ(CS.Upstream.GcErrors.Check(), "")
+end
+
 -- Lua API calls from C# that raised without a handler or through managed
 -- frames (docs/research/crash-inventory.md): table traversal that the action
 -- changed, a __len metamethod that raises, LuaEnv.Dispose from a running call.

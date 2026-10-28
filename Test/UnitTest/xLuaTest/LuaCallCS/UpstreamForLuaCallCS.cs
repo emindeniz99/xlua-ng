@@ -2348,6 +2348,67 @@ namespace Upstream
             }
         }
     }
+
+    // Lua 5.3 raised an error of a __gc finalizer from the collection step that
+    // ran it: LuaEnv.FullGc (unprotected) and LuaEnv.Dispose (its first step)
+    // ended in the panic handler (docs/research/crash-inventory.md, item 8).
+    // Since the owner decision of 2026-10-28 xLua's 5.3.6 reports it on stderr
+    // and keeps collecting, as Lua 5.4 does with a warning (build/LUA_PATCHES.md);
+    // LuaJIT prints it and goes on. Every pending finalizer runs.
+    public static class GcErrors
+    {
+        public static string Check()
+        {
+            var env = new LuaEnv();
+            try
+            {
+                // LuaJIT, as Lua 5.1, runs __gc for userdata only (newproxy).
+                env.DoString(@"
+                    finalized = 0
+                    function finalizable(gc)
+                        if newproxy then
+                            local p = newproxy(true)
+                            getmetatable(p).__gc = gc
+                            return p
+                        end
+                        return setmetatable({}, {__gc = gc})
+                    end
+                    local function raising() finalized = finalized + 1 error('error in __gc of the test') end
+                    local function counting() finalized = finalized + 1 end
+                    for i = 1, 3 do
+                        finalizable(raising)
+                        finalizable(counting)
+                    end");
+                try
+                {
+                    env.FullGc();
+                    env.FullGc();
+                }
+                catch (Exception e)
+                {
+                    return "FullGc threw " + e.GetType().Name + ": " + e.Message;
+                }
+                int finalized = env.Global.Get<int>("finalized");
+                if (finalized != 6) return "finalized " + finalized + " of 6";
+                if (Convert.ToInt32(env.DoString("return 1 + 1")[0]) != 2) return "the env does not work afterwards";
+                env.DoString("for i = 1, 3 do finalizable(function() error('error in __gc at Dispose') end) end");
+            }
+            catch (Exception e)
+            {
+                env.Dispose();
+                return e.GetType().Name + ": " + e.Message;
+            }
+            try
+            {
+                env.Dispose();
+                return "";
+            }
+            catch (Exception e)
+            {
+                return "Dispose threw " + e.GetType().Name + ": " + e.Message;
+            }
+        }
+    }
 }
 
 // Tencent/xLua#1081 and #1179: types whose names are not ASCII. The bridge
