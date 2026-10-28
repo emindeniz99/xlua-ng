@@ -176,7 +176,11 @@ on `Coverage.ParityReflected`, the same class without configuration
 (reflection wrappers in the `--source-gen` passes), and check the results and
 error texts: operators, indexers, readonly fields, events, `self` of another
 class, the error texts, and `CaseParitySameResults` compares some thirty
-calls of both types one by one. `CaseLazyBlackListed` and
+calls of both types one by one. `CaseParityObsolete` checks that `[Obsolete]`
+members are left out in every mode, reflection included, and
+`CaseParityStructArgs` that a struct parameter or field given nil, a number
+or nothing raises the same `InvalidCastException` everywhere (owner
+decisions of 2026-10-28). `CaseLazyBlackListed` and
 `CaseObsoleteOperator` cover `[DoNotGen]` with `[BlackList]` and `[Obsolete]`
 operators and indexers in generated code. The modes run in separate
 processes, so a case compares a mode with an expected value or with the

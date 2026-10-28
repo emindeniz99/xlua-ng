@@ -1178,6 +1178,29 @@
      "overloads": [
       "Coverage.Parity::ToString()"
      ]
+    },
+    {
+     "name": "NulStruct",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::NulStruct(System.Nullable`1[Coverage.ParityStruct])"
+     ]
+    },
+    {
+     "name": "Opt",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Opt(System.Int32,Coverage.ParityStruct)",
+      "Coverage.Parity::Opt(System.Int32,Coverage.ParityStruct) -1"
+     ]
+    },
+    {
+     "name": "Pick",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::Pick(Coverage.ParityStruct)",
+      "Coverage.Parity::Pick(Coverage.Parity)"
+     ]
     }
    ],
    "getters": [
@@ -1193,7 +1216,8 @@
     "StaticPrivateSet static",
     "StaticReadOnly static readonly",
     "Transform",
-    "Value"
+    "Value",
+    "Inner"
    ],
    "setters": [
     "Any",
@@ -1203,7 +1227,8 @@
     "StaticField static",
     "Transform",
     "Value",
-    "WriteOnlyProp"
+    "WriteOnlyProp",
+    "Inner"
    ],
    "operators": [
     {
@@ -2466,13 +2491,6 @@
     "LuaTestCommon::.ctor()"
    ],
    "methods": [
-    {
-     "name": "ConfiguredTypesUseReflection",
-     "static": true,
-     "overloads": [
-      "LuaTestCommon::ConfiguredTypesUseReflection()"
-     ]
-    },
     {
      "name": "DefaultHasFullDebug",
      "static": true,
