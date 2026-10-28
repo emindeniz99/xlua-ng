@@ -422,9 +422,9 @@ def build():
     need(".github/workflows/build.yml", "install-ohos-sdk.sh")
     need(".github/workflows/publish.yml", "install-ohos-sdk.sh")
     need("build/make_uwp_lua55.bat", "Visual Studio 16 2019")
-    add(row("native", "Visual Studio 2019 (MSVC v142)", "16", "`build/make_uwp*.bat`, `build/make_win32_luajit.bat`, `build/make_win64_luajit.bat`",
+    add(row("native", "Visual Studio 2019 (MSVC v142)", "16", "`build/make_uwp*.bat`",
             "Proprietary (Microsoft)", "https://visualstudio.microsoft.com/", "VS 2026 18.10.4", "behind",
-            "Named by the UWP and the x86/x64 LuaJIT scripts; support to 2029-04-10. The other Windows scripts let CMake pick the newest installed Visual Studio. CI runs on windows-2022 (VS 2022 17.x) and windows-11-arm.", ctype="application"))
+            "Named by the UWP scripts; support to 2029-04-10. The other Windows scripts, LuaJIT included since 2026-10-28, let CMake pick the newest installed Visual Studio. CI runs on windows-2022 (VS 2022 17.x) and windows-11-arm.", ctype="application"))
     need("build/make_nx64_lua53.bat", "NINTENDO_SDK_ROOT")
     add(row("native", "Nintendo Switch SDK toolchain", None, "`build/make_nx64_lua53.bat`, `build/make_nx64_luajit_gc64.bat`",
             "Proprietary (Nintendo)", "https://developer.nintendo.com/", "not public", "unknown",

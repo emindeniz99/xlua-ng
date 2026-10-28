@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:48c02a00-c702-5499-96f7-ab2f9ff8ef59",
+  "serialNumber": "urn:uuid:24e4ca69-13c9-5e32-8c05-6eabb0108168",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -623,7 +623,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "build/make_uwp*.bat, build/make_win32_luajit.bat, build/make_win64_luajit.bat"
+          "value": "build/make_uwp*.bat"
         },
         {
           "name": "xlua-ng:latest",
