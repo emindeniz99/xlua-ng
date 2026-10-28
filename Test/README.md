@@ -94,7 +94,12 @@ class (also for a delegate type no configuration lists, found by signature)
 that a Lua table cast to an interface is the generated bridge, that the
 GCOptimize types are registered with their array accessors, and that 5,000
 `TestStruct` values made and read in Lua allocate no managed memory per value
-(`XLUA_SOURCE_GEN_STRUCT_ALLOC`), that `SourceGenFallback.Locked`
+(`XLUA_SOURCE_GEN_STRUCT_ALLOC`), that a C# string pushed into Lua allocates
+nothing and a Lua string read in C# only the new string, also under
+`THREAD_SAFE` and `HOTFIX_ENABLE` (`XLUA_SOURCE_GEN_STRING_ALLOC`; before
+2026-10-28 those builds allocated an array per string), that strings pushed and
+read on four threads, an env each, come back unchanged (at the same time under
+`THREAD_SAFE` and `HOTFIX_ENABLE`, `XLUA_SOURCE_GEN_STRING_THREADS`), that `SourceGenFallback.Locked`
 (`Test/Native/SourceGenFallback.cs`, an init-only property compiled only in
 this build) works from Lua through the per-member reflection fallback and logs
 its reason once, and that the generated link.xml fragment keeps every lazy or
@@ -475,7 +480,8 @@ as the iOS P/Invoke into `Assets/Plugins/iOS/HotfixFlags.cpp` (compiled into a
 host library), as a `bool[]` read, and as a call to and an inline read of a
 copy of the generated `HotfixBridges` slots, an uncontended `lock`, two C#
 -> Lua entries (a delegate and `LuaTable.Get`), two Lua -> C# calls that look
-up the env's translator, and with `HOTFIX_ENABLE` a patched method in field
+up the env's translator, two with a string argument and a string result, and
+with `HOTFIX_ENABLE` a patched method in field
 and IntKey mode. It prints the lowest median per case and build in ns per
 call and writes `hotfix-bench.json`. `size_report.py`'s `+hfbench` variants
 run the same file in an IL2CPP player (below). Results in
