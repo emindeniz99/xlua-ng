@@ -1008,6 +1008,8 @@ Setup: `xlua-analysis:26.04` (Linux arm64 in OrbStack on macOS 27, Clang
    for good after one error at a C# function's return. On Lua 5.x the hook
    stays. A `lua_pcall` around the call, or restoring the hook before
    rethrowing, would fix it (a cold path). Fix it as wrong behaviour?
+   **Fixed 2026-10-28** as wrong behaviour, confirmed first by a test
+   [C]; see "Leftovers fixed (2026-10-28)" below.
 
 ### CPU time and coverage
 
@@ -1193,6 +1195,8 @@ under the preloaded ASan runtime `realloc` returns addresses above 2^47
 a state there (`checkptrGC`, `lj_state.c:271`); the uninstrumented LuaJIT
 library passes the check. The other checks and the managed suite pass
 under ASan on LuaJIT when run without it (515 tests in each of two modes).
+The check now wraps the state's own allocator instead (2026-10-28, below),
+and `sanitize.sh` passes on LuaJIT.
 
 ## Fixed earlier (for completeness)
 
@@ -1351,3 +1355,72 @@ rebuilt); its "after" results for items 3, 4 and 2 match 5.5.1.
   JavaScript-based; not run), Windows, other Unity versions, Lua 5.4.9 and
   LuaJIT players, and the managed suite (`run_managed.py`), whose
   `XLUA_GENERAL` build compiles the unchanged throwing path.
+
+## Leftovers fixed (2026-10-28)
+
+Three items left over from the work above: two plain bugs and a harness
+gap. Each test below failed before its fix [C].
+
+1. **`xlua_core_set_limits` pushed with no stack check and outside a
+   protected call** (`build/xlua_core_limits.c`, `xlua_core_set_limits`
+   and `stop_messages_body`). The first call of a state pushes the three
+   stop messages into the registry. On a C host's exactly full stack Lua's
+   API check aborted (`lapi.c:580`, `lua_pushstring`, 5.5.1 with
+   `XLUA_APICHECK`), and with a memory limit that refuses the allocation
+   Lua panicked (`luaD_throw`, abort). Outside any call the core allocator
+   refuses too (`unprotected` is 0 there, `xlua_core.c:74`), so
+   `LuaScript` without `AllowInterrupt` aborted when its first
+   `InstructionLimit` was set after `MemoryLimit` was used up [C]. Now the
+   first call checks the stack, creates the messages under `lua_pcallk`
+   (not xlua.c's `lua_pcall`, an outermost entry that would begin a call),
+   returns `XLUA_ERRMEM` on failure with nothing pushed and the limits
+   unchanged, and a flag (`stop_messages` in `xlua_core_t`) skips it later.
+   `LuaScript` throws `LuaMemoryLimitException`, `LuaEnv`
+   `OutOfMemoryException`. Tests: `core_regression.py` `core_set_limits`
+   and `native_regression.py` `core_limits` (both through
+   `check_set_limits_first_call`); `Test/Core` `TestFirstLimitWithoutMemory`.
+2. **The LuaJIT profiler hook was lost when the profiler function raised**
+   (`build/xlua.c`, `xlua_profiler_return`, item 5 of the questions above).
+   The function now runs under `lua_pcall`, the hook is set again, and the
+   error is raised again with the same value. A message handler now runs
+   at the C# function's return rather than inside the profiler function.
+   PUC Lua has no such pattern: the profiler is a real hook there, and
+   `luaD_pcall` restores `allowhook` after an error raised in a hook
+   (`ldo.c:1072` and `1093` in 5.5.1, `979` and `1000` in 5.4.9, `735` in
+   5.3.6) [C, and by the test]. LuaJIT's own hook path keeps the hook too
+   (`hook_leave` while unwinding, `lj_err.c:155` and `185`) [C, by the
+   test]. Test: `native_regression.py` `csharp_functions` raises in the
+   profiler function at the call and the return of both trampolines; before
+   the fix LuaJIT failed at "return [?twice]" with no later events, Lua
+   5.5.1 passed. `core_limits` does the same on core's hook.
+3. **`sanitize.sh` on LuaJIT stopped at `memory_snapshot_out_of_memory`**
+   (the note under "CPU time and coverage"). The check now opens its state
+   with `luaL_newstate` and wraps the state's own allocator
+   (`lua_getallocf`, `lua_setallocf`), so LuaJIT keeps its blocks below
+   2^47 and the walk's allocation failure is still tested on every runtime;
+   nothing is skipped. The old check still fails under ASan on LuaJIT, the
+   new one passes [C].
+
+Tests run (macOS 27 arm64 host unless noted; libraries built with
+`XLUA_APICHECK`):
+
+- `native_regression.py` (all checks) and `check_exports.py`: legacy
+  5.5.1 and LuaJIT 2.1;
+- the core preset 5.5.1 (`XLUA_EXPORTS=all`): `native_regression.py`,
+  which runs `core_regression.py`, `check_exports.py --preset core`, and
+  `run_core.py` (87 tests, Mono and .NET 10);
+- `run_managed.py --source-gen`, legacy 5.5.1: 515 tests in each of two
+  modes;
+- `profiler_smoke.py`, legacy 5.5.1 (it checks the leak checker's walks,
+  not `xlua.sethook`; LuaJIT has no leak checker and is not run);
+- `sanitize.sh` with `VERSIONS="luajit 5.5.1"` in `xlua-analysis:26.04`
+  (Linux arm64, `--memory 6g`, reflection only): pass;
+- `coverage.sh` with `VERSIONS="5.4.9 5.5.1 core-5.4.9 core-5.5.1"` in the
+  same image: every gate passes, `xlua_core_limits.c` at 100% (156 of 156
+  branches legacy, 158 of 158 core), `xlua.c` and `xlua_core.c` at 100%
+  (`xlua_core.c` 99.19% on core-5.4.9 against its 99% minimum);
+- `node sync.mjs --check`.
+
+Not run: Lua 5.3.6, 5.4.9 and LuaJIT through `sanitize.sh`, the coverage
+of 5.3.6, the minimal and bytecode configurations, Windows, Unity and
+devices.
