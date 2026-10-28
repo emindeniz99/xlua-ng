@@ -751,7 +751,12 @@ cc -std=c17 Test/Native/core_smoke.c -L<dir> -lxlua -o core_smoke && ./core_smok
   API exported, `xlua_core_call`, `_handle`, `_register`, `_set_require` and
   `_unref` from a host function whose stack is exactly full, where a push
   before the export's own stack check fails Lua's API check (an abort with
-  `XLUA_APICHECK`). A bridge library built with
+  `XLUA_APICHECK`); and `core_set_limits` (2026-10-28), the first
+  `xlua_core_set_limits` of a state, which creates the stop messages, on an
+  exactly full stack and with a memory limit of one byte: `XLUA_ERRMEM`,
+  nothing pushed and the limits unchanged, where it used to fail the API
+  check or panic (`native_regression.py`'s `core_limits` runs the same on
+  `xlua_core_newstate`'s states). A bridge library built with
   `XLUA_LUASCRIPT=ON` runs the same checks after its own.
 - **`Test/Native/core_smoke.c`** drives the same file and edges through the
   core exports only, without Python, so it works with the managed export

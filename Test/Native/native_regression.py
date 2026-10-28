@@ -2850,6 +2850,10 @@ def check_core_limits(state):
         lib.xlua_core_close(L)
         print("core_limits: no limits on this runtime")
         return
+    # The first call of a state on a full stack and with a memory limit that refuses it.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import core_regression
+    core_regression.check_set_limits_first_call(lib, lambda: core_newstate()[0], lib.xlua_core_close)
     lib.luaopen_xlua(L)
     lib.get_error_func_ref.argtypes = [P]
     handler = lib.get_error_func_ref(L)

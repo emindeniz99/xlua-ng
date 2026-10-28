@@ -1744,6 +1744,21 @@ Without the asmdefs it compiles into Assembly-CSharp with the rest.
     `xlua_core_call` returns `XLUA_ERRSTACK` with "stack overflow", the next
     three `XLUA_ERRMEM`, and `xlua_core_unref` returns 0 and keeps the
     handle. `LuaScript` never fills the stack; no ABI change.
+- **The first instruction or time limit of a state that is out of memory**
+  (fix, 2026-10-28): the first `xlua_core_set_limits` of a state creates
+  the stop messages ("instruction limit exceeded" and the others). It
+  allocated them outside a protected call and with no stack check, so when
+  the memory limit refused the allocation (a `MemoryLimit` already used up,
+  also before any call) Lua panicked and the process aborted, and a C host
+  whose stack was exactly full failed Lua's API check. What can be seen:
+  - `LuaScript`'s `InstructionLimit` and `TimeLimit` setters and its
+    constructor (with limits, or with `AllowInterrupt`) throw
+    `LuaMemoryLimitException` there, and `LuaEnv`'s setters and constructor
+    with `LuaOptions` throw `OutOfMemoryException`; the limits stay as they
+    were, and a later call with room succeeds;
+  - **native:** `xlua_core_set_limits` returns `XLUA_ERRMEM` (4) then,
+    besides 1 and 0, and pushes nothing. Later calls create nothing, so
+    they never fail. No ABI change.
 - **Smaller core-only players** (2026-10-18,
   [core-luascript.md](design/core-luascript.md) section 8.15): the same
   `LuaScript` API in less IL2CPP code. What can be seen:
