@@ -983,7 +983,9 @@ void luaV_execute (lua_State *L) {
         TValue *rc = RKC(i);
         lua_Integer ib; lua_Integer ic;
         if (tointeger(rb, &ib) && tointeger(rc, &ic)) {
-          setivalue(ra, luaV_shiftl(ib, -ic));
+          /* xlua-ng: negated as unsigned, as Lua 5.4's luaV_shiftr does: -ic
+           ** overflows for math.mininteger (build/LUA_PATCHES.md) */
+          setivalue(ra, luaV_shiftl(ib, intop(-, 0, ic)));
         }
         else { Protect(luaT_trybinTM(L, rb, rc, ra, TM_SHR)); }
         vmbreak;
