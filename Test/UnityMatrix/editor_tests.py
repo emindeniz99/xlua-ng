@@ -78,6 +78,7 @@ REQUIRED = [
     "XluaEditorToolsTests.ClearAndGenerateKeepsUserFiles",
     "XluaEditorToolsTests.ValidateSetupAcceptsThePlugin",
     "XluaEditorToolsTests.ValidateSetupReportsOldModulesInResources",
+    "XluaEditorToolsTests.MigrationMenuLeavesTypeAttributesWhereTheGeneratorRuns",
     "XluaEditorToolsTests.HotfixToolsAreCheckedAgainstTheManifest",
     "XluaGeneratedCodeTests.GeneratedCodeMatchesMode",
     "XluaGeneratedCodeTests.GeneratedWrappersFollowGenCodeMinimize",

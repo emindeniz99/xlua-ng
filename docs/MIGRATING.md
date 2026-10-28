@@ -1330,6 +1330,18 @@ See [Converting configuration lists](../Assets/XLua/Doc/Migrating_Configuration.
   (`ConfigMigrationMenu.MigrateGrouped`) and `XLuaGenerate --migrate --group`
   instead write the types of a list that share an attribute, flags and
   namespace into one attribute, one `typeof` per line (2026-10-18).
+- **Without asmdefs** (xLua in Assembly-CSharp), the menu took
+  Assembly-CSharp for xLua's own assembly until 2026-10-28: it copied the
+  `[LuaCallCSharp]`, `[CSharpCallLua]` and `[GCOptimize]` attributes on the
+  project's types into `Assets/XLuaConfig/XLuaConfig.cs`, where the source
+  generator already reads them, and reported the types of `[Hotfix]` lists as
+  "not one the tool writes into". It now writes the lists of Assembly-CSharp's
+  types there and leaves attributes on types alone, as in the asmdef layout.
+  Running the menu a second time also no longer stops with "was not rewritten
+  because it was converted from [...] on the types of ..., which no longer
+  exists" for a file converted from the attributes of a precompiled DLL. A
+  file the old menu wrote is kept as it is (it names lists that are gone);
+  delete it and run the menu again to drop the copied attributes.
 - **xLua's examples** now also carry their converted configuration,
   `Assets/XLua/Examples/XLuaConfig.cs`, next to the lists. The tool leaves
   lists that such a file already converts out of its own output.
