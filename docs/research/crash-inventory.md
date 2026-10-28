@@ -71,10 +71,10 @@ owner question; (c) by design: documented.
 | 21 | Fixed earlier: stack overflow of pushes (#1153), NULL C function (`debug.setupvalue`), LuaJIT int64 header, `xlua.cast`, negative `xlua_newstruct`, float casts, watchdog races | — | see "Fixed earlier" | fixed | — | — |
 | 22 | `debug.getregistry`: a script replaces an entry xLua reads (a metatable reference, the userdata cache, `registry[8]` on LuaJIT) | all | a number or string read as a table by `lua_setmetatable`, `lua_rawgeti`: SIGSEGV | by design, found by the bridge fuzzer | one `lua_type` check per push | (c) |
 | 23 | `debug.setmetatable` on an io file, then a call of it that LuaJIT's JIT records | LuaJIT | NULL read in `lj_record_mm_lookup` | LuaJIT's own assumption | n/a | (c) |
-| 24 | `debug.traceback(msg, level)` with a level near `INT_MIN` or `INT_MAX` | PUC Lua | signed overflow in `luaL_traceback` (undefined behaviour; no failure seen) | open | two lines in vendored `ldblib.c` or `lauxlib.c` | (b) |
+| 24 | `debug.traceback(msg, level)` with a level near `INT_MIN` or `INT_MAX` | PUC Lua | signed overflow in `luaL_traceback` (undefined behaviour; no failure seen) | **fixed** (2026-10-28, owner Q38: vendored patch) | none: one comparison per traceback | (a) |
 | 25 | `LuaEnv.AddLoader` after a script replaced `package` | all | panic (item 9) | **fixed** here | none (a cold path) | (a) |
 | 26 | A host function's type error for an argument past `nargs` + 20 | Lua 5.4, 5.5 (LuaScript) | Lua API check failure in builds with `XLUA_APICHECK` | **fixed** here | none (an error path) | (a) |
-| 27 | A new metatable for an all-weak (`__mode = "kv"`) table during a GC cycle, from any script | Lua 5.3 | heap use after free (upstream Lua bug, fixed in 5.4) | **fixed** here (vendored patch) | none measurable | (a) |
+| 27 | A new metatable for an all-weak (`__mode = "kv"`) table during a GC cycle, from any script | Lua 5.3 | heap use after free (upstream Lua bug, fixed in 5.4) | **fixed** here (vendored patch; kept, owner Q39) | none measurable | (a) |
 | 28 | A light userdata with the int64 metatable (`debug.setmetatable`) read as an int64 | LuaJIT | read of 16 bytes at the address it holds | **fixed** here | one `lua_type` per int64 check | (a) |
 | 29 | LuaEnv's message handler after a script replaced `debug` | all; LuaJIT crashes | "error in error handling"; on LuaJIT with a hook that makes a protected call, C stack overflow | **fixed** here | none (an error path) | (a) |
 
@@ -745,6 +745,25 @@ Setup: `xlua-analysis:26.04` (Linux arm64 in OrbStack on macOS 27, Clang
   used. Test: `native_regression.py error_handler` ("error in error
   handling" before; the LuaJIT hook case also checked).
 
+- **24. `debug.traceback(msg, level)` with a level near `INT_MIN` or
+  `INT_MAX`** [C]. Signed overflow in `luaL_traceback` (`last - level`,
+  `level++`; `lauxlib.c:132`, `:139` in 5.5.1, `:137`, `:144` in 5.4.9,
+  `:130`, `:135` in 5.3.6), undefined behaviour that UBSan reports; no wrong
+  result or crash seen. Any script with the `debug` library reaches it.
+  First open (b); **decided 2026-10-28 (owner, Q38): patch the vendored Lua.**
+  Fix: Lua 5.3.6, 5.4.9 and 5.5.1 clamp the level right after `lastlevel` to
+  -1 or the last level + 1, which show no frame as before
+  ([LUA_PATCHES.md](../../build/LUA_PATCHES.md)). LuaJIT has other code: no
+  `last - level`, but the same `level++` at `INT_MAX` and a `level--` past
+  `INT_MIN` in `lj_debug_frame` [C, by the code]; not patched (LuaJIT carries
+  no source patch, and no sanitizer runs on it here). Reporting upstream is
+  left for later. Test: `native_regression.py traceback_levels` (sanitize.sh
+  runs it under UBSan). Before the fix a UBSan build of each interpreter
+  stopped with "signed integer overflow: 2 - -2147483648" and
+  "2147483647 + 1" at those lines (macOS arm64, Apple clang 21); after it,
+  the text is "m\nstack traceback:". The fuzz target no longer keeps levels
+  within ±10^6 outside `FUZZ_TRICKS`.
+
 ### By design or upstream (c)
 
 - **22. `debug.getregistry`** [C]. A script with the full `debug` library can
@@ -783,25 +802,23 @@ Setup: `xlua-analysis:26.04` (Linux arm64 in OrbStack on macOS 27, Clang
 
 ### Open (b)
 
-- **24. `debug.traceback(msg, level)` with a level near `INT_MIN` or
-  `INT_MAX`** [C]. Signed overflow in `luaL_traceback` (`last - level`,
-  `level++`; `lauxlib.c:132`, `:139` in 5.5.1, `:137`, `:144` in 5.4.9),
-  undefined behaviour that UBSan reports; no wrong result or crash seen.
-  Any script with the `debug` library reaches it, and the error handler of
-  LuaEnv passes a fixed level. Options: a two-line clamp in the vendored
-  `ldblib.c` (`db_traceback`) or `lauxlib.c` of 5.3.6, 5.4.9 and 5.5.1, with
-  a `LUA_PATCHES.md` entry, or a report to lua-l only. Owner question.
+None left: item 24 was fixed by owner decision Q38 (see "Found and fixed" above).
 
 ### Questions for the owner
 
 1. Item 22: add a `lua_type` check to the helpers that read xLua's registry
    references (about 1 ns per push of a C# object or struct on the bridge's
    hot path), or keep it as a `debug` trick of item 18?
+   **Decided 2026-10-28 (owner, Q37): check them in debug builds only, at no
+   cost in release.** See item 22.
 2. Item 24: patch the vendored Lua (three versions) for an overflow with no
    observed effect, or only report it upstream?
+   **Decided 2026-10-28 (owner, Q38): patch it, and clamp the level.** Done;
+   see item 24. Reporting it upstream is left for later.
 3. Item 27 changes the vendored Lua 5.3.6 (a backport of Lua 5.4's own fix):
    kept as decided for (a) cases; say if vendored GC changes should wait for
    you.
+   **Decided 2026-10-28 (owner, Q39): keep the fix.** Recorded only.
 
 ### CPU time and coverage
 
@@ -826,8 +843,8 @@ libFuzzer's count of executed inputs.
 
 Total about 2 hours 40 minutes, and 10 minutes after the merge with main
 (legacy LuaJIT and 5.4.9, below). Item 25 was fixed after the first survey;
-the reports of item 24 led to the limit the target keeps outside
-`FUZZ_TRICKS` (traceback levels within ±10^6). During the campaign the
+the reports of item 24 led to a limit the target kept outside
+`FUZZ_TRICKS` (traceback levels within ±10^6) until the fix of Q38. During the campaign the
 target also capped C# callback nesting at 150 (item 7) and kept BaseType
 chains private (item 18); both went once main's fixes were merged.
 

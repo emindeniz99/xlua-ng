@@ -53,9 +53,9 @@
  * and xLua's references, item 22), the C function inside a trampoline and
  * replacing it, and a class indexer's fields upvalue that is not a table
  * (item 18), __gc errors on Lua 5.3 (item 8), debug.setmetatable on io
- * files, which LuaJIT's trace recorder takes as immutable (item 23), and
- * debug.traceback levels near INT_MIN and INT_MAX (item 24). FUZZ_BRIDGE_TRACE=1 says how the
- * driver ended, 2 also lists every call, 3 also the value readers. */
+ * files, which LuaJIT's trace recorder takes as immutable (item 23).
+ * FUZZ_BRIDGE_TRACE=1 says how the driver ended, 2 also lists every call,
+ * 3 also the value readers. */
 #define _GNU_SOURCE /* dladdr, for the trace */
 #include <dlfcn.h>
 #include <math.h>
@@ -282,12 +282,8 @@ static const char DRIVER[] =
     "    local masks = {'c', 'r', 'cr', 'l', ''}\n"
     "    pcall(dbg.sethook, f, masks[u8() % 5 + 1], u8() % 3)\n"
     "  elseif k == 5 then keep(pack(pcall(dbg.getinfo, get(), 'nSlu')))\n"
-    /* a level near INT_MIN or INT_MAX overflows an int in Lua's luaL_traceback (item 24) */
-    "  elseif k == 6 then\n"
-    "    local m, lv = get(), get()\n"
-    "    local n = tonumber(lv)\n"
-    "    if not tricks and n and not (n > -1e6 and n < 1e6) then lv = 1 end\n"
-    "    keep(pack(pcall(dbg.traceback, m, lv)))\n"
+    /* any level: luaL_traceback clamps it since item 24 (build/LUA_PATCHES.md) */
+    "  elseif k == 6 then keep(pack(pcall(dbg.traceback, get(), get())))\n"
     "  elseif k == 7 and dbg.getuservalue then keep(pack(pcall(dbg.getuservalue, get(), u8() % 3)))\n"
     "  elseif k == 8 and dbg.setuservalue then\n"
     "    local u = get()\n"

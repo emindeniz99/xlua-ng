@@ -129,7 +129,13 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1,
   luaL_Buffer b;
   lua_Debug ar;
   int last = lastlevel(L1);
-  int limit2show = (last - level > LEVELS1 + LEVELS2) ? LEVELS1 : -1;
+  int limit2show;
+  /* xlua-ng: a level below 0 or above 'last' shows no frame; clamping it
+     keeps 'last - level' and 'level++' from overflowing for levels near
+     INT_MIN or INT_MAX (build/LUA_PATCHES.md) */
+  if (level < 0) level = -1;
+  else if (level > last) level = last + 1;
+  limit2show = (last - level > LEVELS1 + LEVELS2) ? LEVELS1 : -1;
   luaL_buffinit(L, &b);
   if (msg) {
     luaL_addstring(&b, msg);

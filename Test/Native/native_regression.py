@@ -5,7 +5,7 @@ C# function wrappers).
 
 Usage: python3 Test/Native/native_regression.py /absolute/path/libxlua.so [check ...]
 Checks: parse, struct_offsets, struct_alignment, exported_helpers, value_helpers,
-struct_accessors, struct_clone, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, csharp_functions, setfenv, uint_conversion,
+struct_accessors, struct_clone, indexers, indexer_base_walk, path_access, protected_helpers, error_handler, weak_table_metatable, traceback_levels, csharp_functions, setfenv, uint_conversion,
 integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers, luajit_int64_header,
 checked_accessors, checked_cache, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
@@ -1084,6 +1084,33 @@ def check_weak_table_metatable(state):
             end
         end
         collectgarbage()
+    """)
+
+
+def check_traceback_levels(state):
+    """debug.traceback with a level near INT_MIN or INT_MAX: 'last - level' and
+    'level++' in luaL_traceback overflowed an int (undefined behaviour, which
+    UBSan reports in sanitize.sh; found by Test/Fuzz/fuzz_bridge.c, item 24 of
+    docs/research/crash-inventory.md). Lua 5.3.6, 5.4.9 and 5.5.1 clamp the level
+    (build/LUA_PATCHES.md); a level outside the stack still shows no frame."""
+    run(state, """
+        local function deep(n, f) if n == 0 then return f() end return (deep(n - 1, f)) end
+        for _, level in ipairs({-2147483648, -2147483647, -1000001, -1, 2147483647, 2147483646, 1000001}) do
+            local t = debug.traceback("m", level)
+            assert(t == "m\\nstack traceback:", level .. ": " .. t)
+            t = deep(30, function() return debug.traceback("m", level) end)
+            assert(t == "m\\nstack traceback:", level .. " (deep): " .. t)
+            local co = coroutine.create(function() coroutine.yield() end)
+            coroutine.resume(co)
+            t = debug.traceback(co, "m", level)
+            assert(t == "m\\nstack traceback:", level .. " (thread): " .. t)
+        end
+        -- Levels inside the stack are unchanged, the skipped middle of a deep one too.
+        local t = deep(30, function() return debug.traceback("m", 1) end)
+        assert(t:find("^m\\nstack traceback:\\n") and select(2, t:gsub("\\n", "")) > 10, t)
+        assert(t:find("...", 1, true), t)
+        t = debug.traceback("m", 0)
+        assert(t:find("^m\\nstack traceback:\\n"), t)
     """)
 
 
@@ -3133,7 +3160,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "csharp_functions", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "traceback_levels", "csharp_functions", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",
