@@ -1728,7 +1728,13 @@ strings from its own memory, and runs handle operations on its arguments.
 Besides crashes, sanitizer reports, API check failures and hangs, the target
 fails when a helper that C# calls outside a protected call raises an error
 other than a memory error, when a helper leaves the stack other than its
-caller expects, and when a struct header changes. The known crashes of
+caller expects, and when a struct header changes. A hang is a libFuzzer
+timeout (`-timeout=20`): the state's instruction limit is a count hook, and
+the driver wraps `debug.sethook` and `xlua.sethook` so that a hook the input
+sets still charges a budget of 10^6 and removing the profiler puts the limit
+back; on LuaJIT the JIT compiler is turned off once a profiler function is set
+(compiled code calls no hook), so the compiler is not fuzzed. An endless loop
+inside a hook function still runs without a limit (hooks are off there). The known crashes of
 [crash-inventory.md](../docs/research/crash-inventory.md) (items 8, 10, 18,
 22, 23 and 24: foreign userdata with a struct header, `debug.getregistry`,
 `debug.setupvalue` on a trampoline's C function and on a class indexer's
@@ -1736,9 +1742,11 @@ fields, `__gc` errors on Lua 5.3, `debug.setmetatable` on io files on
 LuaJIT, `debug.traceback` levels near the int limits) are left out unless
 `FUZZ_TRICKS=1`; `FUZZ_BRIDGE_TRACE=1` (2, 3) on a reproducer says how the
 driver ended (and lists every call). The seeds are 16 fixed random inputs
-of 1 KB, which the script writes, and `Test/Fuzz/corpus/bridge` (the
-reduced input of crash-inventory item 27: on legacy Lua 5.3.6 it replaces the
-metatable of an all-weak `_G` between GC steps).
+of 1 KB, which the script writes, and `Test/Fuzz/corpus/bridge`: the
+reduced input of crash-inventory item 27 (on legacy Lua 5.3.6 it replaces the
+metatable of an all-weak `_G` between GC steps) and the two timeouts of the
+first weekly run (`call-chain-cycle`, item 30, from minimal 5.4.9, and
+`profiler-call-loop`, from legacy LuaJIT, not reduced).
 It runs for 60 seconds in every native-build (`sanitizers` job, legacy,
 Lua 5.5.1), and for 30 minutes every Monday in `analysis.yml`'s `fuzz-bridge`
 job (owner decision 2026-10-28) on legacy 5.5.1, legacy LuaJIT, minimal 5.4.9
@@ -1760,7 +1768,16 @@ bridge presets with Lua 5.x, 120 to 140 on the core preset and about 250 on
 LuaJIT. The corpora reached 79%
 of `xlua.c`'s functions and 71% of its branches on legacy Lua 5.5.1, 83%
 and 75% on LuaJIT. A 60-second run of legacy Lua 5.5.1 is part of the
-sanitizer job in `native-build.yml`.
+sanitizer job in `native-build.yml`. The first weekly run (2026-10-28) timed out
+on minimal 5.4.9 (item 30: a cycle of `__call` metamethods hung Lua 5.4 in
+C, now limited in the vendored 5.4.9) and on legacy LuaJIT (the input
+replaced the instruction limit's hook with `xlua.sethook`'s, then ran an
+endless tail call loop; the driver now keeps a limit on the hooks it sets).
+After the fixes, 10 minutes each (Linux arm64 container): 31,984 and 96,048
+runs, no finding. The many "ERROR in finalizer" lines in LuaJIT's `fuzz.log`
+are errors of the `__gc` metamethods the driver sets from its pool (LuaJIT
+prints them and goes on), not a finding; on arm64 that configuration's RSS
+reached 1.6 GB in 10 minutes, with the old driver too.
 
 `Test/Native/check_webgl_exports.py` does the import check for the Unity WebGL
 plugin. It reads `llvm-nm --defined-only` output for the object file that

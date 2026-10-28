@@ -102,6 +102,63 @@ static const char DRIVER[] =
     "local KEEP = {}\n"
     "local function put(v) wp = wp % 48 + 1; P[wp] = v; if np < wp then np = wp end end\n"
     "local function get() if np == 0 then return nil end return P[u8() % np + 1] end\n"
+    /* Hooks keep a limit. The state's instruction limit is a count hook (the
+     * harness's, or core's on a core state), and Lua has one hook per thread
+     * (LuaJIT one per state): debug.sethook and, on a plain state, xlua.sethook
+     * replaced it, and an endless loop the pool can build (a __call that tail
+     * calls its own table) then ran until libFuzzer's timeout (2026-10-28, legacy
+     * LuaJIT). So both are wrapped, in their tables and in N: debug.sethook's hook
+     * always has a count and charges a budget, xlua.sethook's function charges it
+     * per event, and removing the profiler puts the harness's hook back. The
+     * JIT compiler stays off while the profiler's call hook is the only hook:
+     * compiled code calls no hook. Code that runs inside a hook runs without
+     * hooks; nothing bounds an endless loop there. */
+    "local HIDE = setmetatable({}, {__mode = 'k'})\n"
+    "if (dbg and dbg.sethook or xlua and xlua.sethook) and X.stop then\n"
+    "  local real_d, real_p, jit_off = dbg and dbg.sethook, xlua and xlua.sethook, jit and jit.off\n"
+    "  local stop, rearm, spent = X.stop, X.rearm, 0\n"
+    "  local function spend(n) spent = spent + n; if spent > 1000000 then stop() end end\n"
+    "  HIDE[spend] = true\n"
+    "  if real_d then\n"
+    "    local function dsethook(...)\n"
+    "      local a = pack(...)\n"
+    "      local i = type(a[1]) == 'thread' and 2 or 1\n"
+    "      local f, mask, count = a[i], a[i + 1], a[i + 2]\n"
+    "      if f ~= nil and type(f) ~= 'function' then return real_d(...) end\n"
+    "      if f == nil or type(mask) ~= 'string' then mask = '' end\n"
+    "      count = tonumber(count) or 0\n"
+    "      if not (count >= 0 and count <= 1000000) or count % 1 ~= 0 then count = 0 end\n"
+    "      local period = count > 0 and count or 1000\n"
+    "      local cost = period > 10 and period or 10\n"
+    "      if log then log(nil, 306, true, 'debug.sethook ' .. type(f) .. ' ' .. mask .. ' ' .. count) end\n"
+    "      local function h(ev, line)\n"
+    "        if ev == 'count' then spend(cost); if count == 0 then return end else spend(10) end\n"
+    "        return f(ev, line)\n"
+    "      end\n"
+    "      HIDE[h] = true\n"
+    "      if i == 2 then return real_d(a[1], h, mask, period) end\n"
+    "      return real_d(h, mask, period)\n"
+    "    end\n"
+    "    HIDE[dsethook] = true\n"
+    "    dbg.sethook = dsethook\n"
+    "  end\n"
+    "  if real_p then\n"
+    "    local function psethook(f, ...)\n"
+    "      if type(f) == 'function' then\n"
+    "        local g = f\n"
+    "        f = function(...) spend(10); return g(...) end\n"
+    "        HIDE[f] = true\n"
+    "        if jit_off then jit_off() end\n"
+    "      end\n"
+    "      if log then log(nil, 307, true, 'xlua.sethook ' .. type(f)) end\n"
+    "      real_p(f, ...)\n"
+    "      rearm()\n"
+    "    end\n"
+    "    HIDE[psethook] = true\n"
+    "    xlua.sethook = psethook\n"
+    "    for i = 1, #N do if N[i] == real_p then N[i] = psethook end end\n"
+    "  end\n"
+    "end\n"
     "local TRAMP = setmetatable({}, {__mode = 'k'})\n"
     "local BLOCK = setmetatable({}, {__mode = 'k'})\n"
     "local FOREIGN = setmetatable({}, {__mode = 'k'})\n"
@@ -270,7 +327,7 @@ static const char DRIVER[] =
     "    pcall(dbg.setmetatable, v, mt)\n"
     "  elseif k == 2 or k == 3 then\n"
     "    local f, n = get(), u8() % 9 - 1\n"
-    "    if type(f) ~= 'function' then return end\n"
+    "    if type(f) ~= 'function' or HIDE[f] then return end\n"
     "    if not tricks and (TRAMP[f] and n <= 1 or (BLOCK[f] and BLOCK[f][n])) then return end\n"
     "    if k == 2 then local r = pack(pcall(dbg.getupvalue, f, n)); keep(r)\n"
     "    else\n"
@@ -981,6 +1038,25 @@ static int x_gc(lua_State *L) {
     return 1;
 }
 
+/* X.stop(): the driver's hook budget is spent (see "hooks keep a limit" in the
+ * driver). Puts the harness's limit hook back on this thread with its budget
+ * already spent, so that it raises at every instruction (out of pcall loops too),
+ * and raises. On a core state it replaces core's hook for the rest of the input. */
+static int x_stop(lua_State *L) {
+    fuzz_hook_calls = FUZZ_HOOK_LIMIT;
+    lua_sethook(L, fuzz_count_hook, LUA_MASKCOUNT, 1);
+    return luaL_error(L, "fuzz instruction limit");
+}
+
+/* X.rearm(): after xlua.sethook(nil) on a plain state no hook is left; put the
+ * harness's limit hook back. A core state keeps core's own hook. */
+static int x_rearm(lua_State *L) {
+    if (lua_gethook(L) == NULL) {
+        lua_sethook(L, fuzz_count_hook, LUA_MASKCOUNT, FUZZ_HOOK_PERIOD);
+    }
+    return 0;
+}
+
 /* X.unpack(v, kind, offset) and X.pack(v, kind, offset, x): CopyByValue as
  * generated code calls it, on what xlua_tostructbuffer returns for the
  * struct's type id (NULL, which the helpers refuse, for anything else). */
@@ -1422,6 +1498,8 @@ static void push_x(lua_State *L) {
     int i;
     lua_newtable(L);
     reg(L, "check", x_check, -1);
+    reg(L, "stop", x_stop, -1);
+    reg(L, "rearm", x_rearm, -1);
     if (trace > 1) {
         reg(L, "log", x_log, -1);
     }
