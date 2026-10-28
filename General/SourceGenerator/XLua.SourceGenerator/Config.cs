@@ -352,19 +352,23 @@ namespace XLua.SourceGenerator
                     && SymbolEqualityComparer.Default.Equals(m.Parameters[0].Type, type));
         }
 
-        // Members by name; ".ctor" names the instance constructors.
+        // Members by name; ".ctor" names the instance constructors, and an
+        // indexer has its reflection name ("Item", or its [IndexerName]).
         static IEnumerable<ISymbol> Members(ITypeSymbol type, string name)
         {
             if (name == ".ctor" && type is INamedTypeSymbol named) return named.InstanceConstructors;
-            return type.GetMembers(name);
+            return type.GetMembers(name).Concat(type.GetMembers().OfType<IPropertySymbol>().Where(p => p.IsIndexer && p.MetadataName == name));
         }
 
         // As Generator.cs isMemberInBlackList/isMethodInBlackList: fields,
-        // properties and events by name, methods by their exact parameter types.
+        // properties, events and property accessors by name, other methods by
+        // their exact parameter types.
         static bool MatchesBlackList(ISymbol member, string[] parameterTypes)
         {
             if (member is IMethodSymbol method)
             {
+                // A property accessor matches by name (BlackListRules.IsListed).
+                if (method.MethodKind == MethodKind.PropertyGet || method.MethodKind == MethodKind.PropertySet) return true;
                 if (method.Parameters.Length != parameterTypes.Length) return false;
                 for (int i = 0; i < parameterTypes.Length; i++)
                 {

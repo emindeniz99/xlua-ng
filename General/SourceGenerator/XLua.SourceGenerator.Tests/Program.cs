@@ -791,6 +791,69 @@ namespace Game
         }
     }
 
+    // [BlackList] and [Obsolete] leave out operators, indexers and lazy
+    // ([DoNotGen]) members as they leave out the other members, and as the
+    // emitted and reflection wrappers leave them out (2026-10-28; before, the
+    // operators and indexers were wrapped and the lazy members registered).
+    public static void BlackListLeavesOutOperatorsIndexersAndLazyMembers()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+[assembly: BlackList(typeof(Game.Ops), ""op_Multiply"", typeof(Game.Ops), typeof(int))]
+[assembly: BlackList(typeof(Game.ByName), ""Item"")]
+[assembly: BlackList(typeof(Game.ByAccessorName), ""get_Item"")]
+[assembly: DoNotGen(typeof(Game.Lazy), ""Both"", ""Mixed"", ""Field"", ""Prop"", ""Getter"", ""Ev"", ""Old"", ""Kept"")]
+namespace Game
+{
+    [LuaCallCSharp]
+    public class Ops
+    {
+        public static Ops operator +(Ops a, Ops b) { return a; }
+        [BlackList] public static Ops operator -(Ops a, Ops b) { return a; }
+        public static Ops operator *(Ops a, Ops b) { return a; }
+        public static Ops operator *(Ops a, int b) { return a; }
+        [Obsolete] public static Ops operator /(Ops a, Ops b) { return a; }
+        [BlackList] public int this[int i] { get { return i; } set { } }
+        public int this[long i] { [BlackList] get { return 0; } set { } }
+        [Obsolete] public int this[short i] { get { return i; } }
+        public int this[byte i] { get { return i; } }
+        [BlackList] public string this[string k] { get { return k; } set { } }
+    }
+    [LuaCallCSharp] public class ByName { public int this[int i] { get { return i; } } }
+    [LuaCallCSharp] public class ByAccessorName { public string this[string k] { get { return k; } set { } } }
+    [LuaCallCSharp]
+    public class Lazy
+    {
+        [BlackList] public void Both() { }
+        [BlackList] public void Mixed(string s) { }
+        public void Mixed(int x) { }
+        [BlackList] public int Field;
+        [BlackList] public int Prop { get; set; }
+        public int Getter { [BlackList] get { return 0; } set { } }
+        [BlackList] public event System.Action Ev { add { } remove { } }
+        [Obsolete] public void Old() { }
+        public void Kept() { }
+    }
+}");
+        // ByName's "Item" and ByAccessorName's "get_Item" name an indexer and an accessor: no XLSG003.
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+        var ops = ManifestType(run, "Game.Ops");
+        Assert.True(ops.GetProperty("operators").EnumerateArray().Select(o => o.GetProperty("name").GetString())
+            .SequenceEqual(new[] { "op_Addition", "op_Multiply" }), "the [BlackList] and [Obsolete] operators are left out");
+        var multiply = ops.GetProperty("operators").EnumerateArray().First(o => o.GetProperty("name").GetString() == "op_Multiply");
+        Same(new[] { "Game.Ops::op_Multiply(Game.Ops,Game.Ops)" }, Strings(multiply.GetProperty("overloads")), "op_Multiply(Ops, int) is listed by its parameter types");
+        Same(new[] { "Game.Ops::get_Item(System.Byte)" }, Strings(ops.GetProperty("indexers")), "indexers: [BlackList] on the indexer or its get accessor, [Obsolete]");
+        Same(new[] { "Game.Ops::set_Item(System.Int64,System.Int32)" }, Strings(ops.GetProperty("newindexers")), "newindexers");
+        Assert.True(Overloads(ops, "get_Item", false).Length == 0 && Overloads(ops, "set_Item", false).Length == 0,
+            "the accessors of a string-keyed indexer go with it");
+        Assert.True(Strings(ManifestType(run, "Game.ByName").GetProperty("indexers")).Length == 0, "an entry names an indexer Item");
+        var byAccessor = ManifestType(run, "Game.ByAccessorName");
+        Assert.True(Overloads(byAccessor, "get_Item", false).Length == 0, "an entry without parameter types names the accessor get_Item");
+        Same(new[] { "Game.ByAccessorName::set_Item(System.String,System.String)" }, Overloads(byAccessor, "set_Item", false), "set_Item stays");
+        Same(new[] { "SETTER_IDX Getter PropertySet", "METHOD_IDX Kept Method", "METHOD_IDX Mixed Method" },
+            Strings(ManifestType(run, "Game.Lazy").GetProperty("lazy")), "lazy members without what [BlackList] or [Obsolete] leaves out");
+    }
+
     // The wrappers are written again only for the type whose members changed.
     public static void WrapperOfAnEditedTypeIsWrittenAgain()
     {

@@ -138,7 +138,14 @@ namespace XLua.SourceGenerator
 
         bool MatchesMember(BlackListRule rule, ISymbol member)
         {
-            return member.ContainingType != null && member.Name == rule.Member && Names.Clr(member.ContainingType) == rule.Type;
+            return member.ContainingType != null && ReflectionName(member) == rule.Member && Names.Clr(member.ContainingType) == rule.Type;
+        }
+
+        // MemberInfo.Name: an indexer is "Item" (or its [IndexerName]), which
+        // Roslyn calls "this[]".
+        public static string ReflectionName(ISymbol member)
+        {
+            return member is IPropertySymbol p && p.IsIndexer ? p.MetadataName : member.Name;
         }
 
         bool MatchesMethod(BlackListRule rule, IMethodSymbol method)
@@ -175,6 +182,16 @@ namespace XLua.SourceGenerator
         public bool IsMethodBlackListed(IMethodSymbol method)
         {
             return RefReadOnlyUnusable(method) || IsMethodExcluded(method);
+        }
+
+        // An accessor of an indexer, which also goes when [BlackList] or
+        // [Obsolete] leaves out its indexer; accessors match [BlackList] by
+        // name, as property accessors do (BlackListRules.IsListed), in every
+        // binding mode.
+        bool IsIndexerAccessorExcluded(IPropertySymbol indexer, IMethodSymbol accessor)
+        {
+            return IsObsolete(indexer) || IsObsolete(accessor) || IsMemberBlackListed(indexer) || IsMemberBlackListed(accessor)
+                || indexer.Parameters.Any(p => IsUnsupported(p.Type));
         }
 
         // IsMethodBlackListed without the compiler limit: what reflection cannot
@@ -480,6 +497,12 @@ namespace XLua.SourceGenerator
             foreach (var m in candidates)
             {
                 if (IsDoNotGen(type, m.Name)) continue;
+                if (m.AssociatedSymbol is IPropertySymbol indexer && indexer.IsIndexer)
+                {
+                    // get_Item and set_Item of a string key are methods for Lua.
+                    if (IsIndexerAccessorExcluded(indexer, m) || RefReadOnlyUnusable(m)) continue;
+                }
+                else
                 if (IsMethodBlackListed(m) || IsObsolete(m))
                 {
                     // Only the compiler cannot call it: reflection can (section 5.5).
@@ -562,6 +585,9 @@ namespace XLua.SourceGenerator
             foreach (var m in DeclaredMethods(type))
             {
                 if (Array.IndexOf(OperatorNames, m.Name) < 0) continue;
+                // As the emitted and reflection wrappers: [BlackList] (also an
+                // entry with the parameter types) and [Obsolete] leave it out.
+                if (IsMethodBlackListed(m) || IsObsolete(m)) continue;
                 var group = info.Operators.FirstOrDefault(g => g.Name == m.Name);
                 if (group == null)
                 {
@@ -581,12 +607,14 @@ namespace XLua.SourceGenerator
             foreach (var p in indexers)
             {
                 var get = p.GetMethod;
-                if (IsPublic(get) && get.Parameters.Length == 1 && !AcceptsString(get.Parameters[0].Type) && !RefReadOnlyUnusable(get)) info.Indexers.Add(get);
+                if (IsPublic(get) && get.Parameters.Length == 1 && !AcceptsString(get.Parameters[0].Type) && !RefReadOnlyUnusable(get)
+                    && !IsIndexerAccessorExcluded(p, get)) info.Indexers.Add(get);
             }
             foreach (var p in indexers)
             {
                 var set = p.SetMethod;
-                if (IsPublic(set) && set.Parameters.Length == 2 && !AcceptsString(set.Parameters[0].Type) && !RefReadOnlyUnusable(set)) info.NewIndexers.Add(set);
+                if (IsPublic(set) && set.Parameters.Length == 2 && !AcceptsString(set.Parameters[0].Type) && !RefReadOnlyUnusable(set)
+                    && !IsIndexerAccessorExcluded(p, set)) info.NewIndexers.Add(set);
             }
 
             foreach (var e in type.GetMembers().OfType<IEventSymbol>())
@@ -625,7 +653,10 @@ namespace XLua.SourceGenerator
             return m != null && m.DeclaredAccessibility == Accessibility.Public;
         }
 
-        // Members named by DoNotGen: registered lazily, wrapped by reflection on first use.
+        // Members named by DoNotGen: registered lazily, wrapped by reflection on
+        // first use. What [BlackList] or [Obsolete] leaves out stays out, as in
+        // the emitted wrappers (Utils.LazyReflectionCall leaves out such
+        // overloads of a method that is registered).
         void BuildLazy(ClassInfo info, INamedTypeSymbol type, List<IMethodSymbol> extensionMethods)
         {
             var seen = new HashSet<string>();
@@ -633,6 +664,10 @@ namespace XLua.SourceGenerator
             {
                 if (!IsDoNotGen(type, member.Name)) continue;
                 if (!IsReflectionPublicMember(member)) continue;
+                if (IsObsolete(member)) continue;
+                if (member is IMethodSymbol excluded && (IsMethodExcluded(excluded)
+                    || (excluded.AssociatedSymbol is IPropertySymbol indexer && indexer.IsIndexer && IsIndexerAccessorExcluded(indexer, excluded)))) continue;
+                if (!(member is IMethodSymbol) && IsMemberBlackListed(member)) continue;
                 if (!seen.Add(member.Name)) continue; // GroupBy(Name).First()
                 switch (member)
                 {
@@ -651,12 +686,12 @@ namespace XLua.SourceGenerator
                     case IPropertySymbol p:
                         if (p.Name != "Item" || p.Parameters.Length == 0)
                         {
-                            if (IsPublic(p.GetMethod))
+                            if (IsPublic(p.GetMethod) && !IsObsolete(p.GetMethod) && !IsMemberBlackListed(p.GetMethod))
                             {
                                 bool s = p.GetMethod.IsStatic;
                                 info.Lazy.Add(new LazyMember { Index = s ? "CLS_GETTER_IDX" : "GETTER_IDX", Name = p.Name, MemberType = "PropertyGet", IsStatic = s });
                             }
-                            if (IsPublic(p.SetMethod))
+                            if (IsPublic(p.SetMethod) && !IsObsolete(p.SetMethod) && !IsMemberBlackListed(p.SetMethod))
                             {
                                 bool s = p.SetMethod.IsStatic;
                                 info.Lazy.Add(new LazyMember { Index = s ? "CLS_SETTER_IDX" : "SETTER_IDX", Name = p.Name, MemberType = "PropertySet", IsStatic = s });
