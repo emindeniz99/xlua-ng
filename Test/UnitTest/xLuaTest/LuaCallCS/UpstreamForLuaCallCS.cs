@@ -1671,6 +1671,20 @@ namespace Upstream
             return seen;
         }
 
+        // Collects until done() holds, at most 20 times. Join returns before Mono
+        // has unregistered the ended thread, so one collection can still scan its
+        // stack conservatively and keep what it made alive (seen once on LuaJIT,
+        // 2026-10-28).
+        static void CollectUntil(Func<bool> done)
+        {
+            for (int i = 0; i < 20 && !done(); i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                if (!done()) System.Threading.Thread.Sleep(10);
+            }
+        }
+
         static string Refused(string what, int owner, Action body)
         {
             Exception e = OnOtherThread(body);
@@ -1798,9 +1812,8 @@ namespace Upstream
                 });
                 env.SetOwnerThread();
                 if (made != null) return "making the objects: " + made.Message;
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
                 var queue = typeof(LuaEnv).GetField("refQueue", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                CollectUntil(() => queue.GetValue(env) != null);
                 if (queue.GetValue(env) == null) r += "no finalizer queued a release; ";
                 env.Tick();
                 if (queue.GetValue(env) != null) r += "Tick left releases in the queue; ";
@@ -1809,8 +1822,7 @@ namespace Upstream
                 CallsLuaWhenFinalized.Seen = null;
                 CallsLuaWhenFinalized.Ran = false;
                 OnOtherThread(() => new CallsLuaWhenFinalized { Function = function });
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
+                CollectUntil(() => CallsLuaWhenFinalized.Ran);
                 Exception seen = CallsLuaWhenFinalized.Seen;
                 if (!CallsLuaWhenFinalized.Ran)
                 {
@@ -2436,7 +2448,10 @@ namespace Upstream
                     + Expect("LuaTable.SetInPath", () => table.SetInPath("x", "changed"))
                     + Expect("LuaTable.Length", () => { var n = table.Length; })
                     + Expect("LuaTable.ForEach", () => table.ForEach<string, object>((k, v) => { }))
+#if !THREAD_SAFE && !HOTFIX_ENABLE
+                    // GetKeys is [Obsolete(..., true)] under THREAD_SAFE and HOTFIX_ENABLE.
                     + Expect("LuaTable.GetKeys", () => { foreach (var k in table.GetKeys()) { } })
+#endif
                     + Expect("LuaTable.Cast", () => table.Cast<Coverage.IMultiListed>())
                     + Expect("LuaTable.SetMetaTable", () => table.SetMetaTable(holder))
                     + Expect("LuaTable.SetMetaTable(disposed)", () => holder.SetMetaTable(table))
