@@ -461,6 +461,26 @@ Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `--define XLUA_LOCK_METATABLES` checks `xlua.hotfix` and `base()` with locked
 metatables.
 
+`Test/Native/hotfix_bench.py --plugin <libxlua> --output <dir>` (needs the
+.NET SDK) measures what hotfix costs at run time; it asserts nothing but that
+the patches run. It compiles `Test/Native/HotfixBench.cs` with the xLua
+sources and the source generator (csc `-optimize+`) without `HOTFIX_ENABLE`
+and with it, injects the second with `XLuaHotfixInject`, and runs both under
+Mono `--rounds` times (default 3), alternating; both builds have
+`XLUA_NO_BRIDGE_CHECKS`, as a release player. The cases: a method that is
+never injected, the same method in a `[Hotfix]` type and in a
+`[Hotfix(HotfixFlag.IntKey)]` type (each inlinable and `NoInlining`), the
+IntKey entry check written by hand as `HotfixDelegateBridge.xlua_get_hotfix_flag`,
+as the iOS P/Invoke into `Assets/Plugins/iOS/HotfixFlags.cpp` (compiled into a
+host library), as a `bool[]` read, and as a call to and an inline read of a
+copy of the generated `HotfixBridges` slots, an uncontended `lock`, two C#
+-> Lua entries (a delegate and `LuaTable.Get`), two Lua -> C# calls that look
+up the env's translator, and with `HOTFIX_ENABLE` a patched method in field
+and IntKey mode. It prints the lowest median per case and build in ns per
+call and writes `hotfix-bench.json`. `size_report.py`'s `+hfbench` variants
+run the same file in an IL2CPP player (below). Results in
+[hotfix.md](../docs/research/hotfix.md#measured-cost-2026-10-28).
+
 `Test/Native/obfuscation_check.py --plugin <libxlua> --output <dir>` runs
 xLua against renamed types, as after an obfuscator
 ([source-generator.md](../docs/design/source-generator.md), milestone M8).
@@ -3812,6 +3832,22 @@ runs on the machine (a process named `Unity`, `pgrep -x Unity`: until
 2026-10-19 the check matched the editor's path anywhere in a command line, so
 size_report.py, whose `--unity-mobile` names it, waited for itself). Results in
 [build/SIZE.md](../build/SIZE.md#luascript-in-players).
+`--configs hotfix` measures `HOTFIX_ENABLE` on Android (Minimal stripping),
+all from the package with the source generator: `baseline`, `ng-5.5+pkg+sg`,
+`+hotfix` (the define alone: `HOTFIX_ENABLE` in `csc.rsp`, and the injector
+of `Tools/build_tools.py`, built once into `WORK/hotfix-tools`, in
+`<project>/Tools`, where xLua's post-build step runs it), `+hftargets` (50
+`[Hotfix]` classes of ten methods each that the script writes into
+`HotfixSizeTargets.cs`, not injected), `+hftargets+hotfix` (injected, field
+mode), `+hftargets+hotfix+intkey` (`[Hotfix(HotfixFlag.IntKey)]`), and
+`+hfbench` and `+hfbench+hotfix`, whose probe also runs
+`Test/Native/HotfixBench.cs` (`XLUA_SIZE_HOTFIX_BENCH`) and logs one
+`XLUA_HOTFIX_BENCH` line per case; their Android player compiles
+`Assets/Plugins/iOS/HotfixFlags.cpp` in and calls it through `__Internal`, as
+iOS does. Run the two APKs on a device or the emulator and read the lines
+from logcat. Results in
+[build/SIZE.md](../build/SIZE.md#hotfix-hotfix_enable-2026-10-28) and
+[hotfix.md](../docs/research/hotfix.md#measured-cost-2026-10-28).
 `Test/MobileSmoke/core_only_player_check.py PLAYER --project DIR` then checks a
 player for bridge code: `XLua.dll` in `ScriptingAssemblies.json`, `XLua` types
 in `global-metadata.dat`, bridge exports of `libxlua.so`, `XLua.dll` among the
