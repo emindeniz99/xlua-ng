@@ -456,7 +456,25 @@ used Generate Code's bridges, and the second assembly's `IntKey` type fell
 back to field mode. Under
 `--define XLUA_PRESET_MINIMAL`, which leaves out `xlua.util`, the
 two-assembly cases set the ids with `HotfixDelegateBridge.Set` and `SetSlot`
-from the id maps instead of calling `auto_id_map()`. `Tools/build_tools.py` downloads
+from the id maps instead of calling `auto_id_map()`. Since 2026-10-29 two
+more steps cover the process-wide IntKey list, which no fixture reached after
+M11 (every one was compiled with the generator's files):
+`Test/Native/HotfixFixtureShared.cs`, compiled by mcs with xLua and without
+the generator, so the assembly that holds xLua has no `HotfixBridges`, has an
+`IntKey | Inline` type with a generic method; the injector must give it ids
+without an assembly in the map, and the fixture patches and restores it
+through `HotfixDelegateBridge.Set`, then sets 6,000 ids of the list from four
+threads at once, none of which may be lost (`HOTFIX_SHARED_LIST_PASS`; the
+`Set` before 2026-10-29 failed it with `IndexOutOfRangeException` in the
+threads). Then `Test/Native/hotfix_flags_race.py --output <dir>` links the iOS
+flags of that list, `Assets/Plugins/iOS/HotfixFlags.cpp`, with
+`Test/Native/HotfixFlagsRace.cpp` (three threads read flags while two grow
+the array and set 20,000 of them) under ThreadSanitizer (`-fsanitize=thread`,
+`--cxx`, default `$CXX` or `c++`) and fails on any report, lost flag or
+crash (`XLUA_HOTFIX_FLAGS_RACE_PASS`). Where ThreadSanitizer cannot build or
+start, it runs the stress test without it and says so. The file before
+2026-10-29 failed it with a data race report, and without the sanitizer
+crashed in three of three runs. `Tools/build_tools.py` downloads
 Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `XLUA_TOOLS_CACHE` to use another directory (for a read-only checkout).
 `--cecil-dir <folder>` builds and runs the injector with the Cecil of Unity's
