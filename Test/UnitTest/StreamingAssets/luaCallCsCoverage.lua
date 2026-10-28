@@ -839,6 +839,15 @@ function CMyTestCaseLuaCallCSCoverage.CaseBridgesOnThreads(self)
     ASSERT_EQ(CS.Coverage.Bridges.Threads(4, 3000), kinds)
 end
 
+-- Four envs on four threads call C# with an object argument while a fifth
+-- thread creates and disposes envs (THREAD_SAFE or HOTFIX_ENABLE; one after
+-- another without them): each call finds its own env's translator, which
+-- ObjectTranslatorPool.Find reads without a lock since 2026-10-28.
+-- Coverage.Bridges.PoolThreads.
+function CMyTestCaseLuaCallCSCoverage.CaseTranslatorLookupOnThreads(self)
+    ASSERT_EQ(CS.Coverage.Bridges.PoolThreads(4, 20000), "")
+end
+
 -- Ordinary methods named like accessors, an indexer renamed with
 -- [IndexerName] (Lua gets its accessor's name) and a plain property called
 -- Item (Coverage.IBridgeNames).

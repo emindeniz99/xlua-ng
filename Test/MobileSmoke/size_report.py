@@ -53,6 +53,18 @@ Variants:
                Assets/XLua/Src/Analyzers (Tools/build_source_generator.py, built into WORK/source-gen-build) binds
                what the probe calls (SizeProbe.cs with XLUA_SIZE_STRICT: [assembly: LuaCallCSharp(typeof(SizeProbeApi))]),
                in its GCM mode, which the preset implies
+  NAME+hotfix  HOTFIX_ENABLE in csc.rsp, and the injector that Tools/build_tools.py builds (into
+               WORK/hotfix-tools) copied to <project>/Tools, so xLua's post-build step injects the
+               player's script assemblies; needs +sg, which writes the hotfix bridges
+  NAME+hftargets  HotfixSizeTargets.cs: 50 [Hotfix] classes of 10 methods each (constructor, property,
+               methods of eight signatures), written by this script; with +intkey they are
+               [Hotfix(HotfixFlag.IntKey)]. Without +hotfix the same file, not injected (the bridges are
+               still generated), so +hftargets+hotfix minus +hftargets is the injection alone; needs +sg
+  NAME+hfbench  Test/Native/HotfixBench.cs in Assembly-CSharp, run by the probe (XLUA_SIZE_HOTFIX_BENCH):
+               XLUA_HOTFIX_BENCH lines in the log, ns per call of an unpatched method in each hotfix mode,
+               of the IntKey entry check as a managed read and as the P/Invoke of iOS (Android:
+               Assets/Plugins/iOS/HotfixFlags.cpp compiled into the player, called through __Internal),
+               of the env's lock, and with +hotfix of a patched method; needs +sg
   NAME+uwr     the probe also calls UnityWebRequest.Get once, like a project that uses it anyway;
                its deltas are against baseline+uwr
   NAME+at-REF  Assets/XLua/{Src,Resources,Editor} from commit REF instead of this checkout
@@ -135,6 +147,10 @@ STRICT = ["baseline", "ng-5.5+minimal", "ng-5.5+minimal+reflection", "ng-5.5+min
 CORE = ["baseline", "ng-5.5+pkg", "core-5.5", "core-5.5+nodefine", "mixed-5.5"]
 # The library of the core and mixed variants: a plugin variant of the make_* scripts' build root.
 CORE_PLUGIN_VARIANT = {"core": "core", "mixed": "luascript"}
+# HOTFIX_ENABLE (docs/research/hotfix.md, "Measured cost"): the define alone, 500 injected methods in field
+# and IntKey mode against the same methods not injected, and the run-time probe without and with the define.
+HOTFIX = ["baseline", "ng-5.5+pkg+sg", "ng-5.5+pkg+sg+hotfix", "ng-5.5+pkg+sg+hftargets", "ng-5.5+pkg+sg+hftargets+hotfix",
+          "ng-5.5+pkg+sg+hftargets+hotfix+intkey", "ng-5.5+pkg+sg+hfbench", "ng-5.5+pkg+sg+hfbench+hotfix"]
 CASES = {
     "android": [("default", {}, ANDROID_ALL + ["upstream+gen", "ng-5.5+pkg+sg", "ng-5.5+nosa",
                                                "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"]),
@@ -163,7 +179,9 @@ CASES = {
                 ("strict", {"XLUA_SMOKE_STRIPPING": "Minimal"}, STRICT),
                 # LuaScript (run with --configs core,core-high).
                 ("core", {"XLUA_SMOKE_STRIPPING": "Minimal"}, CORE),
-                ("core-high", {"XLUA_SMOKE_STRIPPING": "High"}, CORE)],
+                ("core-high", {"XLUA_SMOKE_STRIPPING": "High"}, CORE),
+                # HOTFIX_ENABLE (run with --configs hotfix).
+                ("hotfix", {"XLUA_SMOKE_STRIPPING": "Minimal"}, HOTFIX)],
     "ios": [("default", {}, ["baseline", "upstream", "ng-5.5", "ng-5.4", "ng-5.3", "upstream+gen", "ng-5.5+pkg+sg"]),
             ("minimal", {}, PRESETS),
             ("core", {"XLUA_SMOKE_STRIPPING": "Minimal"}, CORE),
@@ -287,6 +305,51 @@ def prepare_plugin_variants(a, assets, flags):
         shutil.copy2(here / "PluginVariantSelector.cs", assets / "Editor/PluginVariantSelector.cs")
 
 
+HOTFIX_TOOLS = ["XLuaHotfixInject.exe", "XLuaHotfixInject.manifest", "Mono.Cecil.dll", "Mono.Cecil.Mdb.dll",
+                "Mono.Cecil.Pdb.dll", "Mono.Cecil.Rocks.dll"]
+
+
+def prepare_hotfix_tools(work, project):
+    """The injector in <project>/Tools, where xLua's post-build step runs it (Hotfix.cs); built once into WORK."""
+    tools = work / "hotfix-tools"
+    if not all((tools / n).is_file() for n in HOTFIX_TOOLS):
+        subprocess.run([sys.executable, str(repo / "Tools/build_tools.py"), "--output", str(tools)], check=True)
+    (project / "Tools").mkdir(parents=True, exist_ok=True)
+    for n in HOTFIX_TOOLS:
+        shutil.copy2(tools / n, project / "Tools" / n)
+
+
+# One class of HotfixSizeTargets.cs: a constructor, a property and methods of eight signatures,
+# so the 500 injected methods share a handful of hotfix bridges, as a game's methods do.
+HOTFIX_TARGET_CLASS = """
+ #if XLUA_SIZE_HOTFIX_INTKEY
+ [Hotfix(HotfixFlag.IntKey)]
+ #else
+ [Hotfix]
+ #endif
+ public class Target{n} {{
+  int state;
+  string label = "t{n}";
+  public Target{n}() {{ state = {n}; }}
+  public int Value {{ get {{ return state; }} set {{ state = value; }} }}
+  public void Tick(float dt) {{ state += (int)(dt * 1000); }}
+  public int Add(int a, int b) {{ return a + b + state; }}
+  public string Describe(string prefix) {{ return prefix + label; }}
+  public bool Matches(int a, string b) {{ return a == state && b == label; }}
+  public void Attach(object o) {{ if (o != null) label = o.ToString(); }}
+  public float Scale(float a, float b) {{ return a * b + state; }}
+  public static int Twice(int x) {{ return x * 2 + {n}; }}
+ }}
+"""
+
+
+def write_hotfix_targets(path, classes=50):
+    """+hftargets: 50 [Hotfix] classes, 10 injected methods each (the property counts twice)."""
+    path.write_text("// Written by size_report.py (+hftargets): the methods whose injection the hotfix variants measure.\n"
+                    "using XLua;\n\nnamespace HotfixSizeTargets {\n"
+                    + "".join(HOTFIX_TARGET_CLASS.format(n=n) for n in range(classes)) + "}\n")
+
+
 def prepare(a, work, platform, variant, project):
     name, flags = variant.split("+")[0], variant.split("+")[1:]
     gen = "gen" in flags
@@ -304,6 +367,11 @@ def prepare(a, work, platform, variant, project):
     if "gcm" in flags and not sg:
         sys.exit("+gcm needs +sg: " + variant)
     strict = "strict" in flags
+    hotfix_flags = [f for f in flags if f in ("hotfix", "hftargets", "hfbench", "intkey")]
+    if hotfix_flags and not sg:
+        sys.exit("+%s needs +sg, which writes the hotfix bridges: %s" % (hotfix_flags[0], variant))
+    if "intkey" in flags and "hftargets" not in flags:
+        sys.exit("+intkey configures +hftargets: " + variant)
     if (strict or "reflection" in flags) and "minimal" not in flags:
         sys.exit("+strict and +reflection are kinds of +minimal: " + variant)
     if strict and (pkg or at or "reflection" in flags):
@@ -328,7 +396,9 @@ def prepare(a, work, platform, variant, project):
         (["GEN_CODE_MINIMIZE"] if "gcm" in flags else []) + (["XLUA_SIZE_MIXED"] if kind == "mixed" else []) + \
         (["XLUA_SIZE_GAME"] if game else []) + (["XLUA_SIZE_STRICT"] if strict else []) + \
         [define for flag, define in LINK_FLAGS.items() if flag in flags] + \
-        (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else [])
+        (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else []) + \
+        (["HOTFIX_ENABLE"] if "hotfix" in flags else []) + (["XLUA_SIZE_HOTFIX_INTKEY"] if "intkey" in flags else []) + \
+        (["XLUA_SIZE_HOTFIX_BENCH"] if "hfbench" in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
     probe = "AllocProbe.cs" if "alloc" in flags else "SizeProbeCore.cs" if kind == "core" else "SizeProbe.cs"
     shutil.copy2(here / probe, assets / "XluaSmoke.cs")
@@ -353,6 +423,18 @@ def prepare(a, work, platform, variant, project):
                 "// size_report.py: the [LuaCallCSharp] types of %s as [ReflectionUse].\nusing System;\nusing XLua;\n\n" % config
                 + "\n".join(lines) + "\n")
         shutil.copy2(here / "SizeLinkXml.cs", assets / "Editor/SizeLinkXml.cs")
+    if "hotfix" in flags:
+        prepare_hotfix_tools(work, project)
+    if "hftargets" in flags:
+        write_hotfix_targets(assets / "HotfixSizeTargets.cs")
+    if "hfbench" in flags:
+        shutil.copy2(repo / "Test/Native/HotfixBench.cs", assets / "HotfixBench.cs")
+        if platform == "android":
+            # The iOS hotfix flags, compiled into the Android player for HotfixBench's check_native.
+            dest = assets / "Plugins/Android/HotfixFlags.cpp"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(repo / "Assets/Plugins/iOS/HotfixFlags.cpp", dest)
+            Path(str(dest) + ".meta").write_text(ANDROID_PLUGIN_META % ("9a1f0c4e5b6d4e7f8a9b0c1d2e3f4a60", " []"))
     if platform == "webgl":
         # As in prepare.py, for every variant: Unity 6000.6 otherwise strips ContentLoadingSystem.ProcessResults.
         (assets / "link.xml").write_text('<linker>\n  <assembly fullname="UnityEngine.ContentLoadModule" preserve="all"/>\n</linker>\n')
@@ -755,6 +837,9 @@ def markdown(data):
                                          "ng-5.5+pkg+game+linkall", "ng-5.5+pkg+game+linkpublic",
                                          "ng-5.5+pkg+game+linktype", "ng-5.5+minimal", "ng-5.5+minimal+reflection",
                                          "ng-5.5+minimal+strict", "core-5.5", "core-5.5+nodefine", "mixed-5.5", "ng-5.4", "ng-5.3", "ng-luajit",
+                                         "ng-5.5+pkg+sg+hotfix", "ng-5.5+pkg+sg+hftargets", "ng-5.5+pkg+sg+hftargets+hotfix",
+                                         "ng-5.5+pkg+sg+hftargets+hotfix+intkey", "ng-5.5+pkg+sg+hfbench",
+                                         "ng-5.5+pkg+sg+hfbench+hotfix",
                                          "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"])}
     for (platform, config), players in groups.items():
         players.sort(key=lambda p: order.get(p["variant"], 99))

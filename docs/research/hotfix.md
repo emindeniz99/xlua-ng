@@ -46,9 +46,12 @@ vendor claim, **[U]** unconfirmed or inferred.
   per method. IntKey on iOS adds one P/Invoke per method entry.
   `HOTFIX_ENABLE` also makes every lock-guarded `LuaEnv` call take
   `Monitor.Enter` (`LuaEnv.cs:50`, `DelegateBridge.cs:142-173`). This is not
-  measured. **[U]**
+  measured. **[U]** (2026-10-28: measured, see
+  [Measured cost](#measured-cost-2026-10-28). IntKey uses the P/Invoke only
+  in the narrow case described there.)
 - **xLua, player size:** not measured. [SIZE.md](../../build/SIZE.md) was
-  measured without `HOTFIX_ENABLE`.
+  measured without `HOTFIX_ENABLE`. (2026-10-28: measured, see
+  [SIZE.md](../../build/SIZE.md#hotfix-hotfix_enable-2026-10-28).)
 - **HybridCLR (vendor numbers, OnePlus 9R):** native AOT is 4–90× faster
   than the community interpreter. DHE runs unchanged code at native speed. Hot
   assemblies take about 4.7× their DLL size in memory. **[S]**
@@ -78,11 +81,14 @@ Improvements, in this order:
 
 1. **Measure:** add a `--hotfix` variant to `size_report.py` (APK and IPA),
    and a benchmark of an unpatched method with `HOTFIX_ENABLE` on and off.
-   The benchmark captures the cost of the lock.
+   The benchmark captures the cost of the lock. (2026-10-28: done for
+   Android and the host, [below](#measured-cost-2026-10-28).)
 2. **Separate `HOTFIX_ENABLE` from `THREAD_SAFE` locking,** or document the
-   cost.
+   cost. (2026-10-28: the translator lookup no longer locks; the env lock
+   stays, with options for the owner, [below](#the-env-lock-and-hotfix).)
 3. **iOS flag:** check whether the IntKey P/Invoke (`HotfixFlags.cpp`) can
-   become a managed array read.
+   become a managed array read. (2026-10-28: measured, not changed,
+   [below](#the-ios-intkey-flag).)
 4. **Assembly-CSharp:** `files.Single(... "Assembly-CSharp.dll")` at
    `Hotfix.cs:1633` throws in projects without an Assembly-CSharp. Inject the
    assemblies from `HotfixConfig` instead. (2026-10-18: fixed in `fd359e5a`,
@@ -128,6 +134,217 @@ Improvements, in this order:
 - Use the existing `Inline` injection path, which needs no generated bridges
   (`Hotfix.cs:1364-1550`). The injected method bodies are larger.
 - Generate a bridge class in each game assembly.
+
+## Measured cost (2026-10-28)
+
+The three hotfix items of the [backlog](../design/backlog.md#hotfix).
+Sources: `Test/Native/hotfix_bench.py` (`HotfixBench.cs`),
+`Test/Native/benchmark.py`, `Test/MobileSmoke/size_report.py --configs
+hotfix`, the upstream history in this repository, and the files cited. Lua
+5.5.1 plugins built from this tree (`build/make_osx_silicon_lua55.sh`,
+`build/make_android_lua55.sh` with NDK r30); the C# at `a4750b51`.
+
+**Machines.** Host: macOS 27 arm64 (M2 Pro), Mono 6.14.1, the release-like
+`XLUA_NO_BRIDGE_CHECKS` in every build (the owner-thread check is off under
+`HOTFIX_ENABLE`, so it would otherwise count against the build without it).
+Player: Unity 6000.3.21f1, Android ARM64 IL2CPP release, Minimal stripping,
+xLua from the UPM package with the source generator, run on the `xlua16k`
+emulator (Android 16, 16 KB pages, arm64 on Apple silicon). No phone and no
+iOS device were used. The emulator's runs scatter (a case's slowest run is up
+to twice its fastest), so the tables give the lowest median of six runs over
+two boots; read differences under 1 ns there as noise.
+
+### Unpatched methods
+
+ns per call, the loop included. "Off" is a build without `HOTFIX_ENABLE`
+(nothing injected); "on" is injected. The methods are `int Add(int, int)`;
+"inlinable" lets the JIT or the C++ compiler inline it, "not inlined" has
+`[MethodImpl(NoInlining)]`. **[C]**
+
+| method | host off | host on | IL2CPP off | IL2CPP on |
+|---|---:|---:|---:|---:|
+| never injected, inlinable | 0.32 | 0.32 | 0.00 | 0.00 |
+| never injected, not inlined | 0.90 | 0.89 | 0.93 | 0.93 |
+| `[Hotfix]` (field mode), inlinable | 0.32 | 1.65 | 0.00 | 1.68 |
+| `[Hotfix]`, not inlined | 0.90 | 1.68 | 0.92 | 1.68 |
+| `[Hotfix(HotfixFlag.IntKey)]`, inlinable | 0.31 | 1.75 | 0.00 | 5.66 |
+| `[Hotfix(HotfixFlag.IntKey)]`, not inlined | 0.90 | 1.76 | 0.93 | 5.54 |
+
+- **Field mode** costs about 0.8 ns per call on both (a static field load
+  and a branch), and a small method that was inlined is no longer: the
+  injected body is too large. A method of 1.7 ns stays 1.7 ns.
+- **IntKey** costs the same as field mode on Mono, whose JIT inlines the
+  call to the assembly's `HotfixBridges.Get(id)`, but about 4.6 ns per call
+  on IL2CPP, which calls it.
+- **Patched** (`HOTFIX_ENABLE`, the method replaced by a Lua function that
+  adds its arguments): 210 ns on the host in both modes, 349 ns on IL2CPP
+  (field mode). A delegate call into Lua costs 89 and 61 ns there, so the
+  hotfix session (`InvokeSessionStart`, `InParam`, `Invoke`,
+  `InvokeSessionEndWithResult`, `DelegateBridge.cs:162`) costs two to
+  six times a generated delegate bridge. **[C]**
+
+### What `HOTFIX_ENABLE` costs code that is not patched
+
+`HOTFIX_ENABLE` turns on everything `THREAD_SAFE` turns on
+(`#if THREAD_SAFE || HOTFIX_ENABLE`): the env lock on every C# -> Lua entry,
+a lock in the translator lookup of Lua -> C# calls (until this change), a new
+byte array for every Lua string that C# reads instead of the shared buffer
+(`LuaDLL.cs:144`), and no owner-thread check. `benchmark.py --modes
+sourcegen`, lowest median of three rounds per build, ns per call: **[C]**
+
+| case | off | `HOTFIX_ENABLE` before | after `a4750b51` | `THREAD_SAFE` after |
+|---|---:|---:|---:|---:|
+| Lua -> C# static call, ints | 47.8 | 48.2 | 47.6 | 47.1 |
+| Lua -> C# instance call | 81.4 | 126.8 | 82.0 | 81.5 |
+| Lua -> C# property get | 90.6 | 166.2 | 90.9 | 90.3 |
+| Lua -> C# `int[]` element get | 100.8 | 176.9 | 99.9 | 100.7 |
+| Lua -> C# string argument | 81.0 | 88.2 | 86.5 | 87.4 |
+| C# -> Lua delegate | 76.3 | 87.4 | 88.0 | 87.0 |
+| C# -> Lua interface method | 199.6 | 223.4 | 222.6 | 222.0 |
+| `LuaTable.Get<int, int>` | 186.9 | 207.4 | 199.3 | 202.0 |
+| `LuaFunction.Call` | 308.4 | 320.8 | 314.3 | 319.6 |
+
+On the IL2CPP player (`HotfixBench.cs`; "before" is the same player built
+from the tree before `a4750b51`): **[C]**
+
+| case | off | `HOTFIX_ENABLE` before | after `a4750b51` |
+|---|---:|---:|---:|
+| `lock (o) {}`, uncontended | 28.3 | 28.6 | 28.1 |
+| C# -> Lua delegate | 45.2 | 68.7 | 61.2 |
+| `LuaTable.Get<int, int>` | 178.0 | 204.9 | 211.9 |
+| Lua -> C# call with an object argument | 84.4 | 104.4 | 94.3 |
+| Lua -> C# instance call | 65.2 | 77.5 | 65.2 |
+
+- **Lua -> C# calls** paid 40 to 77 ns on the host (12 to 20 ns on IL2CPP)
+  for the lock in `ObjectTranslatorPool.Find`, which every call that needs
+  the env's translator runs. The lookup now reads without a lock
+  (`a4750b51`); with either define those calls cost what they cost without
+  it on the host, and the instance call on IL2CPP too. The object argument
+  is still 10 ns slower on IL2CPP with the define; not investigated. **[C]**
+- **C# -> Lua entries** pay the env lock: 11 to 26 ns per entry on the
+  host, 16 to 34 ns on IL2CPP. An uncontended `lock` costs 16 ns on the host
+  and 28 ns on IL2CPP. **[C]**
+- **Strings** that C# reads from Lua cost 5 to 8 ns more and allocate,
+  because the shared decode buffer is off. **[C]** A `[ThreadStatic]` buffer
+  would keep that without sharing; not done.
+
+### Size
+
+Android ARM64, Minimal stripping, APK delta and `libil2cpp.so` compressed /
+uncompressed; [SIZE.md](../../build/SIZE.md#hotfix-hotfix_enable-2026-10-28)
+has the table. **[C]**
+
+- The define alone: +13,128 bytes (the hotfix half of `DelegateBridge`,
+  `xlua.hotfix` and the lock code).
+- Injection, per method, from 500 methods: field mode 42 bytes of APK, 194
+  bytes of uncompressed code and 30 bytes of metadata (the static field);
+  IntKey 38, 183 and 0. IntKey saves the metadata, not the code.
+
+### The env lock and hotfix
+
+**Why `HOTFIX_ENABLE` locks.** **[C]** Until upstream `426d6a5f`, the
+injected code itself took `Monitor.Enter` on a static
+`DelegateBridge.DelegateBridgeLock` around the patched call. `426d6a5f`
+(2016-12-31, "move thread safety into the XLua namespace")
+replaced that with `luaEnvLock` in `LuaEnv`, `LuaTable`, `LuaFunction` and
+the bridges, under `#if THREAD_SAFE || HOTFIX_ENABLE`, and `67f74aff`
+(2017-01-02) narrowed it to the hotfix session. So upstream meant patched
+methods to be callable from any thread: the session locks the env, and that
+lock protects the env only if every other entry takes it too.
+
+**Can hotfix without `THREAD_SAFE` skip it?** Only if patched methods run on
+the env's owner thread. Unity calls `Update`, coroutines and
+`UnitySynchronizationContext` continuations on the main thread, but a
+`[Hotfix]` type's methods also run from `Task.Run` and thread-pool
+callbacks, `async` code after `ConfigureAwait(false)`, socket and timer
+callbacks, `OnAudioFilterRead` (the audio thread) and
+`Application.logMessageReceivedThreaded`. **[S]** (Unity manual and API
+pages.) Without the lock such a call would corrupt the Lua heap in a
+release player, where the owner-thread check does not run. That changes a
+guarantee upstream users may rely on, so this is an owner question; nothing
+was changed.
+
+**Cost per patched call:** one lock pair, 16 ns of 210 ns on the host (8%)
+and 28 ns of 349 ns on IL2CPP (8%). The larger cost of the define is the
+lock on every C# -> Lua entry (above), which code that is never patched
+pays too.
+
+**Options for the owner:**
+
+1. **Keep it (legacy today, every preset).** Cost as measured: 11 to 34 ns
+   per C# -> Lua entry, 5 to 8 ns and an allocation per string read.
+2. **Separate them in the non-legacy presets.** `HOTFIX_ENABLE` alone takes
+   no lock; a patched method must run on the env's owner thread, and
+   `InvokeSessionStart` checks that in every build (a thread-static read and
+   a compare, about 2 ns, against 210 to 349 ns per patched call), throwing
+   `InvalidOperationException` instead of corrupting the heap. `THREAD_SAFE`
+   gives back the any-thread behaviour. `legacy` keeps the lock. Gain: the
+   C# -> Lua lock, the string buffer and the debug-build owner check under
+   `HOTFIX_ENABLE`. Cost: a preset difference to document and test (a
+   `run_managed.py` pass), and a hotfix that runs off the main thread fails
+   loudly in those presets. Recommended.
+3. **Separate them everywhere, `legacy` included.** The same, but breaking
+   for upstream projects that patch methods called off the main thread.
+4. **Lock only the hotfix session.** Not safe: a patched call on a worker
+   thread would still run Lua while the main thread does, unless every
+   entry locks.
+
+### The iOS IntKey flag
+
+**Where the P/Invoke is left.** **[C]** Since source generator milestone M7
+an assembly with generated `HotfixBridges` numbers its IntKey ids in its own
+slots, and the injected check calls `HotfixBridges.Get(id)`, a managed array
+read, on iOS too (`Hotfix.cs:1518-1522`, `HotfixBridges.cs:72`). The
+process-wide list and its iOS P/Invoke
+(`HotfixDelegateBridge.xlua_get_hotfix_flag`, `DelegateBridge.cs:88-100`, into
+`Assets/Plugins/iOS/HotfixFlags.cpp`) serve only xLua's own assembly when it
+has no `HotfixBridges` (`sharedIntKey`, `Hotfix.cs:453`): xLua compiled into
+Assembly-CSharp with only `Inline` IntKey types.
+
+**Measured** (hand-written checks in front of the same body, ns per call):
+**[C]**
+
+| check | host (Mono) | IL2CPP |
+|---|---:|---:|
+| process-wide list, managed (`xlua_get_hotfix_flag` off iOS) | 2.09 | 3.35 |
+| process-wide list, the iOS P/Invoke into `HotfixFlags.cpp` | 8.68 | 3.06 |
+| a `bool[]` read in the method | 1.19 | 2.16 |
+| a call to a copy of `HotfixBridges.Get` | 2.00 | 3.68 |
+| the same read inline in the method | 1.49 | 2.14 |
+
+On the Android player the P/Invoke goes through `__Internal` into
+`HotfixFlags.cpp` compiled into the player, as on iOS. IL2CPP calls such a
+function directly, so it costs no more than the managed list; only Mono's
+P/Invoke is slow, and iOS never runs Mono. An iOS device was not measured.
+**[C]** Android; **[U]** iOS.
+
+**Result.** Replacing the P/Invoke with the managed list gains nothing on
+IL2CPP, so it was not changed. What would gain is an inline array read in
+the injected code: 2.1 ns instead of the 5.5 ns that IntKey through
+`HotfixBridges.Get` costs now. That needs the injector to read the slots
+array itself, with a bounds check, in every injected method: more IL and
+C++ per method, which works against IntKey's purpose (less code and no
+metadata per method). Not done; an owner question.
+
+`HotfixFlags.cpp` has a race of its own: `xlua_set_hotfix_flag` grows the
+array with `realloc` (`HotfixFlags.cpp:24`) while another thread may read
+it in `xlua_get_hotfix_flag`. A patch installed while a worker thread runs
+an injected IntKey method in xLua's own assembly can read freed memory. It
+needs an `Inline` IntKey type in xLua's assembly and a patch installed
+while another thread runs one. **[C]** by reading; not reproduced.
+
+**Options for the owner:**
+
+1. **Remove the process-wide list and the iOS flag** (M11 question 4 in
+   [source-generator.md](../design/source-generator.md)), making IntKey need
+   `HotfixBridges`. These numbers remove the speed argument for keeping the
+   native flag, and the realloc race goes with it. Recommended.
+2. **Keep the list, drop only the native flag:** iOS uses the managed
+   check (0.3 ns slower on IL2CPP), the race goes, `HotfixFlags.cpp` and
+   the iOS-only public `HotfixDelegateBridge.xlua_set_hotfix_flag` go
+   (a MIGRATING row).
+3. **An inline slot read for IntKey** (above): about 3.4 ns per call less
+   on IL2CPP, more code per method. Measure the code size before deciding.
 
 ## Also worth a look
 

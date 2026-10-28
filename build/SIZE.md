@@ -1753,3 +1753,46 @@ baseline 220,672 / 200,704; source generator 1,051,136 / 893,440, with
 
 Not measured: iOS, WebGL, Medium stripping, a smaller `[ReflectionUse]` list,
 and players run on a device (these size builds are not run).
+
+## Hotfix (`HOTFIX_ENABLE`, 2026-10-28)
+
+`Test/MobileSmoke/size_report.py run --platforms android --configs hotfix`,
+release ARM64 APKs from Unity 6000.3.21f1, Minimal stripping, xLua from the
+UPM package with the source generator (`+pkg+sg`), Lua 5.5.1 plugin from
+`build/make_android_lua55.sh` (NDK r30), C# at `a4750b51` (the
+`ObjectTranslatorPool` change included). `+hotfix` adds `HOTFIX_ENABLE` and
+the injector; `+hftargets` adds 50 `[Hotfix]` classes of ten methods each
+(a constructor, a property, eight methods of eight signatures), not
+injected without `+hotfix`; `+intkey` makes them
+`[Hotfix(HotfixFlag.IntKey)]`. Every build that had `[Hotfix]` types and
+the define logged `inject finish!` and no IntKey fallback.
+
+APK delta over the baseline (12,279,060 bytes), and deltas compressed in the
+APK / uncompressed:
+
+| variant | APK delta | `libil2cpp.so` | `global-metadata.dat` |
+| --- | ---: | ---: | ---: |
+| `ng-5.5+pkg+sg` | +1,655,970 | +757,577 / +2,571,400 | +156,315 / +456,852 |
+| `+hotfix` (the define alone) | +1,669,098 | +770,370 / +2,603,136 | +156,644 / +457,484 |
+| `+hftargets` (500 methods, not injected) | +1,677,814 | +771,207 / +2,645,552 | +164,458 / +488,996 |
+| `+hftargets+hotfix` (field mode) | +1,712,126 | +801,495 / +2,774,360 | +168,486 / +504,428 |
+| `+hftargets+hotfix+intkey` | +1,709,962 | +803,050 / +2,768,752 | +164,765 / +489,760 |
+
+`libxlua.so` is 165,593 / 388,136 and `libunity.so` +574,559 / +1,167,744
+in every xLua variant.
+
+- **The define alone:** +13,128 bytes, of which `libil2cpp.so` +12,793
+  (+31,736 uncompressed): the hotfix half of `DelegateBridge`, `xlua.hotfix`
+  and the locks of `THREAD_SAFE`, which the define also turns on.
+- **Injection, 500 methods:** the injected variants minus `+hftargets`, minus
+  the define. Field mode: +21,184 bytes, 42 per method (194 bytes of
+  uncompressed code and 30 of metadata, the static field). IntKey: +19,020
+  bytes, 38 per method (183 bytes of code, no metadata). IntKey saves the
+  metadata, not the code.
+- **Not injected:** the 500 methods and their source-generated
+  `HotfixBridges` together cost +21,844 bytes; `HotfixBridges` is generated
+  whether or not `HOTFIX_ENABLE` is defined.
+
+Run-time results of the `+hfbench` players are in
+[hotfix.md](../docs/research/hotfix.md#measured-cost-2026-10-28). Not
+measured: iOS, WebGL, Medium and High stripping, and a game's own types.
