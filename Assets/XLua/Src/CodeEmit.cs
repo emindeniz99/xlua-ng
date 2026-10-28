@@ -1214,6 +1214,9 @@ namespace XLua
         private static readonly MethodInfo BindingApi_ArgScore = typeof(XLua.Binding.BindingApi).GetMethod("ArgScore");
         private static readonly MethodInfo BindingApi_ArgScores = typeof(XLua.Binding.BindingApi).GetMethod("ArgScores");
         private static readonly MethodInfo BindingApi_NumberScore = typeof(XLua.Binding.BindingApi).GetMethod("NumberScore");
+        private static readonly MethodInfo BindingApi_NumberCheck = typeof(XLua.Binding.BindingApi).GetMethod("NumberCheck");
+        private static readonly MethodInfo BindingApi_CheckedArgScore = typeof(XLua.Binding.BindingApi).GetMethod("CheckedArgScore",
+            new Type[] { typeof(ObjectTranslator), typeof(RealStatePtr), typeof(int), typeof(Type), typeof(int).MakeByRefType() });
         private static readonly MethodInfo ObjectTranslator_Assignable = typeof(ObjectTranslator).GetMethod("Assignable", new Type[] { typeof(RealStatePtr),
                typeof(int), typeof(Type)});
 
@@ -1856,8 +1859,11 @@ namespace XLua
         }
 
         // The argument count and type checks of one overload; jumps to fail
-        // when the arguments do not match.
-        void emitOverloadCheck(ILGenerator il, MethodBase method, LocalBuilder translator, LocalBuilder top, Label endOfBlock)
+        // when the arguments do not match. In a scored group, numbers,
+        // objects and luaTypes hold the positions whose checks read what the
+        // costs need (emitScoredCheck).
+        void emitOverloadCheck(ILGenerator il, MethodBase method, LocalBuilder translator, LocalBuilder top, Label endOfBlock,
+            Dictionary<int, LocalBuilder> numbers = null, Dictionary<int, LocalBuilder> objects = null, Dictionary<int, LocalBuilder> luaTypes = null)
         {
             bool isStatic = method.IsStatic;
             var paramInfos = method.GetParameters();
@@ -1910,20 +1916,70 @@ namespace XLua
                     {
                         rawParamType = rawParamType.GetElementType();
                     }
-                    checkType(il, rawParamType, translator, argPos++, endOfBlock, 
-                        hasParams && (j == paramInfos.Length - 1), paramInfo.IsOptional);
+                    bool isVParam = hasParams && (j == paramInfos.Length - 1);
+                    if (!emitScoredCheck(il, rawParamType, translator, argPos, endOfBlock, isVParam || paramInfo.IsOptional, numbers, objects, luaTypes))
+                    {
+                        checkType(il, rawParamType, translator, argPos, endOfBlock, isVParam, paramInfo.IsOptional);
+                    }
+                    argPos++;
                 }
             }
+        }
+
+        // checkType in a scored group, for an argument that is neither a
+        // params element nor optional (other): a number type's check from the
+        // argument's number kind in numbers[argPos] (BindingApi.NumberCheck),
+        // or a C# object's or object's check and cost in one call, the cost
+        // kept in objects[argPos] for emitOverloadScore and the lua_type in
+        // luaTypes[argPos] for the next check (BindingApi.CheckedArgScore).
+        // False when checkType stays.
+        bool emitScoredCheck(ILGenerator il, Type type, LocalBuilder translator, int argPos, Label endOfBlock, bool other,
+            Dictionary<int, LocalBuilder> numbers, Dictionary<int, LocalBuilder> objects, Dictionary<int, LocalBuilder> luaTypes)
+        {
+            if (other) return false;
+            int kind = OverloadScore.KindOf(type);
+            LocalBuilder local;
+            if (numbers != null && OverloadScore.IsNumeric(kind) && kind < OverloadScore.KindNullable && numbers.TryGetValue(argPos, out local))
+            {
+                il.Emit(OpCodes.Ldloc, translator);
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldc_I4, argPos);
+                il.Emit(OpCodes.Ldtoken, type);
+                il.Emit(OpCodes.Call, Type_GetTypeFromHandle);
+                il.Emit(OpCodes.Ldc_I4, kind);
+                il.Emit(OpCodes.Ldloca, local);
+                il.Emit(OpCodes.Call, BindingApi_NumberCheck);
+                il.Emit(OpCodes.Brfalse, endOfBlock);
+                return true;
+            }
+            if (objects != null && (kind == OverloadScore.KindOther || kind == OverloadScore.KindObject) && objects.TryGetValue(argPos, out local))
+            {
+                il.Emit(OpCodes.Ldloc, translator);
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldc_I4, argPos);
+                il.Emit(OpCodes.Ldtoken, type);
+                il.Emit(OpCodes.Call, Type_GetTypeFromHandle);
+                il.Emit(OpCodes.Ldloca, luaTypes[argPos]);
+                il.Emit(OpCodes.Call, BindingApi_CheckedArgScore);
+                il.Emit(OpCodes.Dup);
+                il.Emit(OpCodes.Stloc, local);
+                il.Emit(OpCodes.Ldc_I4_0);
+                il.Emit(OpCodes.Blt, endOfBlock);
+                return true;
+            }
+            return false;
         }
 
         // Leaves the cost of the arguments for this overload on the stack
         // (OverloadScore): BindingApi.ArgScore per scored argument, as
         // OverloadMethodWrap.Score adds them up. A numeric argument's number
         // kind is read once per call into numbers[position]
-        // (BindingApi.NumberScore); with collect, the method only adds those
-        // positions to it and emits nothing.
+        // (BindingApi.NumberScore), and a C# object's cost is the one its
+        // check left in objects[position] (emitScoredCheck); with collect, the
+        // method only adds those positions to collect and collectObjects and
+        // emits nothing.
         void emitOverloadScore(ILGenerator il, MethodBase method, bool isIndexer, Type declaringType, LocalBuilder translator, LocalBuilder top,
-            Dictionary<int, LocalBuilder> numbers, HashSet<int> collect = null)
+            Dictionary<int, LocalBuilder> numbers, Dictionary<int, LocalBuilder> objects, HashSet<int> collect = null, HashSet<int> collectObjects = null)
         {
             bool isStatic = method.IsStatic;
             var paramInfos = method.GetParameters();
@@ -1961,6 +2017,19 @@ namespace XLua
                         il.Emit(OpCodes.Ldc_I4, kind);
                         il.Emit(OpCodes.Ldloca, numbers[argPos]);
                         il.Emit(OpCodes.Call, BindingApi_NumberScore);
+                        il.Emit(OpCodes.Add);
+                    }
+                }
+                else if (scoreIt && !isVParam && !paramInfo.IsOptional && (kind == OverloadScore.KindOther || kind == OverloadScore.KindObject))
+                {
+                    // checked and costed by emitScoredCheck
+                    if (collect != null)
+                    {
+                        collectObjects.Add(argPos);
+                    }
+                    else
+                    {
+                        il.Emit(OpCodes.Ldloc, objects[argPos]);
                         il.Emit(OpCodes.Add);
                     }
                 }
@@ -2259,9 +2328,10 @@ namespace XLua
                 LocalBuilder score = il.DeclareLocal(typeof(int));
                 Label dispatch = il.DefineLabel();
                 var numberPositions = new HashSet<int>();
+                var objectPositions = new HashSet<int>();
                 for (int i = 0; i < methods.Count; i++)
                 {
-                    emitOverloadScore(null, methods[i], isIndexer, declaringType, translator, top, null, numberPositions);
+                    emitOverloadScore(null, methods[i], isIndexer, declaringType, translator, top, null, null, numberPositions, objectPositions);
                 }
                 var numbers = new Dictionary<int, LocalBuilder>();
                 foreach (int position in numberPositions)
@@ -2270,6 +2340,15 @@ namespace XLua
                     il.Emit(OpCodes.Ldc_I4_M1);
                     il.Emit(OpCodes.Stloc, numbers[position]);
                 }
+                var objects = new Dictionary<int, LocalBuilder>();
+                var luaTypes = new Dictionary<int, LocalBuilder>();
+                foreach (int position in objectPositions)
+                {
+                    objects[position] = il.DeclareLocal(typeof(int));
+                    luaTypes[position] = il.DeclareLocal(typeof(int));
+                    il.Emit(OpCodes.Ldc_I4, OverloadScore.TypeUnread);
+                    il.Emit(OpCodes.Stloc, luaTypes[position]);
+                }
                 il.Emit(OpCodes.Ldc_I4_M1);
                 il.Emit(OpCodes.Stloc, pick);
                 il.Emit(OpCodes.Ldc_I4, int.MaxValue);
@@ -2277,8 +2356,8 @@ namespace XLua
                 for (int i = 0; i < methods.Count; i++)
                 {
                     Label next = il.DefineLabel();
-                    emitOverloadCheck(il, methods[i], translator, top, next);
-                    emitOverloadScore(il, methods[i], isIndexer, declaringType, translator, top, numbers);
+                    emitOverloadCheck(il, methods[i], translator, top, next, numbers, objects, luaTypes);
+                    emitOverloadScore(il, methods[i], isIndexer, declaringType, translator, top, numbers, objects);
                     il.Emit(OpCodes.Stloc, score);
                     il.Emit(OpCodes.Ldloc, score);
                     il.Emit(OpCodes.Ldloc, best);
