@@ -683,7 +683,7 @@ it has no wrapper, so `CS.Game.Shop` resolves after renaming.
 | XLSG011 | info | A configuration list, which the source generator does not read (since M11 nothing does; convert it with the migration tool) |
 | XLSG012 | error | The assembly references XLua but not XLua.Core; the message names the asmdef and the line to add, and nothing is generated ([Generated code without XLua.Core](#generated-code-without-xluacore-measured-not-taken)) |
 | XLSG013 | warning | The `GEN_CODE_MINIMIZE` mode of the assembly differs from xLua's ([GCM mode as implemented](#gcm-mode-as-implemented-2026-10-18)) |
-| XLSG014 | warning | Strict minimal (`XLUA_NO_REFLECTION`, or `XLUA_PRESET_MINIMAL` without `XLUA_REFLECTION`): a `[GCOptimize]` struct this assembly configures has no bindings, so Lua cannot read its fields; add `[LuaCallCSharp]` (owner decision 2026-10-28, [presets.md](presets.md#reflection-fallback-and-codeemit-as-implemented)) |
+| XLSG014 | warning | Strict minimal (`XLUA_NO_REFLECTION`, or `XLUA_PRESET_MINIMAL` without `XLUA_REFLECTION`): a `[GCOptimize]` struct this assembly configures has no bindings, so Lua cannot read its fields; add `[LuaCallCSharp]` (owner decision 2026-10-28, [presets.md](presets.md#reflection-fallback-and-codeemit-as-implemented)). Since owner decision Q41 (2026-10-28) also a struct a referenced assembly configures, such as xLua's `Vector3`, that a member this assembly binds passes; the message names that member |
 
 The spike showed warnings and errors from a 4.3.1 generator in Unity's
 console with file and line in all five editors.

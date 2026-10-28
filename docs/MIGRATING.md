@@ -227,7 +227,10 @@ alike:
   binds. Mark the struct `[LuaCallCSharp]` too (or
   `[assembly: XLua.LuaCallCSharp(typeof(T))]`). A packable
   `OptimizeFlag.PackAsTable` struct is a Lua table and needs nothing. xLua's
-  own UnityEngine defaults (`Vector3` and the others) are not reported; bind
+  own UnityEngine defaults (`Vector3` and the others) and the structs of
+  other referenced assemblies are reported (since owner decision Q41 of
+  2026-10-28) only where a member your assembly binds passes one, such as a
+  bound method that returns a `Vector3`; the warning names that member. Bind
   the ones your Lua code reads fields of.
 - **`obj:ToString()`, `obj:GetType()`, `obj:Equals()`** come from
   `System.Object`, and `t.Name` from `System.Type`, which the preset does not

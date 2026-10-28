@@ -1966,6 +1966,67 @@ namespace Game
         Assert.True(!all.Contains("BindingApi.GetStructArg("), "the three argument types have generated readers");
     }
 
+    // XLSG014 for the GCOptimize structs of a referenced assembly (owner
+    // decision Q41 of 2026-10-28), such as xLua's UnityEngine defaults
+    // (GenAttributes.cs): in strict minimal, a member this assembly binds that
+    // passes one warns, naming the member and the attribute to add; nothing
+    // that exposes it, a [LuaCallCSharp] on it, or reflection keeps it quiet.
+    public static void Xlsg014ReferencedDefaultStructs()
+    {
+        var defaults = Harness.Generate(Harness.Compile("Defaults", new[] { Usings + @"
+[assembly: XLua.GCOptimize(typeof(UnityEngine.Vector3), typeof(UnityEngine.Color))]
+namespace UnityEngine
+{
+    public struct Vector3 { public float x, y, z; }
+    public struct Color { public float r, g, b, a; }
+}" }));
+        var defaultsRef = MetadataReference.CreateFromImage(Harness.Emit(defaults.Output));
+        var noReflection = Harness.ParseWith("XLUA_NO_REFLECTION");
+        Func<string, CSharpParseOptions, Run> game = (source, parse) => Harness.Generate(
+            Harness.Compile("Game", new[] { Usings + source }, new[] { Harness.Runtime, defaultsRef }, parse));
+        Func<Run, string[]> xlsg014 = r => r.Result.Diagnostics.Where(d => d.Id == "XLSG014")
+            .Select(d => d.GetMessage()).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+
+        const string exposes = @"
+namespace Game
+{
+    [LuaCallCSharp] public class Mover
+    {
+        public static UnityEngine.Vector3 Where() { return default(UnityEngine.Vector3); }
+        public UnityEngine.Vector3 Target;
+        public void Go(UnityEngine.Vector3[] path) { }
+    }
+    [LuaCallCSharp] public class Painter { public UnityEngine.Color? Tint { get; set; } }
+}";
+        var run = game(exposes, noReflection);
+        Assert.Diagnostics(run, "XLSG014:Warning", "XLSG014:Warning");
+        Assert.Compiles(run);
+        var messages = xlsg014(run);
+        Assert.True(messages[0].StartsWith("GCOptimize struct 'UnityEngine.Color', configured by assembly 'Defaults', has no generated bindings")
+            && messages[0].Contains("'Game.Painter.Tint'") && messages[0].Contains("(r, g, b, a)")
+            && messages[0].Contains("[assembly: XLua.LuaCallCSharp(typeof(UnityEngine.Color))]"), messages[0]);
+        Assert.True(messages[1].StartsWith("GCOptimize struct 'UnityEngine.Vector3'") && messages[1].Contains("'Game.Mover.")
+            && messages[1].Contains("(x, y, z)") && messages[1].Contains("[assembly: XLua.LuaCallCSharp(typeof(UnityEngine.Vector3))]"), messages[1]);
+
+        // The minimal preset implies XLUA_NO_REFLECTION.
+        var minimal = Harness.RuntimeWith("XLUA_PRESET_MINIMAL");
+        run = Harness.Generate(Harness.Compile("Game", new[] { Usings + exposes }, new[] { minimal, defaultsRef }, Harness.ParseWith("XLUA_PRESET_MINIMAL")));
+        Assert.True(xlsg014(run).Length == 2, "minimal preset: " + string.Join(", ", xlsg014(run)));
+
+        // Bound by this assembly: quiet for that struct.
+        run = game("[assembly: LuaCallCSharp(typeof(UnityEngine.Vector3))]\n" + exposes, noReflection);
+        messages = xlsg014(run);
+        Assert.True(messages.Length == 1 && messages[0].Contains("'UnityEngine.Color'"), string.Join(", ", messages));
+        Assert.Compiles(run);
+
+        // Nothing exposes them: quiet.
+        run = game("namespace Game { [LuaCallCSharp] public class Plain { public int N; public string Name(int x) { return null; } } }", noReflection);
+        Assert.Diagnostics(run);
+
+        // Reflection reads the fields: quiet.
+        Assert.Diagnostics(game(exposes, Harness.Parse));
+    }
+
     // The assembly-level configuration of NameTableSource with several types per
     // attribute (owner decision, 2026-10-18), in the same order.
     static readonly string NameTableSourceGrouped = Usings + @"
