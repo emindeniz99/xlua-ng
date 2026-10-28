@@ -1570,9 +1570,10 @@ fails when a helper that C# calls outside a protected call raises an error
 other than a memory error, when a helper leaves the stack other than its
 caller expects, and when a struct header changes. The known crashes of
 [crash-inventory.md](../docs/research/crash-inventory.md) (items 8, 10, 18,
-22 and 23: foreign userdata with a struct header, `debug.getregistry`,
-`debug.setupvalue` on trampolines and indexers, `__gc` errors on Lua 5.3,
-`debug.setmetatable` on io files on LuaJIT) are left out unless
+22, 23 and 24: foreign userdata with a struct header, `debug.getregistry`,
+`debug.setupvalue` on a trampoline's C function and on a class indexer's
+fields, `__gc` errors on Lua 5.3, `debug.setmetatable` on io files on
+LuaJIT, `debug.traceback` levels near the int limits) are left out unless
 `FUZZ_TRICKS=1`; `FUZZ_BRIDGE_TRACE=1` (2, 3) on a reproducer says how the
 driver ended (and lists every call). The seeds are 16 fixed random inputs
 of 1 KB, which the script writes, and `Test/Fuzz/corpus/bridge` (the

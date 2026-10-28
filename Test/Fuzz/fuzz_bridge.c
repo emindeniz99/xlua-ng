@@ -51,12 +51,10 @@
  * driver): foreign userdata with a struct header or shorter than an int
  * (item 10), LuaJIT's newproxy (item 10), debug.getregistry (registry[8]
  * and xLua's references, item 22), the C function inside a trampoline and
- * replacing it, a class indexer's fields upvalue that is not a table, cycles
- * in the BaseType chain of the indexers (item 18), __gc errors on Lua 5.3
- * (item 8), debug.setmetatable on io files, which LuaJIT's trace recorder
- * takes as immutable (item 23), C# callbacks nested more than 150 deep,
- * which overflow the C stack on LuaJIT (item 7), and debug.traceback levels
- * near INT_MIN and INT_MAX (item 24). FUZZ_BRIDGE_TRACE=1 says how the
+ * replacing it, and a class indexer's fields upvalue that is not a table
+ * (item 18), __gc errors on Lua 5.3 (item 8), debug.setmetatable on io
+ * files, which LuaJIT's trace recorder takes as immutable (item 23), and
+ * debug.traceback levels near INT_MIN and INT_MAX (item 24). FUZZ_BRIDGE_TRACE=1 says how the
  * driver ended, 2 also lists every call, 3 also the value readers. */
 #define _GNU_SOURCE /* dladdr, for the trace */
 #include <dlfcn.h>
@@ -187,7 +185,8 @@ static const char DRIVER[] =
     "  check(r[1], r[2])\n"
     "end\n"
     /* the BaseType chain of the indexers: tables the driver keeps to itself,
-     * so that no operation can turn the chain into a cycle (item 18) */
+     * at first; they reach the pool too, so the operations can make cycles, which
+     * the indexers stop with an error since 2026-10-28 (item 18) */
     "local function typechain()\n"
     "  local depth = u8() % 4\n"
     "  local head, funcs = nil, {}\n"
@@ -196,7 +195,7 @@ static const char DRIVER[] =
     "    if u8() % 2 == 0 then funcs[t] = get() end\n"
     "    head = t\n"
     "  end\n"
-    "  if tricks and u8() % 4 == 0 and head then put(head); put(funcs) end\n"
+    "  if u8() % 4 == 0 and head then put(head); put(funcs) end\n"
     "  return head, funcs\n"
     "end\n"
     /* make one value */
@@ -234,15 +233,15 @@ static const char DRIVER[] =
     "    local kind = u8() % 4\n"
     "    local base, funcs = typechain()\n"
     "    local f\n"
-    "    if kind == 0 then f = X.indexer(0, get(), get(), get(), base, funcs, get()); BLOCK[f] = {[4] = 1, [5] = 1, [7] = 1}\n"
-    "    elseif kind == 1 then f = X.indexer(1, get(), get(), base, funcs, get()); BLOCK[f] = {[3] = 1, [4] = 1, [6] = 1}\n"
+    "    if kind == 0 then f = X.indexer(0, get(), get(), get(), base, funcs, get()); BLOCK[f] = {}\n"
+    "    elseif kind == 1 then f = X.indexer(1, get(), get(), base, funcs, get()); BLOCK[f] = {}\n"
     /* cls_indexer reads its fields (upvalue 2) with lua_rawget: C# passes the class
      * table; anything else needs debug.setupvalue (item 18) */
     "    elseif kind == 2 then\n"
     "      local fields = get()\n"
     "      if not tricks and type(fields) ~= 'table' then fields = {} end\n"
-    "      f = X.indexer(2, get(), fields, base, funcs); BLOCK[f] = {[2] = not tricks and 1 or nil, [3] = 1, [4] = 1, [5] = 1}\n"
-    "    else f = X.indexer(3, get(), base, funcs); BLOCK[f] = {[2] = 1, [3] = 1, [4] = 1} end\n"
+    "      f = X.indexer(2, get(), fields, base, funcs); BLOCK[f] = {[2] = not tricks and 1 or nil}\n"
+    "    else f = X.indexer(3, get(), base, funcs); BLOCK[f] = {} end\n"
     "    put(f)\n"
     "  elseif k == 22 and xlua then\n"
     "    local r = pack(pcall(xlua.genaccessor, get(), get()))\n"
@@ -1094,18 +1093,12 @@ static int fake_body(lua_State *L, int kind) {
         }
         return xlua_csharp_error(L);
     case 3: { /* call back into Lua (a delegate or LuaFunction.Call from C#) */
-        static int depth;
         int status;
         if (n == 0) {
             return 0;
         }
-        /* LuaJIT has no C stack limit for this recursion (item 7); PUC Lua stops at 200 */
-        if (!tricks && depth >= 150) {
-            return xlua_csharp_str_error(L, "fake c# recursion limit");
-        }
-        depth++;
+        /* nested without a limit here: the trampolines stop it at 199 levels (item 7) */
         status = lua_pcall(L, n - 1, LUA_MULTRET, 0);
-        depth--;
         if (status != 0) {
             return xlua_csharp_error(L);
         }
