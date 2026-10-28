@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:30513e84-3c04-5826-ab97-46f5767bf92b",
+  "serialNumber": "urn:uuid:d24718fe-f876-5c52-873c-a201c1b19751",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -3228,48 +3228,6 @@
         {
           "name": "xlua-ng:latest",
           "value": "v4.39.0 (checked 2026-10-15)"
-        },
-        {
-          "name": "xlua-ng:status",
-          "value": "current"
-        }
-      ]
-    },
-    {
-      "type": "application",
-      "bom-ref": "ci/ilammy/msvc-dev-cmd@v1.13.0_(0b201ec)",
-      "name": "ilammy/msvc-dev-cmd",
-      "version": "v1.13.0",
-      "purl": "pkg:githubactions/ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/ilammy/msvc-dev-cmd"
-        },
-        {
-          "type": "vcs",
-          "url": "https://github.com/ilammy/msvc-dev-cmd"
-        }
-      ],
-      "properties": [
-        {
-          "name": "xlua-ng:category",
-          "value": "ci"
-        },
-        {
-          "name": "xlua-ng:where",
-          "value": ".github/workflows/build.yml, .github/workflows/publish.yml (4 uses)"
-        },
-        {
-          "name": "xlua-ng:latest",
-          "value": "v1.13.0 (checked 2026-10-15)"
         },
         {
           "name": "xlua-ng:status",

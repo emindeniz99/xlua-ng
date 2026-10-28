@@ -120,7 +120,6 @@ ACTIONS_LATEST = {
     "github/codeql-action": ("v4.39.0", "MIT", "v4.39.0 was published on 2026-10-15; v3.39.0 is the parallel v3 line."),
     "game-ci/unity-builder": ("v6.0.0", "MIT", "Checked 2026-10-16: v6.0.0 (2026-09-10) hands the run to the GameCI CLI; v5.0.1 keeps the build.sh that the -executeMethod steps of unity-matrix.yml were written against."),
     "game-ci/unity-test-runner": ("v4.4.0", "MIT", "v4.4.0 was published 10 minutes before v4.3.2 on 2026-09-09, so the releases/latest API still answers v4.3.2."),
-    "ilammy/msvc-dev-cmd": ("v1.13.0", "MIT", "No release since 2024-01-01."),
     "jdx/mise-action": ("v5.2.0", "MIT", "Checked 2026-10-18: v5.2.0 (2026-10-16) and v5.1.2 (2026-10-12) are still inside the seven-day window."),
     "microsoft/setup-msbuild": ("v3", "MIT", "Release tag is the floating-style name v3 (same commit as v3.0.0)."),
     "renovatebot/github-action": ("v46.3.8", "AGPL-3.0", "Checked 2026-10-16: v46.3.8 (2026-10-12) is still inside the seven-day window."),
