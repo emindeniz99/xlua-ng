@@ -121,7 +121,24 @@ overload is converted without a check (`o:Add("a", 2)` passes 0).
 
 ## Tests
 
-See the commit messages and the branch's report: `run_managed.py --source-gen
---source-gen-minimize --source-gen-fallback` on Lua 5.5.1 and LuaJIT, legacy
-and `XLUA_PRESET_MINIMAL`; `build_source_generator.py --test`;
-`native_regression.py`; `hotfix_check.py`; `editor_compile_check.py`.
+macOS arm64, Mono 6.14.1, after merging main at aadd1d87:
+
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`
+  (reflection/CodeEmit, generated, GCM, fallback; 502 tests in each mode),
+  on Lua 5.5.1 and LuaJIT 2.1, legacy and `--define XLUA_PRESET_MINIMAL`
+  with libraries built with `XLUA_PRESET=minimal`: all pass; the surface
+  diff passes. [C]
+- Before the change (main b3adc8e8 with the new cases, Lua 5.5.1 legacy):
+  the six `CaseParity*` fail in the first pass, and those plus
+  `CaseLazyBlackListed` and `CaseObsoleteOperator` in the source
+  generator's pass. [C]
+- `build_source_generator.py --test`: 44 tests pass; the new one fails on
+  main's generator. [C]
+- `native_regression.py` on the four libraries, `check_exports.py`,
+  `hotfix_check.py` (Lua 5.5.1): pass. [C]
+- `editor_compile_check.py`: 7 editors x 85 configurations, 588 ok, 7
+  skipped (C# 12 configurations on Roslyn 4.3.1). [C]
+
+Not run: Lua 5.3.6 and 5.4.9, Linux, the sanitizers, the Unity editor suite
+and players (IL2CPP reflection wrappers are the players' path for types
+without generated code; the reflection changes are checked on Mono only).
