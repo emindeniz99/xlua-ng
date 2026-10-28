@@ -112,6 +112,10 @@ Compatibility questions the search found, not changed:
    non-public readonly fields (the reflection wrappers' non-public pass);
    public readonly fields are no longer writable in any mode. Keep, or make
    them read-only too?
+   **Decided 2026-10-28 (owner): keep.** `xlua.private_accessible` keeps
+   allowing writes to non-public readonly fields; it is an explicit request
+   for private access. Public readonly fields stay read-only in every mode
+   (since 2026-10-28). No code change.
 
 Seen but not differences between the modes (the same in every mode,
 upstream behaviour, not changed): writing a `const` or `static readonly`
