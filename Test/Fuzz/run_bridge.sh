@@ -116,6 +116,7 @@ if [[ "$mode" == build ]]; then
     echo "XLUA_FUZZ_BUILT: bridge on $preset, Lua $version: $bin"
     exit 0
 fi
+asan="detect_leaks=1:abort_on_error=1"
 args=(-timeout=20 -rss_limit_mb="$rss_mb" -max_len=2048 -len_control=0 -print_final_stats=1
       -artifact_prefix="$work/")
 if [[ "$mode" == replay ]]; then
@@ -125,12 +126,17 @@ else
     args+=(-max_total_time="$mode")
     # Fork mode: the parent runs the corpus once and hands out parts of it to N
     # child processes in turn; it ignores timeouts and out-of-memory by default.
-    if [[ "$jobs" -gt 1 ]]; then args+=(-fork="$jobs" -ignore_crashes=0 -ignore_timeouts=0 -ignore_ooms=0); fi
+    # The parent leaks a few bytes of its own (FuzzWithFork), which LeakSanitizer
+    # reported at its exit as a crash; the children still check each input for leaks.
+    if [[ "$jobs" -gt 1 ]]; then
+        args+=(-fork="$jobs" -ignore_crashes=0 -ignore_timeouts=0 -ignore_ooms=0)
+        asan+=":leak_check_at_exit=0"
+    fi
     what="${mode}s, $jobs job(s)"
 fi
 echo "fuzz_bridge ($preset, Lua $version, tricks ${FUZZ_TRICKS:-0}): $what"
 status=0
-if (cd "$work" && FUZZ_BRIDGE_TRICKS="${FUZZ_TRICKS:-0}" ASAN_OPTIONS="detect_leaks=1:abort_on_error=1" \
+if (cd "$work" && FUZZ_BRIDGE_TRICKS="${FUZZ_TRICKS:-0}" ASAN_OPTIONS="$asan" \
     UBSAN_OPTIONS="print_stacktrace=1" "$bin" "${args[@]}" "$corpus" >"$work/fuzz.log" 2>&1); then
     # fork mode's parent prints no stat:: lines: its last progress line instead
     grep -E '^stat::number_of_executed_units|^stat::peak_rss_mb|^stat::average_exec_per_sec' "$work/fuzz.log" \

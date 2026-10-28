@@ -151,6 +151,7 @@ for target in $targets; do
     if [[ "$target" == core ]]; then cp -n "$repo/Test/Fuzz/corpus/lua"/* "$corpus/" 2>/dev/null || true; fi
     [[ "$mode" != build ]] || continue
 
+    asan="detect_leaks=1:abort_on_error=1"
     args=(-timeout=10 -rss_limit_mb="$rss_mb" -print_final_stats=1 -artifact_prefix="$work/")
     if [[ "$target" == lua || "$target" == core ]]; then args+=(-dict="$repo/Test/Fuzz/lua.dict" -max_len=4096); fi
     if [[ "$mode" == replay ]]; then
@@ -160,10 +161,15 @@ for target in $targets; do
         args+=(-max_total_time="$mode")
         # Fork mode: the parent runs the corpus once and hands out parts of it to N
         # child processes in turn; it ignores timeouts and out-of-memory by default.
-        if [[ "$jobs" -gt 1 ]]; then args+=(-fork="$jobs" -ignore_crashes=0 -ignore_timeouts=0 -ignore_ooms=0); fi
+        # The parent leaks a few bytes of its own (FuzzWithFork), which LeakSanitizer
+        # reported at its exit as a crash; the children still check each input for leaks.
+        if [[ "$jobs" -gt 1 ]]; then
+            args+=(-fork="$jobs" -ignore_crashes=0 -ignore_timeouts=0 -ignore_ooms=0)
+            asan+=":leak_check_at_exit=0"
+        fi
         echo "fuzz_$target (Lua $version): ${mode}s, $jobs job(s)"
     fi
-    if (cd "$work" && ASAN_OPTIONS="detect_leaks=1:abort_on_error=1" UBSAN_OPTIONS="print_stacktrace=1" \
+    if (cd "$work" && ASAN_OPTIONS="$asan" UBSAN_OPTIONS="print_stacktrace=1" \
         "$bin" "${args[@]}" "$corpus" >"$work/fuzz.log" 2>&1); then
         # fork mode's parent prints no stat:: lines: its last progress line instead
         grep -E '^stat::number_of_executed_units|^stat::peak_rss_mb' "$work/fuzz.log" \
