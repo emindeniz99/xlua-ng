@@ -328,6 +328,27 @@ if (USING_LUAJIT)
 	set ( LUA_CORE )
 	set_property( SOURCE xlua.c xlua_core.c xlua_core_limits.c APPEND PROPERTY COMPILE_DEFINITIONS USING_LUAJIT )
 	set ( LUA_LIB )
+
+	# A 64-bit LuaJIT must be GC64: xlua_gl reads lua_State through lj_obj.h,
+	# and xlua.c refuses LUAJIT_DISABLE_GC64 with an #error. A library built
+	# without GC64 (msvcbuild_mt.bat nogc64) still links and then gives wrong
+	# values. Only that mode defines lj_state_newstate (lj_state.c, lib_aux.c),
+	# so its name in the library gives the mode away, with MSVC as well.
+	if (CMAKE_SIZEOF_VOID_P EQUAL 8)
+		if (WIN32 AND NOT CYGWIN)
+			set ( xlua_luajit_lib "${CMAKE_SOURCE_DIR}/${LUAJIT_SRC_PATH}/lua51.lib" )
+		else ()
+			set ( xlua_luajit_lib "${LUAJIT_STATIC_LIB}" )
+		endif ()
+		if (EXISTS "${xlua_luajit_lib}")
+			file ( STRINGS "${xlua_luajit_lib}" xlua_luajit_nogc64 REGEX "lj_state_newstate" LIMIT_COUNT 1 )
+			if (xlua_luajit_nogc64)
+				message ( FATAL_ERROR "${xlua_luajit_lib} is a 64-bit LuaJIT without GC64 (LUAJIT_DISABLE_GC64, "
+					"msvcbuild_mt.bat nogc64), which xLua does not support. Rebuild it in GC64 mode, the default "
+					"(build/README.md, \"LuaJIT GC64\")." )
+			endif ()
+		endif ()
+	endif ()
 else ()
 	set ( LUA_IDSIZE 120 CACHE STRING "gives the maximum size for the description of the source." )
 

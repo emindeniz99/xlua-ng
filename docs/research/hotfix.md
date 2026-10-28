@@ -91,7 +91,11 @@ Improvements, in this order:
    back, with every runtime script in an asmdef: `InvalidOperationException:
    Sequence contains no matching element` from
    `MyCustomBuildProcessor.OnPostBuildPlayerScriptDLLs`, and the player was
-   not injected; `hotfix_player.py --no-assembly-csharp` passes with the fix.)
+   not injected; `hotfix_player.py --no-assembly-csharp` passes with the fix.
+   Owner decision of 2026-10-28: `unity-matrix.yml` runs
+   `hotfix_player.py --platform linux` with `--no-assembly-csharp` and with
+   `--package` on 6000.3.26f1, a Linux Mono player; skipped without the Unity
+   secrets, so not run yet.)
 5. **UPM:** with xLua in its own asmdef, IntKey and direct bridge calls fall
    back to field mode without a warning (`Hotfix.cs:523`, `578`, `1221`).
    Handle this or warn. (2026-10-18: the injector now warns for IntKey; see

@@ -51,6 +51,13 @@
      ]
     },
     {
+     "name": "NativeLuaPushString",
+     "static": true,
+     "overloads": [
+      "BridgeHardening.Defines::NativeLuaPushString()"
+     ]
+    },
+    {
      "name": "NoBridgeChecks",
      "static": true,
      "overloads": [
