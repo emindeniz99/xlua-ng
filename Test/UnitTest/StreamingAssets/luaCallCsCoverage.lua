@@ -1249,7 +1249,8 @@ function CMyTestCaseLuaCallCSCoverage.CaseParityStructResults(self)
     ASSERT_EQ(R.Func(none), "0,0,0,0,InvalidCastException,0")
     ASSERT_EQ(R.Call(nothing, nothing, nothing, nothing, nothing), "0,0,0,0,InvalidCastException")
     ASSERT_EQ(R.Call(none, none, none, none, none), "0,0,0,0,InvalidCastException")
-    ASSERT_EQ(R.Call(function() return CS.Coverage.ParityStruct(3) end, function() return CS.Coverage.ParityReflectedStruct(4) end,
+    -- R.Reflected makes the unconfigured struct in C#, so the case needs no reflection.
+    ASSERT_EQ(R.Call(function() return CS.Coverage.ParityStruct(3) end, function() return R.Reflected(4) end,
         function() return { x = 5, y = 1 } end, function() return { a = 6, b = 1 } end, function() return CS.Coverage.ParityKind.B end),
         "3,4,5,6,2")
 end

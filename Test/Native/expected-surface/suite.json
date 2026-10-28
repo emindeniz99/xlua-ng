@@ -1441,6 +1441,13 @@
      "overloads": [
       "Coverage.ParityResults::Get(XLua.LuaTable,System.String)"
      ]
+    },
+    {
+     "name": "Reflected",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityResults::Reflected(System.Int32)"
+     ]
     }
    ],
    "getters": [],

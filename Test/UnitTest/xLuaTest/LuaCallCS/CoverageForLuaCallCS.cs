@@ -1988,6 +1988,12 @@ namespace Coverage
             });
         }
 
+        // An unconfigured struct, made where no reflection is needed.
+        public static ParityReflectedStruct Reflected(int x)
+        {
+            return new ParityReflectedStruct(x);
+        }
+
         // The result of each delegate, joined with ",".
         public static string Call(ParityStructResult a, ParityReflectedStructResult b, ParityVecResult c, ParityPairResult d, ParityKindResult e)
         {

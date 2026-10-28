@@ -192,7 +192,7 @@ end
 -- used: the userdata gets no metatable, the cache misses, a metatable looked
 -- up by name is dropped, and int64 arithmetic raises. Release players crash
 -- by design (debug.getregistry is a debug tool), so the case runs only with
--- the checks.
+-- the checks. It uses bound types only, so it runs without reflection too.
 function CMyTestCaseBridgeHardening.CaseRegistryChecks(self)
     if not Defines.BridgeChecks() then return end
     local reg = debug.getregistry()
@@ -219,7 +219,8 @@ function CMyTestCaseBridgeHardening.CaseRegistryChecks(self)
     ASSERT_EQ(P.Make(7):GetValue(), 7)
 
     -- The metatable reference of a struct (xlua_pushstruct, decimal in every mode).
-    local d = CS.System.Convert.ToDecimal(2)
+    local Parity = CS.Coverage.Parity
+    local d = Parity.Money
     local dmt = debug.getmetatable(d)
     local dkey
     for k, v in pairs(reg) do
@@ -227,20 +228,24 @@ function CMyTestCaseBridgeHardening.CaseRegistryChecks(self)
     end
     ASSERT_TRUE(dkey ~= nil)
     reg[dkey] = 1
-    local ok2, d2 = pcall(CS.System.Convert.ToDecimal, 3)
+    local ok2, d2 = pcall(function() return Parity.Money end)
     reg[dkey] = dmt
     ASSERT_EQ(ok2, true)
     ASSERT_EQ(type(d2), "userdata")
     ASSERT_EQ(debug.getmetatable(d2), nil)
-    ASSERT_EQ(string.sub(tostring(CS.System.Convert.ToDecimal(4)), 1, 1), "4")
+    ASSERT_EQ(string.sub(tostring(Parity.Money), 1, 3), "1.5")
 
     -- The userdata cache (xlua_tryget_cachedud_checked, xlua_pushcsobj): a miss, and
     -- nothing stored.
-    local index = CS.BridgeHardening.Natives.Indexer()
-    local idx = index(o)
+    local function holds(t, value)
+        for _, v in pairs(t) do
+            if rawequal(v, value) then return true end
+        end
+        return false
+    end
     local cache, ckey
     for k, v in pairs(reg) do
-        if type(v) == "table" and rawequal(rawget(v, idx), o) then
+        if type(v) == "table" and getmetatable(v) ~= nil and holds(v, o) then
             cache, ckey = v, k
             break
         end
@@ -252,7 +257,7 @@ function CMyTestCaseBridgeHardening.CaseRegistryChecks(self)
     ASSERT_EQ(ok3, true)
     ASSERT_EQ(back:GetValue(), 3)
     ASSERT_TRUE(not rawequal(back, o))
-    ASSERT_EQ(rawget(cache, index(back)), nil)
+    ASSERT_EQ(holds(cache, back), false)
     ASSERT_EQ(o:Self():GetValue(), 3)
 
     -- A metatable by name (LuaAPI.luaL_getmetatable, here through xlua.cast): the
