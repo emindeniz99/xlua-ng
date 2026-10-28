@@ -111,6 +111,7 @@ jobs:
         # nm check (build/CMakeLists.txt) does not run with MSVC.
         run: python -c "import sys; sys.exit(0 if b'lj_assert_fail' in open('build/luajit-2.1/src/lua51.lib', 'rb').read() else 'lua51.lib was built without LUA_USE_APICHECK')"
       - name: Build xlua.dll with XLUA_APICHECK (MSVC, Release with /UNDEBUG)
+        id: plugin
         run: |
           set -euo pipefail
           if [[ "$LUA" == luajit* ]]; then lua=(-DUSING_LUAJIT=ON); else lua=(-DLUA_VERSION="$LUA"); fi
@@ -119,10 +120,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/plugin"
           cp "$RUNNER_TEMP/xlua-build/Release/xlua.dll" "$RUNNER_TEMP/plugin/"
       - name: Probe the API checks (a misused call must abort)
+        # Each check runs once the plugin is built, also after another check failed.
+        if: ${{ !cancelled() && steps.plugin.outcome == 'success' }}
         run: |
           if [[ "$LUA" == luajit* ]]; then flag=(--luajit); else flag=(); fi
           python Test/Native/apicheck_probe.py "${flag[@]}" "$RUNNER_TEMP/plugin/xlua.dll"
       - name: Native exports and regressions
+        if: ${{ !cancelled() && steps.plugin.outcome == 'success' }}
         timeout-minutes: 15
         run: |
           set -euo pipefail
@@ -131,16 +135,18 @@ jobs:
           if [[ "$LUA" != luajit* ]]; then python Test/Native/profiler_smoke.py "$plugin"; fi
           python Test/Native/native_regression.py "$plugin"
       - name: Managed suite on the .NET Framework (Roslyn csc)
+        if: ${{ !cancelled() && steps.plugin.outcome == 'success' }}
         timeout-minutes: 15
         run: python Test/Native/run_managed.py --runtime netfx --compiler "$CSC" --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/netfx"
       - name: Managed suite on Mono 6.12.0.206 (mcs)
+        if: ${{ !cancelled() && steps.plugin.outcome == 'success' }}
         timeout-minutes: 15
         run: python Test/Native/run_managed.py --mono "$MONO_DIR/bin/mono.exe" --compiler "$MONO_DIR/lib/mono/4.5/mcs.exe" --mono-version 6.12.0.206 --plugin "$RUNNER_TEMP/plugin/xlua.dll" --output "$RUNNER_TEMP/mono"
       - name: Control for Tencent/xLua#1081 (ANSI imports must fail on the .NET Framework)
         # The same suite with the UTF-8 imports of XLUA_GENERAL turned off (LuaDLLBridge.cs,
         # LuaDLL.cs), as before the fix: the UTF-8 cases must fail, which shows that the
         # .NET Framework run above exercised the ANSI marshalling. The checkout is restored.
-        if: matrix.lua == '5.5.1'
+        if: ${{ !cancelled() && steps.plugin.outcome == 'success' && matrix.lua == '5.5.1' }}
         timeout-minutes: 15
         run: |
           set -uo pipefail
