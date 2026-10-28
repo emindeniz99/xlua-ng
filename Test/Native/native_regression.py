@@ -1056,6 +1056,8 @@ def check_error_handler(state):
     assert status == LUA_ERRRUN and message.startswith(b"mine: "), message  # a script's own traceback is used
     status, message = call("debug = nil", "error({})")
     assert status == LUA_ERRRUN and message is None, message  # a table error stays a table
+    status, message = call("debug = nil", "error()")
+    assert status == LUA_ERRRUN and message.startswith(b"stack traceback"), message  # nil: the traceback alone
     if is_luajit(state):
         # The recursion: a hook that makes a protected call inside the handler.
         status, message = call("debug.sethook(function() pcall(type) end, 'c') debug = nil")
