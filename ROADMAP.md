@@ -155,9 +155,10 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
   (MSVC) run. Decided 2026-10-18 by the owner: a second CI sanitizer job
   (`sanitizers-extra`) runs the core, minimal, `XLUA_LUASCRIPT` and
   `luajit-uint` runs, and a `webgl` job compiles the WebGL source with
-  Emscripten 4.0.20 (`.github/CI.md`). In their first hosted run,
-  39170081830 (2026-10-18, main at `d57eb884`), `webgl` passed and both
-  sanitizer jobs failed; not triaged here.
+  Emscripten 4.0.20 (`.github/CI.md`). Both sanitizer jobs failed in their
+  first hosted run, 39170081830 (2026-10-18); the causes were fixed in
+  `9c166e9d`, and every native-build run since 39176832606 (2026-10-19)
+  passed them.
 - [#1064](https://github.com/Tencent/xLua/issues/1064) (IL2CPP "undeclared
   label" after hotfix) is fixed and tested on Android IL2CPP with 2021.3 and
   6000.3 ([hotfix-il2cpp-labels.md](docs/research/hotfix-il2cpp-labels.md)).
