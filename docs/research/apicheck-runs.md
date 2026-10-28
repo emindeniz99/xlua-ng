@@ -186,6 +186,9 @@ CMake `-A x64 -DXLUA_APICHECK=ON`, Release. Details in
 | legacy, LuaJIT (GC64) | pass | 2 × 496, pass on each |
 | legacy, LuaJIT without GC64 | pass | 2 × 496, pass on each, after the `xlua_gl` fix |
 
+The leg without GC64 was removed later on 2026-10-28, when xLua stopped
+supporting a 64-bit LuaJIT in that mode ([windows-host.md](windows-host.md#luajit-without-gc64)).
+
 The managed runs are the first pass only (reflection and CodeEmit). No check
 fired. With the `luaL_newmetatable` import in ANSI, as before the fix in
 windows-host.md, the 5.5.1 build aborted in `lapi.c:755` ("table expected"):

@@ -282,14 +282,24 @@ alike:
   `Plugins/iOS/xlua-variants/simulator/libxlua.a`, so the release archives
   carry it. The plugin selector takes it only for a Target SDK = Simulator SDK
   build; device players are unchanged. LuaJIT has no simulator build.
-- **LuaJIT without GC64 (2026-10-28):** `xlua_gl` read LuaJIT's `lua_State`
-  in GC64 layout whatever the library's mode, so a library from
-  `build/make_win64_luajit.bat` (non-GC64, the upstream Windows x64
-  default) failed the first `LuaEnv` (`NullReferenceException` in
-  `ImportType`). On LuaJIT `xlua_gl` now returns the registry table's
-  address, still an opaque key per Lua state; native code that compared it
-  with a `global_State` pointer must stop. About 2.5 ns more per C# call from
-  Lua on LuaJIT. See
+- **Windows x64 LuaJIT is GC64 (2026-10-28):** `build/make_win64_luajit.bat`
+  built LuaJIT without GC64 (`msvcbuild_mt.bat nogc64`, upstream xLua's
+  Windows x64 mode) and now builds it in GC64 mode, like every other 64-bit
+  LuaJIT plugin; `make_win64_luajit_gc64.bat`, which did that already, is
+  gone. A 64-bit LuaJIT without GC64 is no longer supported: `xlua.c` stops
+  with an `#error` when compiled with `LUAJIT_DISABLE_GC64`, and CMake's
+  configure refuses a `lua51.lib` or `libluajit.a` built without GC64. Since
+  the LuaJIT upgrade such a library had failed the first `LuaEnv`
+  (`NullReferenceException` in `ImportType`), because `xlua_gl` read
+  `lua_State` in the other layout. **Recompile LuaJIT bytecode** made for the
+  old Windows x64 plugin: a GC64 runtime rejects non-GC64 bytecode (the
+  `BCDUMP_F_FR2` flag, `lj_bcread.c:403`), so `require` or `DoString` of such
+  a chunk fails. Use a GC64 `luajit -b`, or `luajit -b -X` from any LuaJIT.
+  The Lua heap on Windows x64 is no longer limited to the low 2 GB. 32-bit
+  LuaJIT (x86, armv7) has only the non-GC64 mode and is unchanged. `xlua_gl`
+  returns LuaJIT's `global_State` pointer again, as upstream did; on `main`
+  between the Windows host change and this one (both 2026-10-28) it returned
+  the registry's address, which cost about 1.5 ns per C# call from Lua. See [build/README.md](../build/README.md#luajit-gc64) and
   [windows-host.md](research/windows-host.md#luajit-without-gc64).
 - **Parts of `os`, `package` and the base library as options:** the CMake
   options `XLUA_OS_FULL`, `XLUA_LOADLIB` and `XLUA_DOFILE` (on by default, off
@@ -539,8 +549,9 @@ alike:
   [build/README.md](../build/README.md#native-layers-and-presets).
 - **CMake `GC64` option removed:** it defined `LUAJIT_ENABLE_GC64`, which
   LuaJIT 2.1 ignores, so it never changed a build. The LuaJIT GC mode comes
-  from how LuaJIT itself is built (`msvcbuild_mt.bat nogc64` or not); passing
-  `-DGC64=ON` now only gives CMake's unused-variable warning.
+  from how LuaJIT itself is built, and every 64-bit build must be GC64 (the
+  Windows x64 entry above); passing `-DGC64=ON` now only gives CMake's
+  unused-variable warning.
 - **Desktop plugin import settings (2026-10-28):** upstream's `.meta` files
   enabled `Plugins/x86_64/libxlua.so` for Windows x64 players,
   `Plugins/x86/libxlua.so` for Windows x86 players, `Plugins/x86_64/xlua.dll`
