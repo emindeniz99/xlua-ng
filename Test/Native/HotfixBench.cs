@@ -34,6 +34,9 @@
 //   lua_object_arg, lua_instance_call  Lua -> C# calls that look up the env's
 //                               translator (ObjectTranslatorPool.Find), per call
 //                               in Lua's loop
+//   lua_string_arg, lua_string_return  Lua -> C# calls with a string argument
+//                               (read from Lua) and a string result (pushed into
+//                               Lua) of 10 ASCII characters
 //   field_patched, intkey_patched  with HOTFIX_ENABLE: the method patched from
 //                               Lua (the lock, the Lua call and the conversions)
 //
@@ -105,12 +108,15 @@ namespace HotfixBench
         public int AddPatched(int a, int b) { return a + b; }
     }
 
-    // Called from Lua by lua_object_arg and lua_instance_call.
+    // Called from Lua by lua_object_arg, lua_instance_call and the string cases.
     public class Calls
     {
         public int Value = 1;
+        static readonly string name = "hotfix-xlu";
         public static bool Echo(Calls o) { return o != null; }
         public int Get() { return Value; }
+        public static int Len(string s) { return s.Length; }
+        public static string Name() { return name; }
     }
 
     // A copy of the source generator's HotfixBridges slots (HotfixBridges.cs):
@@ -306,6 +312,14 @@ namespace HotfixBench
                 local o = CS.HotfixBench.Calls()
                 return function(n) local s = 0 for i = 1, n do s = s + o:Get() end return s end")[0];
             cases.Add(new Case("lua_instance_call", slow * 5, n => Convert.ToInt32(instanceCall.Call(n)[0])));
+            var stringArg = (LuaFunction)env.DoString(@"
+                local len, s = CS.HotfixBench.Calls.Len, 'hello xlua'
+                return function(n) local t = 0 for i = 1, n do t = t + len(s) end return t end")[0];
+            cases.Add(new Case("lua_string_arg", slow * 5, n => Convert.ToInt32(stringArg.Call(n)[0])));
+            var stringReturn = (LuaFunction)env.DoString(@"
+                local name = CS.HotfixBench.Calls.Name
+                return function(n) local t = 0 for i = 1, n do t = t + #name() end return t end")[0];
+            cases.Add(new Case("lua_string_return", slow * 5, n => Convert.ToInt32(stringReturn.Call(n)[0])));
 
 #if HOTFIX_ENABLE
             env.DoString("xlua.hotfix(CS.HotfixBench.FieldMode, 'AddPatched', function(self, a, b) return a + b + 1 end)");
@@ -341,6 +355,8 @@ namespace HotfixBench
             table.Dispose();
             objectArg.Dispose();
             instanceCall.Dispose();
+            stringArg.Dispose();
+            stringReturn.Dispose();
             log("XLUA_HOTFIX_BENCH_DONE " + sink);
         }
 

@@ -466,7 +466,9 @@ namespace XLua.LuaDLL
             // Short strings reuse the buffer that lua_pushstring encodes into.
             byte[] buffer = len <= CoreGlobals.strBuff.Length ? CoreGlobals.strBuff : new byte[len];
 #else
-            byte[] buffer = new byte[len];
+            // Short strings reuse this thread's buffer.
+            byte[] buffer = CoreGlobals.ThreadStrBuff();
+            if (len > buffer.Length) buffer = new byte[len];
 #endif
             Marshal.Copy(str, buffer, 0, len);
             return Encoding.UTF8.GetString(buffer, 0, len);
@@ -533,8 +535,18 @@ namespace XLua.LuaDLL
                     xlua_pushlstring(L, CoreGlobals.strBuff, bytes_len);
                 }
 #else
-                var bytes = Encoding.UTF8.GetBytes(str);
-                xlua_pushlstring(L, bytes, bytes.Length);
+                // This thread's buffer, as lua_tostring reads into.
+                byte[] buffer = CoreGlobals.ThreadStrBuff();
+                if (Encoding.UTF8.GetByteCount(str) > buffer.Length)
+                {
+                    byte[] bytes = Encoding.UTF8.GetBytes(str);
+                    xlua_pushlstring(L, bytes, bytes.Length);
+                }
+                else
+                {
+                    int bytes_len = Encoding.UTF8.GetBytes(str, 0, str.Length, buffer, 0);
+                    xlua_pushlstring(L, buffer, bytes_len);
+                }
 #endif
             }
         }
@@ -571,8 +583,21 @@ namespace XLua.LuaDLL
                 int bytes_len = Encoding.UTF8.GetBytes(str, 0, str_len, CoreGlobals.strBuff, 0);
                 xlua_pushlstring(L, CoreGlobals.strBuff, bytes_len);
 #else
-                var bytes = Encoding.UTF8.GetBytes(str);
-                xlua_pushlstring(L, bytes, bytes.Length);
+                // This thread's buffer, grown as the shared one above.
+                byte[] buffer = CoreGlobals.ThreadStrBuff();
+                int str_len = str.Length;
+                if (buffer.Length < Encoding.UTF8.GetMaxByteCount(str_len))
+                {
+                    int byte_count = Encoding.UTF8.GetByteCount(str);
+                    if (buffer.Length < byte_count)
+                    {
+                        buffer = new byte[byte_count];
+                        CoreGlobals.SetThreadStrBuff(buffer);
+                    }
+                }
+
+                int bytes_len = Encoding.UTF8.GetBytes(str, 0, str_len, buffer, 0);
+                xlua_pushlstring(L, buffer, bytes_len);
 #endif
 #endif
             }

@@ -183,7 +183,9 @@ static class SourceGenLauncher
                 Check(bytes < 5000, "a GCOptimize struct through the generated wrappers allocated " + bytes + " managed bytes for 5000 values");
                 Console.WriteLine("XLUA_SOURCE_GEN_STRUCT_ALLOC: " + bytes + " managed bytes for 5000 TestStruct values");
             }
+            StringAllocations(env);
         }
+        StringThreads(4, 3000);
 
         // The wrapper functions of LuaTestObj: native callbacks, or with
         // GEN_CODE_MINIMIZE (run_managed.py --source-gen --gen-code-minimize)
@@ -238,6 +240,114 @@ static class SourceGenLauncher
         Console.WriteLine("XLUA_SOURCE_GEN_CHECKS_PASS: " + bindings.FullName + " registered " + names.Count + " names, "
             + loaders.Count + " wrappers, " + delegates.Count + " delegate types on " + bridgeMethods + " bridges and "
             + interfaces.Count + " interface bridges; link.xml has " + linkEntries + " entries");
+#endif
+    }
+
+    // Strings through the generated wrappers allocate only the string C#
+    // gets: a push into Lua nothing, a read from Lua the new string. Short
+    // strings go through a buffer that the bridge keeps, shared without
+    // THREAD_SAFE and HOTFIX_ENABLE and one per thread with them (a new
+    // array per string before 2026-10-28).
+    static void StringAllocations(LuaEnv env)
+    {
+        var counter = typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread", Type.EmptyTypes);
+        if (counter == null) return;
+        const int n = 2000;
+        var o = new TestChineseString();
+        var push = (LuaFunction)env.DoString("return function(o, n) local s = 0 for i = 1, n do s = s + #o.short_simple_string end return s end")[0];
+        var read = (LuaFunction)env.DoString("return function(o, n, v) for i = 1, n do o.short_simple_string = v end end")[0];
+        push.Call(o, 10);
+        read.Call(o, 10, o.short_simple_string);
+        long before = (long)counter.Invoke(null, null);
+        push.Call(o, n);
+        long pushed = (long)counter.Invoke(null, null) - before;
+
+        // What the strings themselves take: the same decode, n times, in C#.
+        byte[] utf8 = System.Text.Encoding.UTF8.GetBytes(o.short_simple_string);
+        string[] made = new string[n];
+        System.Text.Encoding.UTF8.GetString(utf8);
+        before = (long)counter.Invoke(null, null);
+        for (int i = 0; i < n; i++) made[i] = System.Text.Encoding.UTF8.GetString(utf8);
+        long strings = (long)counter.Invoke(null, null) - before;
+
+        before = (long)counter.Invoke(null, null);
+        read.Call(o, n, o.short_simple_string);
+        long readBytes = (long)counter.Invoke(null, null) - before;
+        Check(pushed < n, "pushing a C# string into Lua allocated " + pushed + " managed bytes for " + n + " strings");
+        Check(readBytes < strings + n, "reading a Lua string allocated " + readBytes + " managed bytes for " + n
+            + " strings, which take " + strings);
+        Console.WriteLine("XLUA_SOURCE_GEN_STRING_ALLOC: " + pushed + " managed bytes for " + n + " pushes, " + readBytes
+            + " for " + n + " reads (the strings take " + strings + ")");
+    }
+
+    // Strings pushed and read on several threads, an env each, which run at
+    // the same time under THREAD_SAFE and HOTFIX_ENABLE (one after another
+    // without them): each thread's strings must come back unchanged while the
+    // others encode and decode theirs. Short ASCII, non-ASCII and strings
+    // longer than the bridge's 256-byte buffer.
+    static void StringThreads(int threads, int iterations)
+    {
+        var results = new string[threads];
+        var workers = new System.Threading.Thread[threads];
+        var go = new System.Threading.ManualResetEvent(false);
+        for (int i = 0; i < threads; i++)
+        {
+            int k = i;
+            workers[i] = new System.Threading.Thread(() =>
+            {
+                var errors = new System.Text.StringBuilder();
+                var env = new LuaEnv();
+                try
+                {
+                    var f = (LuaFunction)env.DoString("return function(o, s) o.short_simple_string = s return o.short_simple_string, s .. '!' end")[0];
+                    var o = new TestChineseString();
+                    string[] bases = { "t" + k + "-", "线程" + k + "é-", new string((char)('a' + k), 300) + "é" };
+                    go.WaitOne();
+                    for (int j = 0; j < iterations && errors.Length < 400; j++)
+                    {
+                        string s = bases[j % bases.Length] + j;
+                        object[] r = f.Call(o, s);
+                        if (o.short_simple_string != s) errors.Append("C# read " + o.short_simple_string + " for " + s + "; ");
+                        if (r.Length != 2 || (string)r[0] != s || (string)r[1] != s + "!")
+                            errors.Append("Lua returned " + string.Join(",", r.Select(x => "" + x).ToArray()) + " for " + s + "; ");
+                    }
+                    f.Dispose();
+                }
+                catch (Exception e)
+                {
+                    errors.Append(e.GetType().Name + ": " + e.Message + "; ");
+                }
+                finally
+                {
+                    env.Dispose();
+                }
+                results[k] = errors.Length == 0 ? "" : "thread " + k + ": " + errors;
+            });
+            workers[i].IsBackground = true;
+        }
+        string hung = "";
+#if THREAD_SAFE || HOTFIX_ENABLE
+        for (int i = 0; i < threads; i++) workers[i].Start();
+        go.Set();
+        for (int i = 0; i < threads; i++)
+        {
+            if (!workers[i].Join(60000)) hung += "thread " + i + " did not finish in 60 s; ";
+        }
+#else
+        go.Set();
+        for (int i = 0; i < threads; i++)
+        {
+            workers[i].Start();
+            if (!workers[i].Join(60000)) hung += "thread " + i + " did not finish in 60 s; ";
+        }
+#endif
+        string failed = string.Join("", results) + hung;
+        Check(failed == "", "strings on " + threads + " threads: " + failed);
+        Console.WriteLine("XLUA_SOURCE_GEN_STRING_THREADS: " + threads + " threads, " + iterations + " strings each"
+#if THREAD_SAFE || HOTFIX_ENABLE
+            + ", at the same time");
+#else
+            + ", one thread after another");
 #endif
     }
 
