@@ -490,7 +490,7 @@ public struct Pair { public int a, b; }");
     {
         const string stub = @"
 namespace XLua { public class LuaCallCSharpAttribute : System.Attribute { } }
-namespace XLua.Binding { public static class BindingApi { public const int Version = 2; } }";
+namespace XLua.Binding { public static class BindingApi { public const int Version = 1; } }";
         var xlua = Harness.Compile("XLua", new[] { stub }, new MetadataReference[0]);
         var input = Harness.Compile("Game", new[] { "[XLua.LuaCallCSharp] public class Player { }" },
             new[] { MetadataReference.CreateFromImage(Harness.Emit(xlua)) });
@@ -508,7 +508,7 @@ namespace XLua.Binding { public static class BindingApi { public const int Versi
     {
         const string stub = @"
 namespace XLua { public class LuaCallCSharpAttribute : System.Attribute { } }
-namespace XLua.Binding { public static class BindingApi { public const int Version = 1; } }";
+namespace XLua.Binding { public static class BindingApi { public const int Version = 2; } }";
         var xlua = Harness.Compile("XLua", new[] { stub }, new MetadataReference[0]);
         var input = Harness.Compile("Game", new[] { "[XLua.LuaCallCSharp] public class Player { public int Hp; }" },
             new[] { MetadataReference.CreateFromImage(Harness.Emit(xlua)) });
@@ -1151,8 +1151,10 @@ namespace Lib
             && packing.Contains("xlua_pack_float(buff, offset + 24, field.g)"), "float groups");
         Assert.True(packing.Contains("field.@class"), "keyword field names are escaped");
         var bindings = run.Source(Emitter.BindingsFile);
-        Assert.True(bindings.Contains("b.Struct<global::Game.V3>(Structs.Push_Game_V3_") && bindings.Contains("b.Caster<global::Game.Settings>(Structs.Get_Game_Settings_"),
-            "registration");
+        Assert.True(bindings.Contains("b.Struct(typeof(global::Game.V3), typeof(global::Game.V3[]), Structs.Ops_Game_V3_")
+            && bindings.Contains("b.Caster(typeof(global::Game.Settings), typeof(global::Game.Settings[]), Structs.Ops_Game_Settings_"), "registration");
+        Assert.True(!bindings.Contains("b.Struct<") && !bindings.Contains("b.Caster<") && !bindings.Contains("b.ArrayAccessor<"),
+            "no generic registration, which IL2CPP compiles once per value type");
 
         var context = new AssemblyLoadContext("structs", isCollectible: true);
         try

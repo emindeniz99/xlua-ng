@@ -5,9 +5,9 @@
 // templates LuaWrapPusher.tpl.txt and PackUnpack.tpl.txt, the selection that of
 // Generator.cs (GenWrapPusher, GenPackUnpack, getXluaTypeInfo, SizeOf), in two
 // internal static classes, Structs and PackUnpack, of the assembly's generated
-// namespace. Registration goes through AssemblyBindings.Struct, Caster and
-// ArrayAccessor; the per-LuaEnv type ids and enum caches through the slots of
-// BindingApi.AllocateSlot, TypeId and EnumCacheRef.
+// namespace. Registration goes through AssemblyBindings.Struct and Caster,
+// one Ops_ method per type; the per-LuaEnv type ids and enum caches through
+// the slots of BindingApi.AllocateSlot, TypeId and EnumCacheRef.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -380,19 +380,87 @@ namespace XLua.SourceGenerator
             foreach (var s in set.Values) w.Line("static readonly int s_" + s.Id + " = " + Api + ".AllocateSlot(typeof(" + Names.Typeof(s.Type) + "));");
             foreach (var s in set.Values) ValuePushers(w, s, c);
             foreach (var s in set.Tables) TableReader(w, s, c);
+            foreach (var s in set.Values) Ops(w, s, true);
+            foreach (var s in set.Tables) Ops(w, s, false);
             return w.ToString();
+        }
+
+        // What AssemblyBindings.Struct (pushed types) and Caster (types Lua
+        // passes as tables) register, in one method per type (XLua.Binding's
+        // StructOps): the boxed push, get and update, the array element
+        // access, and the typed delegates of ObjectTranslator.PushByType and
+        // Get<T>. xLua then has no generic code per type, which IL2CPP would
+        // compile for each value type with its delegate types, as for the
+        // Struct<T>, Caster<T> and ArrayAccessor<T> of binding API version 1;
+        // each case does what the delegates those registered did. Value_ and
+        // Push_ (an extension method) are the typed delegates' targets,
+        // closed over the translator without a closure class.
+        static void Ops(Writer w, StructType s, bool value)
+        {
+            string cs = Names.Cs(s.Type);
+            const string Op = "global::XLua.Binding.StructOp.";
+            if (value)
+            {
+                w.Line();
+                w.Open("static " + cs + " Value_" + s.Id + "(this global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index)");
+                w.Line(cs + " val;");
+                w.Line("Get_" + s.Id + "(translator, L, index, out val);");
+                w.Line("return val;");
+                w.Close();
+            }
+            w.Line();
+            w.Open("internal static object Ops_" + s.Id + "(int op, global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, object value, int arrayIndex)");
+            w.Open("switch (op)");
+            if (value)
+            {
+                w.Line("case " + Op + "Push:");
+                w.Line("    Push_" + s.Id + "(translator, L, (" + cs + ")value);");
+                w.Line("    return null;");
+            }
+            w.Line("case " + Op + "Get:");
+            w.Line("{");
+            w.Indent++;
+            w.Line(cs + " val;");
+            w.Line("Get_" + s.Id + "(translator, L, index, out val);");
+            w.Line("return val;");
+            w.Close();
+            if (value)
+            {
+                w.Line("case " + Op + "Update:");
+                w.Line("    Update_" + s.Id + "(translator, L, index, (" + cs + ")value);");
+                w.Line("    return null;");
+                w.Line("case " + Op + "ArrayGet:");
+                w.Line("    Push_" + s.Id + "(translator, L, ((" + cs + "[])value)[arrayIndex]);");
+                w.Line("    return null;");
+            }
+            w.Line("case " + Op + "ArraySet:");
+            w.Line("    Get_" + s.Id + "(translator, L, index, out ((" + cs + "[])value)[arrayIndex]);");
+            w.Line("    return null;");
+            if (value)
+            {
+                w.Line("case " + Op + "PushDelegate:");
+                w.Line("    return new global::System.Action<global::System.IntPtr, " + cs + ">(translator.Push_" + s.Id + ");");
+                w.Line("case " + Op + "GetDelegate:");
+                w.Line("    return new global::System.Func<global::System.IntPtr, int, " + cs + ">(translator.Value_" + s.Id + ");");
+            }
+            w.Line("default:");
+            w.Line("    return null;");
+            w.Close();
+            w.Close();
         }
 
         static void ValuePushers(Writer w, StructType s, Compilation c)
         {
             string cs = Names.Cs(s.Type);
             string slot = "s_" + s.Id;
+            // The type as the errors name it; BindingApi builds the messages.
+            string name = Names.Literal(Display(s.Type));
             string pack = s.IsEnum ? "global::XLua.CopyByValue" : "PackUnpack";
             string value = s.IsEnum ? "(int)val" : "val";
             bool table = !s.IsEnum && s.Flag == 1;
 
             w.Line();
-            w.Open("internal static void Push_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, " + cs + " val)");
+            w.Open("internal static void Push_" + s.Id + "(this global::XLua.ObjectTranslator translator, global::System.IntPtr L, " + cs + " val)");
             w.Line("int type_id = " + Api + ".TypeId(translator, L, " + slot + ");");
             if (s.IsEnum)
             {
@@ -415,7 +483,7 @@ namespace XLua.SourceGenerator
             {
                 w.Line("global::System.IntPtr buff = " + LuaAPI + ".xlua_pushstruct(L, " + s.Size + ", type_id);");
                 w.Open("if (!" + pack + ".Pack(buff, 0, " + value + "))");
-                w.Line("throw new global::System.Exception(\"pack fail fail for " + Display(s.Type) + " ,value=\" + val);");
+                w.Line("throw " + Api + ".StructPackFailed(" + name + ", val, true);");
                 w.Close();
             }
             if (s.IsEnum)
@@ -431,10 +499,7 @@ namespace XLua.SourceGenerator
             w.Open("internal static void Get_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out " + cs + " val)");
             w.Line(LuaTypes + " type = " + LuaAPI + ".lua_type(L, index);");
             w.Open("if (type == " + LuaTypes + ".LUA_TUSERDATA)");
-            w.Open("if (" + LuaAPI + ".xlua_gettypeid(L, index) != " + Api + ".TypeId(translator, L, " + slot + "))");
-            w.Line("throw new global::System.Exception(\"invalid userdata for " + Display(s.Type) + "\");");
-            w.Close();
-            w.Line("global::System.IntPtr buff = " + LuaAPI + ".lua_touserdata(L, index);");
+            w.Line("global::System.IntPtr buff = " + Api + ".StructBuffer(translator, L, index, " + slot + ", " + name + ");");
             if (s.IsEnum)
             {
                 w.Line("int e;");
@@ -444,7 +509,7 @@ namespace XLua.SourceGenerator
             {
                 w.Open("if (!" + pack + ".UnPack(buff, 0, out val))");
             }
-            w.Line("throw new global::System.Exception(\"unpack fail for " + Display(s.Type) + "\");");
+            w.Line("throw " + Api + ".StructUnpackFailed(" + name + ");");
             w.Close();
             if (s.IsEnum) w.Line("val = (" + cs + ")e;");
             w.Close();
@@ -470,17 +535,14 @@ namespace XLua.SourceGenerator
             else
             {
                 w.Open("if (" + LuaAPI + ".lua_type(L, index) == " + LuaTypes + ".LUA_TUSERDATA)");
-                w.Open("if (" + LuaAPI + ".xlua_gettypeid(L, index) != " + Api + ".TypeId(translator, L, " + slot + "))");
-                w.Line("throw new global::System.Exception(\"invalid userdata for " + Display(s.Type) + "\");");
-                w.Close();
-                w.Line("global::System.IntPtr buff = " + LuaAPI + ".lua_touserdata(L, index);");
+                w.Line("global::System.IntPtr buff = " + Api + ".StructBuffer(translator, L, index, " + slot + ", " + name + ");");
                 w.Open("if (!" + pack + ".Pack(buff, 0, " + value + "))");
-                w.Line("throw new global::System.Exception(\"pack fail for " + Display(s.Type) + " ,value=\" + val);");
+                w.Line("throw " + Api + ".StructPackFailed(" + name + ", val, false);");
                 w.Close();
                 w.Close();
             }
             w.Open("else");
-            w.Line("throw new global::System.Exception(\"try to update a data with lua type:\" + " + LuaAPI + ".lua_type(L, index));");
+            w.Line("throw " + Api + ".StructUpdateFailed(L, index);");
             w.Close();
             w.Close();
         }
@@ -723,21 +785,16 @@ namespace XLua.SourceGenerator
         static string StructRegistration(StructSet set)
         {
             var sb = new StringBuilder();
+            // One call and one delegate per type (Ops above).
             foreach (var s in set.Values)
             {
                 string cs = Names.Cs(s.Type);
-                sb.Append("            b.Struct<").Append(cs).Append(">(Structs.Push_").Append(s.Id).Append(", Structs.Get_").Append(s.Id)
-                  .Append(", Structs.Update_").Append(s.Id).Append(");\n");
-                sb.Append("            b.ArrayAccessor<").Append(cs).Append(">((translator, L, array, index) => Structs.Push_").Append(s.Id)
-                  .Append("(translator, L, array[index]),\n                (translator, L, array, array_idx, obj_idx) => Structs.Get_").Append(s.Id)
-                  .Append("(translator, L, obj_idx, out array[array_idx]));\n");
+                sb.Append("            b.Struct(typeof(").Append(cs).Append("), typeof(").Append(cs).Append("[]), Structs.Ops_").Append(s.Id).Append(");\n");
             }
             foreach (var s in set.Tables)
             {
                 string cs = Names.Cs(s.Type);
-                sb.Append("            b.Caster<").Append(cs).Append(">(Structs.Get_").Append(s.Id).Append(");\n");
-                sb.Append("            b.ArrayAccessor<").Append(cs).Append(">(null, (translator, L, array, array_idx, obj_idx) => Structs.Get_").Append(s.Id)
-                  .Append("(translator, L, obj_idx, out array[array_idx]));\n");
+                sb.Append("            b.Caster(typeof(").Append(cs).Append("), typeof(").Append(cs).Append("[]), Structs.Ops_").Append(s.Id).Append(");\n");
             }
             return sb.ToString();
         }

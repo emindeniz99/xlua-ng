@@ -2066,6 +2066,22 @@ namespace XLua
             );
         }
 
+        // RegisterPushAndGetAndUpdate without generic code, for generated code
+        // (XLua.Binding.AssemblyBindings.Struct(Type, Type, StructOps)): push
+        // is an Action<RealStatePtr, T> and get a Func<RealStatePtr, int, T>
+        // of the type, and the other three take the value boxed.
+        internal void RegisterStruct(Type type, Delegate push, Delegate get, PushCSObject pushObject, GetCSObject getObject, UpdateCSObject updateObject)
+        {
+            Delegate org;
+            if (tryGetPushFuncByType(type, out org) || tryGetGetFuncByType(type, out org))
+            {
+                throw new InvalidOperationException("push or get of " + type + " has register!");
+            }
+            push_func_with_type.Add(type, push);
+            get_func_with_type.Add(type, get);
+            registerCustomOp(type, pushObject, getObject, updateObject);
+        }
+
         public void RegisterChecker<T>(CheckFunc<T> check)
         {
             objectCheckers.AddChecker(typeof(T), (L, idx) =>
