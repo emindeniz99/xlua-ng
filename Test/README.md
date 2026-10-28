@@ -204,7 +204,12 @@ type and that `ContainsKey` and `Get<object>` do not (Q55).
 `CaseParityStructResultKinds` checks that a struct read back from a
 delegate, an interface bridge (`Coverage.IParityResults`), `LuaFunction.Func`
 or `LuaTable.Get` given a number, a string, a boolean, a function or a C#
-object of another class raises `S expected, got <kind>` (Q56). `CaseLazyBlackListed` and
+object of another class raises `S expected, got <kind>` (Q56), and that a
+`Nullable<S>` read back the same ways raises the same while nil gives null
+(Q59). `CaseParityStructParams` checks that a nil element of a `params`
+array of structs raises the struct argument error in every mode, also for the
+`[GCOptimize]` structs, that `Nullable<S>` elements still take nil, and that
+enum elements follow the enum argument rule (Q60, Q34). `CaseLazyBlackListed` and
 `CaseObsoleteOperator` cover `[DoNotGen]` with `[BlackList]` and `[Obsolete]`
 operators and indexers in generated code. The modes run in separate
 processes, so a case compares a mode with an expected value or with the
@@ -1664,6 +1669,9 @@ What is below 100, and why:
   `xlua_core_debug_state`, which only `core_stop_latency.c` prints. Gated at
   84 there (179 of 210 after the merge with main of 2026-10-28, 173 of 204
   before it); the file's own branches are at 100 in `core-5.5.1`.
+  **Owner decision of 2026-10-28 (Q61):** the gate stays at 84 for
+  `core-tp-5.5.1`. The missed branches are test-point-only code, and
+  `core-5.5.1` holds the file at 100, so no test is added for them.
 - **`xlua_core.h` in the core runs, 4 branches:** `xlua_core_enter` and
   `xlua_core_leave` on a state without the core allocator, and a nested
   entry on another thread than the running one. Every entry of a core
