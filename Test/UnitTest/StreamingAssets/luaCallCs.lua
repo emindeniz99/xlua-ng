@@ -2502,6 +2502,7 @@ end
 -- debug.setupvalue can replace it; the wrapper then called a NULL pointer.
 function CMyTestCaseLuaCallCS.CaseCSharpFunctionUpvalueReplaced(self)
     self.count = 1 + self.count
+	if not debug.setupvalue then return end -- release players reduce debug (XLUA_REDUCED_DEBUG)
 	local f = CS.StackDumpHelpers.GetDump()
 	ASSERT_EQ(type(f), "function")
 	ASSERT_EQ(select(2, f(1)), true)
@@ -2521,6 +2522,7 @@ end
 -- every number or boolean at once.
 function CMyTestCaseLuaCallCS.CaseCastRejectsInvalid(self)
     self.count = 1 + self.count
+	if not debug.getmetatable then return end -- release players reduce debug (XLUA_REDUCED_DEBUG)
 	-- A number or boolean metatable is shared by every value of that type
 	-- (on Lua 5.3+ an int64 is a number); restored below if a cast set it.
 	local number_mt, boolean_mt = debug.getmetatable(1), debug.getmetatable(true)
@@ -2562,6 +2564,7 @@ end
 -- type were not recognised as C# objects and their pool slots never freed.
 function CMyTestCaseLuaCallCS.CaseMetatableOperationSetKeepsBridge(self)
     self.count = 1 + self.count
+	if not debug.getmetatable then return end -- release players reduce debug (XLUA_REDUCED_DEBUG)
 	local T = CS.MetatableOperationProbe
 	T.Reset()
 	local old = xlua.getmetatable(T)
@@ -2643,6 +2646,7 @@ end
 
 function CMyTestCaseLuaCallCS.CaseMetatableLockTables(self)
     self.count = 1 + self.count
+	if not debug.getmetatable then return end -- release players reduce debug (XLUA_REDUCED_DEBUG)
 	local locked = CS.LuaTestCommon.LockMetatables()
 	local tables = {
 		cs = CS,
@@ -2826,6 +2830,7 @@ end
 -- LuaJIT's pairs ignores __pairs.
 function CMyTestCaseLuaCallCS.CaseNoReflectionPairs(self)
     self.count = 1 + self.count
+	if not debug.getmetatable then return end -- release players reduce debug (XLUA_REDUCED_DEBUG)
 	local api = CS.NoReflection.Api
 	local function each(o)
 		local found = {}

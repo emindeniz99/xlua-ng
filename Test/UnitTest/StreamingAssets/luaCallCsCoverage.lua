@@ -265,9 +265,18 @@ function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethodIndex(self)
 end
 
 -- Generic methods whose type parameters all have a class constraint.
+-- IL2CPP players leave generic method definitions out of reflection wrappers
+-- (MethodWarpsCache.cs, upstream's "il2cpp does not support reflective calls
+-- of generic methods"), so only the generated wrapper closes it there.
 function CMyTestCaseLuaCallCSCoverage.CaseConstrainedGenericMethod(self)
     local r = CS.Coverage.Ref("r")
-    ASSERT_EQ(CS.Coverage.Generics.Constrained(r), "Ref:r")
+    if CS.LuaTestCommon.Il2Cpp() then
+        local ok, err = RAISE_NO_BINDINGS(pcall(CS.Coverage.Generics.Constrained, r))
+        ASSERT_EQ(ok, false)
+        ASSERT_TRUE(string.find(tostring(err), "invalid arguments to Coverage.Generics.Constrained", 1, true) ~= nil)
+    else
+        ASSERT_EQ(CS.Coverage.Generics.Constrained(r), "Ref:r")
+    end
     ASSERT_EQ(CS.Coverage.GenGenerics.Constrained(r), "Ref:r")
 end
 

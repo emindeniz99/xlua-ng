@@ -10,7 +10,10 @@
 -- case whose entry is "private_accessible" or "util" needs reflection only where
 -- the build has xlua.private_accessible (without XLUA_RESTRICT_PRIVATE_ACCESS,
 -- or with HOTFIX_ENABLE) or xlua.util, "luajit" and "puc" only on LuaJIT or on
--- PUC Lua; elsewhere it passes either way.
+-- PUC Lua, "debug" only with the whole debug library (not in release players of
+-- the minimal preset), "lists" only where [BlackList] lists are read (the Editor
+-- and XLUA_GENERAL), "unity" only in Unity and "general" only outside it;
+-- elsewhere it passes either way (luaunit_compat.lua, NEEDS_ALSO).
 return {
     -- CMyTestCaseBridgeHardening
     ["CMyTestCaseBridgeHardening.CaseCheckObjectCache"] = true,
@@ -34,7 +37,7 @@ return {
 
     -- CMyTestCaseLuaCallCS
     ["CMyTestCaseLuaCallCS.CaseCast2"] = true,
-    ["CMyTestCaseLuaCallCS.CaseCastRejectsInvalid"] = true,
+    ["CMyTestCaseLuaCallCS.CaseCastRejectsInvalid"] = "debug",
     ["CMyTestCaseLuaCallCS.CaseGenAccessorRejectsNonStruct"] = true,
     ["CMyTestCaseLuaCallCS.CaseInt64Concat"] = true,
     ["CMyTestCaseLuaCallCS.CaseInt64HelpersLuaJIT"] = "luajit",
@@ -49,7 +52,7 @@ return {
     ["CMyTestCaseLuaCallCS.CaseIntegerResultRule"] = true,
     ["CMyTestCaseLuaCallCS.CaseIntegerTableContentsRule"] = true,
     ["CMyTestCaseLuaCallCS.CaseMetatableLockKeepsUtilState"] = "util",
-    ["CMyTestCaseLuaCallCS.CaseMetatableLockTables"] = true,
+    ["CMyTestCaseLuaCallCS.CaseMetatableLockTables"] = "debug",
     ["CMyTestCaseLuaCallCS.CaseMetatableLockUserdata"] = true,
     ["CMyTestCaseLuaCallCS.CaseOutRef2"] = true,
     ["CMyTestCaseLuaCallCS.CaseOverloadMembers"] = true,
@@ -63,6 +66,7 @@ return {
     ["CMyTestCaseLuaCallCS.CaseStackToStringCutsLongValues"] = true,
     ["CMyTestCaseLuaCallCS.CaseStructSetterRejectsFraction"] = true,
     ["CMyTestCaseLuaCallCS.CaseStructSetterRejectsNonNumber"] = true,
+    ["CMyTestCaseLuaCallCS.CaseTestImplicit"] = "unity",
     ["CMyTestCaseLuaCallCS.CaseUtf8MemberNamesByReflection"] = true,
     ["CMyTestCaseLuaCallCS.CaseVisitFloat1"] = true,
     ["CMyTestCaseLuaCallCS.CaseVisitNoGenCodeStruct_1"] = true,
@@ -87,7 +91,7 @@ return {
     ["CMyTestCaseLuaCallCSCoverage.CaseAmbiguousDefaultsMethod"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseAssemblyLevelConfig"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseBlackListAttributes"] = true,
-    ["CMyTestCaseLuaCallCSCoverage.CaseBlackListFilterReflected"] = true,
+    ["CMyTestCaseLuaCallCSCoverage.CaseBlackListFilterReflected"] = "lists",
     ["CMyTestCaseLuaCallCSCoverage.CaseBridgesOnThreads"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseCheckers"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseConstrainedGenericMethod"] = true,
@@ -106,7 +110,7 @@ return {
     ["CMyTestCaseLuaCallCSCoverage.CaseNarrowResultsAndRefs"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseNoBridgeActions"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseNoBridgeFuncs"] = true,
-    ["CMyTestCaseLuaCallCSCoverage.CaseNoBridgeValueResult"] = true,
+    ["CMyTestCaseLuaCallCSCoverage.CaseNoBridgeValueResult"] = "general",
     ["CMyTestCaseLuaCallCSCoverage.CaseParityErrorTexts"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseParityEnumArgs"] = true,
     ["CMyTestCaseLuaCallCSCoverage.CaseParityEvents"] = true,
@@ -173,6 +177,7 @@ return {
     ["CMyTestCaseLuaCallCSReflect.CaseGetChineseString"] = true,
     ["CMyTestCaseLuaCallCSReflect.CaseGetType1"] = true,
     ["CMyTestCaseLuaCallCSReflect.CaseGetType2"] = true,
+    ["CMyTestCaseLuaCallCSReflect.CaseGetType3"] = "unity",
     ["CMyTestCaseLuaCallCSReflect.CaseGetType4"] = true,
     ["CMyTestCaseLuaCallCSReflect.CaseGetType5"] = true,
     ["CMyTestCaseLuaCallCSReflect.CaseGetType6"] = true,
@@ -191,6 +196,7 @@ return {
     ["CMyTestCaseLuaCallCSReflect.CaseTableAutoTransSimpleClassMethod"] = true,
     ["CMyTestCaseLuaCallCSReflect.CaseTableAutoTransSimpleStructMethod"] = true,
     ["CMyTestCaseLuaCallCSReflect.CaseTableAutoTransTwoDimensionListMethod"] = true,
+    ["CMyTestCaseLuaCallCSReflect.CaseTestImplicit"] = "unity",
     ["CMyTestCaseLuaCallCSReflect.CaseUpLowerMethod"] = true,
     ["CMyTestCaseLuaCallCSReflect.CaseVariableParamFunc1"] = true,
     ["CMyTestCaseLuaCallCSReflect.CaseVariableParamFunc2"] = true,
@@ -236,7 +242,7 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseOwnerThreadCheck"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CasePointerReturn"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseRequireLoaderData"] = true,
-    ["CMyTestCaseLuaCallCSUpstream.CaseReturnHookOnRepeatedCalls"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseReturnHookOnRepeatedCalls"] = "debug",
     ["CMyTestCaseLuaCallCSUpstream.CaseSpanOverloadsBcl"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseSpanOverloadsInstance"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseSpanOverloadsStatic"] = true,

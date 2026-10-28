@@ -2786,6 +2786,13 @@
      ]
     },
     {
+     "name": "Il2Cpp",
+     "static": true,
+     "overloads": [
+      "LuaTestCommon::Il2Cpp()"
+     ]
+    },
+    {
      "name": "InEditor",
      "static": true,
      "overloads": [
