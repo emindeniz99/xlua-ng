@@ -391,6 +391,7 @@ typedef struct xlua_core_t {
 	void *host;                  /* xlua_core_open's host pointer, for the dispatcher */
 	lua_State *callback_L;       /* the thread of the innermost running host function, or NULL */
 	uint32_t frames;             /* serial of the last host function frame (wraps; the ids stay positive) */
+	int sandbox;                 /* xlua_core_open made the state LuaScript's sandbox (xlua_core_sandbox.c) */
 } xlua_core_t;
 
 /* Room above the limit while errorfunc builds a traceback, so that a runtime

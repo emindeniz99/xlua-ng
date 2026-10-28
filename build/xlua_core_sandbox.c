@@ -123,11 +123,12 @@ static size_t len_of(int32_t n) {
 	return n > 0 ? (size_t)n : 0;
 }
 
-/* Whether L was created by xlua_core_open. Non-raising. */
+/* Whether L was created by xlua_core_open. Non-raising, and pushes nothing:
+ * the exports ask it before they check the stack, which a C host may have
+ * filled exactly. */
 static int is_sandbox(lua_State *L) {
-	int found = lua_rawgetp(L, LUA_REGISTRYINDEX, &base_key) == LUA_TTABLE;
-	lua_pop(L, 1);
-	return found;
+	xlua_core_t *xc = xlua_core_of(L);
+	return xc != NULL && xc->sandbox;
 }
 
 /*
@@ -575,7 +576,7 @@ static int open_body(lua_State *L) {
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &copies_key);
 	push_env(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &globals_key);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, &base_key);  /* last: the state is a sandbox now */
+	lua_rawsetp(L, LUA_REGISTRYINDEX, &base_key);  /* xlua_core_open marks the state a sandbox after this body */
 	return 0;
 }
 
@@ -616,6 +617,7 @@ LUA_API lua_State *xlua_core_open(const xlua_core_config *cfg, void *host, int32
 		*status = XLUA_ERRMEM;
 		return NULL;
 	}
+	xlua_core_of(L)->sandbox = 1;
 	return L;
 }
 
@@ -630,11 +632,15 @@ static lua_State *active_thread(lua_State *L) {
 }
 
 /* Runs a protected body with one light userdata argument as a memory entry;
- * returns XLUA_OK or XLUA_ERRMEM, the only error the bodies raise. */
+ * returns XLUA_OK or XLUA_ERRMEM, the only error the bodies raise, also when
+ * the stack has no room for the body and its argument. */
 static int protected_body(lua_State *L, lua_CFunction body, void *ud) {
 	xlua_core_entry entry;
 	int status;
 	L = active_thread(L);
+	if (!lua_checkstack(L, 2)) {
+		return XLUA_ERRMEM;
+	}
 	xlua_core_enter(L, &entry);
 	lua_pushcfunction(L, body);
 	lua_pushlightuserdata(L, ud);
@@ -651,13 +657,17 @@ static int protected_body(lua_State *L, lua_CFunction body, void *ud) {
  * coroutine or userdata (environments, buffers, iterators). Returns 1, or 0 for anything
  * else (the default environment 0, Lua's own registry slots, a free slot,
  * a key of LuaScript.Key), so a wrong number never frees another slot.
- * Non-raising. */
+ * Without a free stack slot (a C host filled the stack) it releases nothing
+ * and returns 0. Non-raising. */
 LUA_API int xlua_core_unref(lua_State *L, int32_t ref) {
 	int t;
 	if (ref <= LUA_RIDX_LAST || !is_sandbox(L)) {
 		return 0;
 	}
 	L = active_thread(L);
+	if (!lua_checkstack(L, 1)) {  /* luaL_unref needs one slot too */
+		return 0;
+	}
 	t = lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
 	lua_pop(L, 1);
 	if (t != LUA_TTABLE && t != LUA_TFUNCTION && t != LUA_TUSERDATA && t != LUA_TTHREAD) {
@@ -855,6 +865,9 @@ LUA_API int xlua_core_register(lua_State *L, int32_t env, const char *name, int3
 	    || (dot != NULL && (dot == name || dot == name + len - 1 || memchr(dot + 1, '.', len - (size_t)(dot - name) - 1) != NULL))) {
 		return XLUA_ERRCONFIG;
 	}
+	if (!lua_checkstack(active_thread(L), 2)) {  /* xlua_core_push_ref below and protected_body: two slots each */
+		return XLUA_ERRMEM;
+	}
 	if (env != 0) {
 		lua_State *T = active_thread(L);
 		int t = xlua_core_push_ref(T, env);
@@ -876,9 +889,10 @@ LUA_API int xlua_core_register(lua_State *L, int32_t env, const char *name, int3
 /* The error value at the top of L: the message (or a description of a
  * non-string error) replaces it, as lua.c's msghandler makes it, and the
  * traceback of thread T from 'level' goes into the registry (trace_key), so
- * that C# gets the two apart (LuaException.LuaStackTrace). The limit is raised
+ * that C# gets the two apart (LuaException.LuaStackTrace). A non-string
+ * error's __tostring gives the message when 'meta' is set. The limit is raised
  * by the error reserve meanwhile; if this fails, the entry restores it. */
-static int describe_error(lua_State *L, lua_State *T, int level) {
+static int describe_error(lua_State *L, lua_State *T, int level, int meta) {
 	xlua_core_t *xc = xlua_core_of(L);
 	size_t reserve = xc->reserve;
 	int msg = lua_gettop(L), err = msg, is_string = lua_tostring(L, err) != NULL;
@@ -891,7 +905,7 @@ static int describe_error(lua_State *L, lua_State *T, int level) {
 	}
 	lua_rawsetp(L, LUA_REGISTRYINDEX, &errv_key);  /* the error value itself (ErrorValue); an existing key */
 	if (!is_string) {  /* is error object not a string? */
-		if (!luaL_callmeta(L, err, "__tostring") || lua_type(L, -1) != LUA_TSTRING) {
+		if (!meta || !luaL_callmeta(L, err, "__tostring") || lua_type(L, -1) != LUA_TSTRING) {
 			lua_pushfstring(L, "(error object is a %s value)", luaL_typename(L, err));
 		}
 		msg = lua_gettop(L);
@@ -906,7 +920,15 @@ static int describe_error(lua_State *L, lua_State *T, int level) {
 /* The message handler of xlua_core_call. */
 static int call_msgh(lua_State *L) {
 	lua_settop(L, 1);
-	return describe_error(L, L, 1);
+	return describe_error(L, L, 1, 1);
+}
+
+/* describe_error for the error of coroutine co (at 2) at 1, protected by
+ * co_body. */
+static int co_describe(lua_State *L) {
+	lua_State *co = lua_tothread(L, 2);
+	lua_settop(L, 1);
+	return describe_error(L, co, 0, 1);
 }
 
 typedef struct call_args {
@@ -1042,7 +1064,34 @@ static int co_body(lua_State *L, call_args *a, lua_State *co) {
 	lua_pushvalue(L, -1);
 	lua_xmove(L, co, 1);
 	if (a->status == LUA_ERRRUN) {
-		describe_error(L, co, 0);
+		/* Protected: no message handler runs here, as one does around a plain
+		 * call, and an error object's __tostring may raise. When it does, the
+		 * error is described as one whose __tostring gives no string, and it
+		 * stays the error value (ErrorValue). A memory error or a stop in
+		 * __tostring is the call's, as in a plain call. Every way out leaves
+		 * a string message (xlua_core_call relies on it). */
+		size_t reserve = xc->reserve;
+		int described;
+		lua_pushcfunction(L, co_describe);
+		lua_pushvalue(L, -2);
+		lua_pushvalue(L, 5);
+		described = lua_pcall(L, 2, 1, 0);
+		xc->reserve = reserve;
+		if (described == LUA_OK) {
+			lua_replace(L, -2);
+		}
+		else if (described != LUA_ERRRUN) {  /* LUA_ERRMEM, with Lua's message */
+			a->status = described;
+			return 1;
+		}
+		else if (xc->stop != 0) {  /* the stop's message, whatever __tostring raised after it */
+			a->status = xlua_core_fail_stopped(L, xc->stop, lua_gettop(L) - 1);
+			return 1;
+		}
+		else {
+			lua_pop(L, 1);
+			describe_error(L, co, 0, 0);
+		}
 	}
 	return call_error(L, a);
 }
@@ -1184,7 +1233,8 @@ static int call_body(lua_State *L) {
  * with the results in c->results, or an error status: XLUA_ERRSYNTAX,
  * XLUA_ERRRUN (also for a function that is not there), XLUA_ERRMEM,
  * XLUA_ERRERR, XLUA_LIMIT_* or XLUA_INTERRUPTED (from the stop reason),
- * XLUA_ERRHANDLE, XLUA_ERRTYPE, XLUA_ERRSTACK, or XLUA_ERRCONFIG for a state
+ * XLUA_ERRHANDLE, XLUA_ERRTYPE, XLUA_ERRSTACK (also "stack overflow": a C
+ * host filled the stack of L), or XLUA_ERRCONFIG for a state
  * without the sandbox or another kind. Then c->error is the message and, for a
  * runtime or limit error, c->traceback the traceback. The stack of L is left
  * as it was; the strings of the results and the message are anchored in the
@@ -1212,6 +1262,11 @@ LUA_API int xlua_core_call(lua_State *L, xlua_core_call_t *c) {
 		return XLUA_ERRCONFIG;
 	}
 	L = active_thread(L);  /* from a host function: its thread */
+	if (!lua_checkstack(L, 4)) {  /* the most this function pushes; call_body has Lua's LUA_MINSTACK */
+		c->error = "stack overflow";  /* static: valid as long as an anchored message */
+		c->error_len = (int32_t)(sizeof("stack overflow") - 1);
+		return XLUA_ERRSTACK;
+	}
 	top = lua_gettop(L);
 	a.c = c;
 	a.status = LUA_OK;
@@ -1228,9 +1283,8 @@ LUA_API int xlua_core_call(lua_State *L, xlua_core_call_t *c) {
 		status = a.status == LUA_YIELD ? LUA_OK : a.status;
 	}
 	if (status != LUA_OK) {
-		if (lua_type(L, -1) != LUA_TSTRING) {
-			lua_pushboolean(L, 0);
-		}
+		/* Always a string: call_body's own messages, Lua's for memory errors and
+		 * stops, and every Lua error described (call_msgh, co_body). */
 		lua_rawsetp(L, LUA_REGISTRYINDEX, &msg_key);  /* an existing key: no allocation */
 	}
 	xlua_core_leave(&entry);
@@ -1258,17 +1312,16 @@ LUA_API int xlua_core_call(lua_State *L, xlua_core_call_t *c) {
 			status = stop;
 		}
 		c->nresults = 0;
-		if (lua_rawgetp(L, LUA_REGISTRYINDEX, &msg_key) == LUA_TSTRING) {
-			c->error = lua_tolstring(L, -1, &len);
-			c->error_len = (int32_t)len;
-			lua_rawgetp(L, LUA_REGISTRYINDEX, &xlua_core_hosterr_key);
-			if (status == XLUA_ERRRUN && lua_rawequal(L, -1, -2)) {
-				c->flags |= XLUA_CALLF_HOST_ERROR;  /* the host function's error reached C# unchanged */
-				lua_pushboolean(L, 0);
-				lua_rawsetp(L, LUA_REGISTRYINDEX, &xlua_core_hosterr_key);
-			}
-			lua_pop(L, 1);
+		lua_rawgetp(L, LUA_REGISTRYINDEX, &msg_key);  /* a string (above) */
+		c->error = lua_tolstring(L, -1, &len);
+		c->error_len = (int32_t)len;
+		lua_rawgetp(L, LUA_REGISTRYINDEX, &xlua_core_hosterr_key);
+		if (status == XLUA_ERRRUN && lua_rawequal(L, -1, -2)) {
+			c->flags |= XLUA_CALLF_HOST_ERROR;  /* the host function's error reached C# unchanged */
+			lua_pushboolean(L, 0);
+			lua_rawsetp(L, LUA_REGISTRYINDEX, &xlua_core_hosterr_key);
 		}
+		lua_pop(L, 1);
 		if ((status == XLUA_ERRRUN || status == XLUA_LIMIT_INSTR || status == XLUA_LIMIT_TIME
 		     || status == XLUA_INTERRUPTED)
 		    && lua_rawgetp(L, LUA_REGISTRYINDEX, &trace_key) == LUA_TSTRING) {
