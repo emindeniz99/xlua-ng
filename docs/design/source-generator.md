@@ -231,11 +231,11 @@ namespace XLua.Binding
         public void Name(Type type, string luaName);                          // name table only
         public void InterfaceBridge(Type type, Func<int, LuaEnv, LuaBase> create);
         public void Delegate(Type delegateType, Func<DelegateBridge, Delegate> create);
-        public void Struct<T>(Action<ObjectTranslator, IntPtr, T> push,
-                              ObjectTranslator.GetFunc<T> get,         // wrapped per translator
-                              Action<ObjectTranslator, IntPtr, int, T> update);
-        public void Caster<T>(Action<ObjectTranslator, IntPtr, int, T> get);  // PackAsTable / table-optimised types
-        public void ArrayAccessor<T>(...);                                  // T[] get/set without boxing
+        // Version 2 (2026-10-28) replaced the generic Struct<T>, Caster<T> and
+        // ArrayAccessor<T> of this sketch: one generated StructOps method per
+        // type ("XLua.dll's own bindings" after M11).
+        public void Struct(Type type, Type arrayType, StructOps ops);       // push/get/update, T[] get/set without boxing
+        public void Caster(Type type, Type arrayType, StructOps ops);       // PackAsTable / table-optimised types
         public void ExtensionMethods(Type extended, MethodInfo[] methods);
         public void HotfixSlots(DelegateBridge[] slots, string idMapName);  // section 6
         public void Initer(Action<LuaEnv, ObjectTranslator> init);          // escape hatch, = LuaEnv.AddIniter
@@ -1621,7 +1621,9 @@ How it follows section 2 rows 6 to 8 and the M0 API:
   through one `BindingApi.AllocateSlot` per type, `TypeId` and `EnumCacheRef`
   (the registry table of M2, out of reach of scripts). Registration:
   `b.Struct<T>(Push, Get, Update)` and `b.ArrayAccessor<T>(get, set)` per value
-  type, `b.Caster<T>(Get)` and a setter-only `ArrayAccessor` per table type.
+  type, `b.Caster<T>(Get)` and a setter-only `ArrayAccessor` per table type
+  (binding API version 2 replaced them with one `Ops_` method per type,
+  [XLua.dll's own bindings](#xluadlls-own-bindings-2026-10-28)).
 - **Across assemblies:** a type configured in a referenced assembly that can
   configure xLua (xLua itself or one that references it: its
   `[assembly: GCOptimize]` attributes and `[GCOptimize]` on its public types) is
@@ -3564,6 +3566,116 @@ runs were before decision 10's message change.
 9. **"Source generator (preview)"** in MIGRATING.md and the user guides
    still says preview, although it is now the only generator. Rename the
    heading (its anchor, which other pages link to, changes with it)?
+
+### XLua.dll's own bindings (2026-10-28)
+
+The owner's question of 2026-10-28 (Q18): a strict minimal player (the
+minimal preset with the generator binding one method) carried about 10 KB of
+generated code in `XLua.dll` whatever it bound, and its APK was 8 KB larger
+than keeping reflection. Find where it comes from and shrink it without
+changing behaviour. Measurements: [build/SIZE.md](../../build/SIZE.md#the-generators-code-in-xluadll-2026-10-28).
+
+**What `XLua.dll`'s unit is.** The generator runs in every assembly that
+references `XLua.asmdef`'s folder, `XLua.dll` included. There it binds
+xLua's own configuration, which is only the eight UnityEngine GCOptimize
+defaults of `GenAttributes.cs`: `Structs`, `PackUnpack`, the registration
+and its name table. xLua declares no `[CSharpCallLua]` delegate or interface
+and no `[LuaCallCSharp]` type, so there are no bridges or wrappers of
+xLua-internal types to leave out. Each of the eight is reachable in a minimal
+project that binds nothing: `LuaTable.Get<Vector3>`, a Lua table converted to
+a `Color`, a `Vector3[]` indexed from Lua, the boxed push of a `Quaternion`
+field. None of the registration is unreachable, so none of it was dropped.
+
+**Where the bytes were.** Two thirds of what IL2CPP compiled came from
+generic code, not from the generated methods: every `b.Struct<T>` and
+`b.ArrayAccessor<T>` instantiated `AssemblyBindings.Struct<T>`,
+`ArrayAccessor<T>` and `ObjectTranslator.RegisterPushAndGetAndUpdate<T>`
+with their closure classes and nine delegate types per value type, and
+IL2CPP compiles each delegate's `Invoke` with seven helper variants. The
+table is in SIZE.md.
+
+**What changed:**
+
+- **One method per type.** The generator writes
+  `Structs.Ops_<type>(int op, translator, L, index, value, arrayIndex)`, a
+  `switch` over `XLua.Binding.StructOp` that does what the separate
+  delegates did: the boxed push, get and update, the array element get and
+  set, and the two typed delegates. Registration is
+  `b.Struct(typeof(T), typeof(T[]), Structs.Ops_<type>)` (`b.Caster` for the
+  types Lua passes as tables). The runtime's closures over `StructOps`
+  are not generic, so all types share them; the array accessors call
+  `Ops_` directly.
+- **Typed paths kept.** `ObjectTranslator.PushByType<T>` and `Get<T>`
+  still get an `Action<IntPtr, T>` and a `Func<IntPtr, int, T>` and do
+  not box (`SourceGenLauncher.cs`'s allocation check). `Push_` became an
+  extension method and `Value_` returns the value, so both delegates are
+  closed over the translator without a closure class.
+  `ObjectTranslator.RegisterStruct` (internal) is
+  `RegisterPushAndGetAndUpdate<T>` without generic code.
+- **Shared error messages.** `BindingApi.StructBuffer`, `StructPackFailed`,
+  `StructUnpackFailed` and `StructUpdateFailed` build the same texts as
+  before ("invalid userdata for UnityEngine.Bounds" and the others); the
+  generated methods pass the type's name.
+- **Binding API version 2.** `AssemblyBindings.Struct<T>`, `Caster<T>`,
+  `ArrayAccessor<T>` and the delegate types `StructGetter<T>`,
+  `ArrayElementPusher<T>` and `ArrayElementSetter<T>` are gone: kept, they
+  cost every player at Minimal stripping, generator or not (SIZE.md). The
+  generator writes code again at every compilation, so only a DLL compiled
+  elsewhere with version 1 bindings is affected; `Register` rejects it with
+  the version message and the generator reports XLSG007 (MIGRATING.md).
+- **Not changed:** the generated `Push_`, `Get_`, `Update_` and
+  `PackUnpack` bodies (besides the error calls), the selection of types, the
+  first registration of a type winning, the name table, and the manifest;
+  the generated surface (`Test/Native/expected-surface/`) is the same.
+
+Behaviour is the same, with one more delegate call on the boxed push, get
+and update of a struct (closure, then `Ops_`) and one fewer on array
+element access. Strict minimal: +505,750 to +474,990 APK bytes over the
+baseline (-30,760); legacy with the generator -33,232; minimal without the
+generator -3,468, with `XLUA_REFLECTION` -5,768.
+
+**Left as it is:**
+
+- The typed delegates (`Action<IntPtr, T>`, `Func<IntPtr, int, T>`: about
+  5 KB uncompressed for the eight types). Without them `PushByType<T>` and
+  `Get<T>` would box: a change in allocation, so a question for the owner
+  (below).
+- The `T[]` interface code IL2CPP compiles for the array types of the
+  accessors (8 KB uncompressed for `Color`, `Vector2`, `Ray` and `Ray2D`):
+  element access without boxing needs the array type.
+- The name table entries of the eight types (eight calls) and
+  `PackUnpack`'s table readers.
+
+Tested on macOS arm64 with Unity 6000.3.21f1's editor files and the .NET SDK
+10.0.401:
+
+- `build_source_generator.py --test`: 44 of 44.
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`
+  with host plugins built from this tree: Lua 5.5.1 and LuaJIT, each in the
+  legacy preset and with `--define XLUA_PRESET_MINIMAL` (the minimal
+  libraries): 508 tests in each of two modes in every pass, surface, bridge
+  and struct diffs equal to `expected-surface/suite.json`.
+- `editor_compile_check.py`, 7 editors x 85 configurations: 587 ok,
+  7 skipped, and one crash of Mono's csc (`player-ios-minimal-hotfix` on
+  6000.3.26f1, ok when run again).
+- `size_report.py run --configs strict,sg-minimal` before and after
+  (SIZE.md).
+
+Not run: the Unity editor suite, `asmdef_compile_check.py`, `hotfix_check.py`
+(no hotfix code changed), iOS, WebGL, High stripping, a phone.
+
+**Questions for the owner:**
+
+1. **Binding API version 2** removes the version 1 generic registration
+   methods, which no release has shipped. Keep that, or restore them next to
+   the new forms for DLLs compiled with version 1 bindings (3,716 bytes more
+   in every Minimal-stripped player than without them, measured with both
+   present)?
+2. **The typed struct delegates:** keep them (no boxing in
+   `LuaTable.Get<Vector3>` and the other generic calls), or let those calls
+   box and save an estimated 2 KB of APK for the eight default types (from
+   their 5 KB of uncompressed code; not built), more for a project with
+   many GCOptimize types or `[LuaCallCSharp]` enums?
 
 ## 10. Open questions for the owner
 
