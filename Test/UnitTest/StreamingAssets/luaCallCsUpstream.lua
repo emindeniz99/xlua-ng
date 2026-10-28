@@ -525,3 +525,9 @@ end
 function CMyTestCaseLuaCallCSUpstream.CaseDisposeWhileRunningThrows(self)
     ASSERT_EQ(CS.Upstream.UnprotectedRaises.DisposeWhileRunning(), "")
 end
+
+-- Deep C# <-> Lua recursion: "C stack overflow" at the same depth on every Lua
+-- version; LuaJIT crashed (crash-inventory.md, item 7).
+function CMyTestCaseLuaCallCSUpstream.CaseDeepCSharpRecursion(self)
+    ASSERT_EQ(CS.Upstream.DeepRecursion.Check(), "")
+end

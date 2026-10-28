@@ -182,6 +182,7 @@ return {
 
     -- CMyTestCaseLuaCallCSUpstream
     ["CMyTestCaseLuaCallCSUpstream.CaseBridgeAfterDisposeThrows"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseDeepCSharpRecursion"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseDisposeWhileRunningThrows"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEmitCacheEnvsOnThreads"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEmitCacheOneAssembly"] = true,

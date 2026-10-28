@@ -1550,6 +1550,73 @@ namespace Upstream
         }
     }
 
+    // LuaJIT has no limit on nested C calls: Lua -> C# -> Lua -> C# ... ran
+    // until the C stack overflowed (SIGSEGV at about 10,240 levels;
+    // docs/research/crash-inventory.md, item 7). PUC Lua stops at
+    // LUAI_MAXCCALLS with "C stack overflow" when the 199th C# function calls
+    // into Lua, and the trampolines now stop LuaJIT at the same depth. The
+    // count is per thread, so the check runs on a thread of its own (with room
+    // for the frames of 200 levels) where no other C# call is active.
+    public static class DeepRecursion
+    {
+        static int deepest;
+
+        public static int Depth(LuaFunction f, int n)
+        {
+            if (n > deepest) deepest = n;
+            return Convert.ToInt32(f.Call(n)[0]);
+        }
+
+        static string recurse(LuaEnv env, string what)
+        {
+            deepest = 0;
+            string got;
+            try
+            {
+                env.DoString("return rec(0)");
+                got = "no error";
+            }
+            catch (LuaException e)
+            {
+                got = e.Message;
+            }
+            if (!got.Contains("C stack overflow"))
+            {
+                return what + ": " + got.Substring(0, Math.Min(300, got.Length)) + "; ";
+            }
+            return deepest == 199 ? "" : what + ": the error came 199 levels deep on Lua 5.3 to 5.5, here " + deepest + "; ";
+        }
+
+        public static string Check()
+        {
+            string r = null;
+            var thread = new System.Threading.Thread(() =>
+            {
+                try
+                {
+                    using (var env = new LuaEnv())
+                    {
+                        env.DoString("function rec(n) return CS.Upstream.DeepRecursion.Depth(rec, n + 1) end");
+                        r = recurse(env, "first");
+                        // The count went back after the error: the same depth again,
+                        // and a recursion below the limit returns.
+                        r += recurse(env, "second");
+                        env.DoString("function rec50(n) if n == 50 then return n end return CS.Upstream.DeepRecursion.Depth(rec50, n + 1) end");
+                        int fifty = Convert.ToInt32(env.DoString("return rec50(0)")[0]);
+                        if (fifty != 50) r += "rec50 returned " + fifty + "; ";
+                    }
+                }
+                catch (Exception e)
+                {
+                    r += e.GetType().Name + ": " + e.Message;
+                }
+            }, 64 * 1024 * 1024);
+            thread.Start();
+            thread.Join();
+            return r;
+        }
+    }
+
     // Lua API calls from C# that raised a Lua error with no handler, or
     // through managed frames (docs/research/crash-inventory.md). With no
     // handler Lua panicked: xLua's panic function threw "unprotected error in

@@ -12,7 +12,8 @@ public static class ReproTarget
 {
     public static LuaEnv Env;
     public static void DisposeEnv() { Env.Dispose(); }
-    public static int Depth(LuaFunction f, int n) { if (n % 1000 == 0) { Console.WriteLine("depth " + n); Console.Out.Flush(); } return Convert.ToInt32(f.Call(n)[0]); }
+    public static int MaxDepth;
+    public static int Depth(LuaFunction f, int n) { if (n > MaxDepth) MaxDepth = n; if (n % 1000 == 0) { Console.WriteLine("depth " + n); Console.Out.Flush(); } return Convert.ToInt32(f.Call(n)[0]); }
     public static int Sum(int[] a) { int s = 0; foreach (var x in a) s += x; return s; }
     public static int Count(List<int> a) { return a.Count; }
     public static void Recurse() { Recurse(); }
@@ -83,6 +84,7 @@ public static class CrashRepro
                 env.DoString("function rec(n) return CS.ReproTarget.Depth(rec, n + 1) end");
                 try { env.DoString("return rec(0)"); }
                 catch (LuaException e) { Console.WriteLine("LuaException: " + e.Message.Split('\n')[0]); }
+                Console.WriteLine("deepest C# call: " + ReproTarget.MaxDepth);
                 break;
             case "lua_stack_overflow":
                 try { env.DoString("local function f() return 1 + f() end return f()"); }
