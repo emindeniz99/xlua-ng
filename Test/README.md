@@ -3791,7 +3791,18 @@ probe log `XLUA_SIZE_TIMING` lines for six Lua calls into wrapped types;
 source generator, plain and in its GCM mode, from the package (results, with
 the Generate Code rows measured before M11, in [build/SIZE.md](../build/SIZE.md#a-game-sized-configuration-2026-10-18)).
 The `+game` lists are computed from the Editor's assemblies, so another Unity
-version may need more `EditorOnlyFilter` entries and a new `SizeGameSgConfig.cs`. A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
+version may need more `EditorOnlyFilter` entries and a new `SizeGameSgConfig.cs`.
+`+linkall`, `+linkpublic` and `+linktype` add one link.xml
+(`SizeLinkXml.cs`, an `IUnityLinkerProcessor` in `Assets/Editor`) for every
+type Assembly-CSharp configures with `[assembly: LuaCallCSharp]` or
+`[assembly: ReflectionUse]`: `preserve="all"`, the public members the type
+declares, or the type alone. Without `+sg` the configuration's
+`[LuaCallCSharp]` types become `[ReflectionUse]` types and nothing is
+generated. Every `+sg` and `+link*` player also gets the link.xml files
+UnityLinker read (`link-*.xml`). `--configs linkxml-minimal,linkxml-high`
+builds them with the game configuration (results in
+[build/SIZE.md](../build/SIZE.md#what-linkxml-preservation-costs-2026-10-28)).
+A `+nosa` variant compiles with `XLUA_NO_STREAMING_ASSETS_LOADER`;
 `+nosig`, `+notemplate`, `+noutil` and `+noprofiler` add `XLUA_NO_SIGNATURE_LOADER`,
 `XLUA_NO_TEMPLATE`, `XLUA_NO_UTIL` and `XLUA_NO_PROFILER` (not in `CASES`; pass
 them with `--variants`). `+minimal` puts `XLUA_PRESET_MINIMAL` into the Player
