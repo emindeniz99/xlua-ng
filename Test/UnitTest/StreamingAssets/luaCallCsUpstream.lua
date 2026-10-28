@@ -532,6 +532,19 @@ function CMyTestCaseLuaCallCSUpstream.CaseBridgeAfterDisposeThrows(self)
     ASSERT_EQ(CS.Upstream.DisposedEnvBridges.DisposeTwice(), "")
 end
 
+-- A LuaFunction, LuaTable, delegate or interface bridge used after its own
+-- Dispose while the env lives throws ObjectDisposedException; it used to reach
+-- the object that reused its registry reference (crash-inventory.md, item 12).
+function CMyTestCaseLuaCallCSUpstream.CaseDisposedLuaBaseThrows(self)
+    ASSERT_EQ(CS.Upstream.DisposedLuaBase.Check(), "")
+end
+
+-- An error in __gc no longer escapes LuaEnv.FullGc or LuaEnv.Dispose; on Lua
+-- 5.3.6 it ended in the panic handler (crash-inventory.md, item 8).
+function CMyTestCaseLuaCallCSUpstream.CaseGcErrorsAreWarnings(self)
+    ASSERT_EQ(CS.Upstream.GcErrors.Check(), "")
+end
+
 -- Lua API calls from C# that raised without a handler or through managed
 -- frames (docs/research/crash-inventory.md): table traversal that the action
 -- changed, a __len metamethod that raises, LuaEnv.Dispose from a running call.

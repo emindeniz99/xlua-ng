@@ -137,6 +137,7 @@ xlua_tocsobj_fast
 xlua_tocsobj_safe
 xlua_tointeger
 xlua_tointeger64
+xlua_tostructbuffer
 xlua_touint
 xlua_tryget_cachedud
 xlua_tryget_cachedud_checked

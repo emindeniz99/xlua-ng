@@ -15,7 +15,7 @@ namespace XLua {
 #if THREAD_SAFE || HOTFIX_ENABLE
 			lock(luaEnv.luaEnvLock) {
 #endif
-				var L = luaEnv.L;
+				var L = State;
                 int oldTop = LuaAPI.lua_gettop(L);
                 int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
                 LuaAPI.lua_getref(L, luaReference);
@@ -32,7 +32,7 @@ namespace XLua {
 #if THREAD_SAFE || HOTFIX_ENABLE
 			lock(luaEnv.luaEnvLock) {
 #endif
-				var L = luaEnv.L;
+				var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
@@ -51,7 +51,7 @@ namespace XLua {
 #if THREAD_SAFE || HOTFIX_ENABLE
 			lock(luaEnv.luaEnvLock) {
 #endif
-				var L = luaEnv.L;
+				var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
@@ -71,7 +71,7 @@ namespace XLua {
 #if THREAD_SAFE || HOTFIX_ENABLE
 			lock(luaEnv.luaEnvLock) {
 #endif
-				var L = luaEnv.L;
+				var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
@@ -92,7 +92,7 @@ namespace XLua {
 #if THREAD_SAFE || HOTFIX_ENABLE
 			lock(luaEnv.luaEnvLock) {
 #endif
-				var L = luaEnv.L;
+				var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
@@ -115,7 +115,7 @@ namespace XLua {
 #if THREAD_SAFE || HOTFIX_ENABLE
 			lock(luaEnv.luaEnvLock) {
 #endif
-				var L = luaEnv.L;
+				var L = State;
 				var translator = luaEnv.translator;
 				int oldTop = LuaAPI.lua_gettop(L);
 				int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
@@ -141,7 +141,7 @@ namespace XLua {
 #if THREAD_SAFE || HOTFIX_ENABLE
 			lock(luaEnv.luaEnvLock) {
 #endif
-				var L = luaEnv.L;
+				var L = State;
 				var translator = luaEnv.translator;
 				int oldTop = LuaAPI.lua_gettop(L);
 				int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
@@ -168,7 +168,7 @@ namespace XLua {
 #if THREAD_SAFE || HOTFIX_ENABLE
 			lock(luaEnv.luaEnvLock) {
 #endif
-				var L = luaEnv.L;
+				var L = State;
 				var translator = luaEnv.translator;
 				int oldTop = LuaAPI.lua_gettop(L);
 				int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
@@ -196,7 +196,7 @@ namespace XLua {
 #if THREAD_SAFE || HOTFIX_ENABLE
 			lock(luaEnv.luaEnvLock) {
 #endif
-				var L = luaEnv.L;
+				var L = State;
 				var translator = luaEnv.translator;
 				int oldTop = LuaAPI.lua_gettop(L);
 				int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);
@@ -225,7 +225,7 @@ namespace XLua {
 #if THREAD_SAFE || HOTFIX_ENABLE
 			lock(luaEnv.luaEnvLock) {
 #endif
-				var L = luaEnv.L;
+				var L = State;
 				var translator = luaEnv.translator;
 				int oldTop = LuaAPI.lua_gettop(L);
 				int errFunc = LuaAPI.load_error_func(L, luaEnv.errorFuncRef);

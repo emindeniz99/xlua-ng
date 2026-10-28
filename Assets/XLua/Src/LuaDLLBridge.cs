@@ -840,6 +840,13 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_gettypeid(IntPtr L, int idx);
 
+        // The struct userdata at idx for the pack and unpack helpers, or IntPtr.Zero
+        // unless xlua_gettypeid(L, idx) is type_id and its block holds what its
+        // header says (not so for a userdata that only has a struct's metatable);
+        // the helpers return false for IntPtr.Zero.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr xlua_tostructbuffer(IntPtr L, int idx, int type_id);
+
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_get_registry_index();
 

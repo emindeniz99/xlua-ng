@@ -176,17 +176,25 @@ namespace XLua.Binding
 
         // The buffer of the GCOptimize struct or enum userdata at index for
         // the generated Get_ and Update_ methods; raises when the userdata
-        // holds another type. typeName is the type as the error names it. The
-        // error is ObjectCasters.StructExpected's, as in the other binding
+        // holds another type. typeName is the type as the error names it.
+        // One native call checks the type id and that the block holds the
+        // header and the bytes it announces (xlua_tostructbuffer); it was
+        // xlua_gettypeid and lua_touserdata, which trusted the header of any
+        // userdata given the type's metatable (docs/research/crash-inventory.md,
+        // item 10). Zero for such a userdata: Pack and UnPack return false for
+        // it, which raises "pack fail" or "unpack fail". Another type's
+        // userdata raises ObjectCasters.StructExpected, as in the other binding
         // modes (owner decision Q36 of 2026-10-28: "T expected, got C" for a C#
         // object of another class); it was Exception("invalid userdata for T").
         public static IntPtr StructBuffer(ObjectTranslator translator, RealStatePtr L, int index, int slot, string typeName)
         {
-            if (LuaAPI.xlua_gettypeid(L, index) != TypeId(translator, L, slot))
+            int typeId = TypeId(translator, L, slot);
+            IntPtr buff = LuaAPI.xlua_tostructbuffer(L, index, typeId);
+            if (buff == IntPtr.Zero && LuaAPI.xlua_gettypeid(L, index) != typeId)
             {
                 throw ObjectCasters.StructExpected(L, index, typeName);
             }
-            return LuaAPI.lua_touserdata(L, index);
+            return buff;
         }
 
         // The errors of the generated GCOptimize pushers, shared so that each
@@ -332,10 +340,10 @@ namespace XLua.Binding
         }
 
         // The Lua state of a bridge's LuaEnv; throws ObjectDisposedException when
-        // the env is disposed (one comparison, LuaEnv.L).
+        // the bridge or the env is disposed (LuaBase.State).
         public static RealStatePtr State(LuaBase o)
         {
-            return o.Env.L;
+            return o.State;
         }
 
         // Bindings generated before 2026-10-19 call this; it is State now. It
@@ -343,7 +351,7 @@ namespace XLua.Binding
         // after LuaEnv.Dispose passed NULL to pcall_prepare (Tencent/xLua#999).
         public static RealStatePtr RawState(LuaBase o)
         {
-            return o.Env.L;
+            return o.State;
         }
 
         public static ObjectTranslator Translator(LuaBase o)

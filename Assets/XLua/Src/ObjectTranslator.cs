@@ -2180,12 +2180,13 @@ namespace XLua
             LuaTypes lua_type = LuaAPI.lua_type(L, index);
             if (lua_type == LuaTypes.LUA_TUSERDATA)
             {
-                if (LuaAPI.xlua_gettypeid(L, index) != decimal_type_id)
+                // Zero for a userdata of another type, or one that only has the
+                // metatable of decimal (UnPack then fails).
+                IntPtr buff = LuaAPI.xlua_tostructbuffer(L, index, decimal_type_id);
+                if (buff == IntPtr.Zero && LuaAPI.xlua_gettypeid(L, index) != decimal_type_id)
                 {
                     throw new Exception("invalid userdata for decimal!");
                 }
-
-                IntPtr buff = LuaAPI.lua_touserdata(L, index);
 
                 if (!CopyByValue.UnPack(buff, 0, out val))
                 {

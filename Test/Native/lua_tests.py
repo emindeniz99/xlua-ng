@@ -107,6 +107,19 @@ ADJUST = [
      '  assert(not io.flush())    -- cannot write to device\n  assert(f:close())\nend',
      '  assert(not io.flush())    -- cannot write to device\n  assert(f:close())\n  ::no_dev_full::\nend',
      "end of the skipped /dev/full block"),
+    # xLua's Lua 5.3.6 reports an error in a __gc finalizer on stderr and keeps
+    # collecting, as Lua 5.4 does with a warning (build/LUA_PATCHES.md, owner
+    # decision of 2026-10-28); upstream 5.3 raised it from the collection.
+    # collectgarbage() no longer fails, and every pending finalizer runs in it.
+    (("5.3.6",), None, "gc.lua", "assert(not pcall(collectgarbage))\nfor i = 8, 10 do assert(s[i]) end",
+     "assert(pcall(collectgarbage))\nfor i = 6, 10 do assert(s[i]) end", "__gc errors are warnings"),
+    (("5.3.6",), None, "gc.lua",
+     'local a, b = pcall(collectgarbage)\nassert(not a and type(b) == "string" and string.find(b, "error in __gc"))',
+     "assert(pcall(collectgarbage))", "__gc errors are warnings"),
+    (("5.3.6",), None, "gc.lua", "u = nil\nassert(not pcall(collectgarbage))", "u = nil\nassert(pcall(collectgarbage))",
+     "__gc errors are warnings"),
+    (("5.3.6",), None, "api.lua", "  assert(a == 10)  -- number of errors", "  assert(a == 0)  -- __gc errors are warnings",
+     "__gc errors are warnings"),
     # xLua's opt-in Lua 5.3 LUAC_COMPATIBLE_FORMAT bytecode writes format 1
     # and drops the sizeof(size_t) byte from the header (lundump.h, ldump.c).
     (("5.3.6",), "compatible-format", "calls.lua", 'local header = string.pack("c4BBc6BBBBBj",',

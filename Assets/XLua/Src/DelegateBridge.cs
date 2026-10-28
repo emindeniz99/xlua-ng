@@ -163,11 +163,11 @@ namespace XLua
         {
             System.Threading.Monitor.Enter(luaEnv.luaEnvLock);
             RealStatePtr L = luaEnv.rawL;
-            if (L == RealStatePtr.Zero)
+            if (L == RealStatePtr.Zero || disposed)
             {
-                // A disposed env: leave the lock this session will not end.
+                // A disposed env or bridge: leave the lock this session will not end.
                 System.Threading.Monitor.Exit(luaEnv.luaEnvLock);
-                LuaEnv.ThrowDisposed();
+                L = State; // throws ObjectDisposedException
             }
             _stack.Push(_oldTop);
             _oldTop = LuaAPI.lua_gettop(L);

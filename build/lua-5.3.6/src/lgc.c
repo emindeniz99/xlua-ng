@@ -10,6 +10,7 @@
 #include "lprefix.h"
 
 
+#include <stdio.h>  /* xlua-ng: stderr for errors in __gc (GCTM) */
 #include <string.h>
 
 #include "lua.h"
@@ -831,15 +832,20 @@ static void GCTM (lua_State *L, int propagateerrors) {
     L->ci->callstatus &= ~CIST_FIN;  /* not running a finalizer anymore */
     L->allowhook = oldah;  /* restore hooks */
     g->gcrunning = running;  /* restore state */
-    if (status != LUA_OK && propagateerrors) {  /* error while running __gc? */
-      if (status == LUA_ERRRUN) {  /* is there an error object? */
-        const char *msg = (ttisstring(L->top - 1))
-                            ? svalue(L->top - 1)
-                            : "no message";
-        luaO_pushfstring(L, "error in __gc metamethod (%s)", msg);
-        status = LUA_ERRGCMM;  /* error in __gc metamethod */
-      }
-      luaD_throw(L, status);  /* re-throw error */
+    /* xlua-ng: an error in __gc is reported and dropped, as Lua 5.4 does
+       (GCTM calls luaE_warnerror), instead of being raised again from the
+       collection step that ran the finalizer: that step can be any allocation,
+       also in an unprotected API call (lua_gc, lua_pushstring), where the
+       error is a panic. 5.3 has no warning system, so the message goes to
+       stderr in the text 5.4 gives it once warnings are on. */
+    UNUSED(propagateerrors);
+    if (status != LUA_OK) {  /* error while running __gc? */
+      const char *msg = (ttisstring(L->top - 1))
+                          ? svalue(L->top - 1)
+                          : "error object is not a string";
+      fprintf(stderr, "Lua warning: error in __gc (%s)\n", msg);
+      fflush(stderr);
+      L->top--;  /* pops error object */
     }
   }
 }

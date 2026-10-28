@@ -36,7 +36,7 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                var L = luaEnv.L;
+                var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 LuaAPI.lua_getref(L, luaReference);
@@ -81,7 +81,7 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                var L = luaEnv.L;
+                var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 LuaAPI.lua_getref(L, luaReference);
@@ -112,7 +112,7 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                var L = luaEnv.L;
+                var L = State;
                 int oldTop = LuaAPI.lua_gettop(L);
                 var translator = luaEnv.translator;
 
@@ -137,7 +137,7 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                var L = luaEnv.L;
+                var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 LuaAPI.lua_getref(L, luaReference);
@@ -177,7 +177,7 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                var L = luaEnv.L;
+                var L = State;
                 int oldTop = LuaAPI.lua_gettop(L);
                 LuaAPI.lua_getref(L, luaReference);
                 luaEnv.translator.PushByType(L, val);
@@ -224,7 +224,7 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                var L = luaEnv.L;
+                var L = State;
                 var translator = luaEnv.translator;
                 int oldTop = LuaAPI.lua_gettop(L);
                 try
@@ -268,7 +268,7 @@ namespace XLua
                 lock (luaEnv.luaEnvLock)
                 {
 #endif
-                    var L = luaEnv.L;
+                    var L = State;
                     int oldTop = LuaAPI.lua_gettop(L);
                     LuaAPI.lua_getref(L, luaReference);
                     uint len;
@@ -290,7 +290,7 @@ namespace XLua
 #endif
         public IEnumerable GetKeys()
         {
-            var L = luaEnv.L;
+            var L = State;
             var translator = luaEnv.translator;
             int oldTop = LuaAPI.lua_gettop(L);
             try
@@ -319,7 +319,7 @@ namespace XLua
 #endif
         public IEnumerable<T> GetKeys<T>()
         {
-            var L = luaEnv.L;
+            var L = State;
             var translator = luaEnv.translator;
             int oldTop = LuaAPI.lua_gettop(L);
             try
@@ -376,10 +376,11 @@ namespace XLua
             lock (luaEnv.luaEnvLock)
             {
 #endif
-                push(luaEnv.L);
-                metaTable.push(luaEnv.L);
-                LuaAPI.lua_setmetatable(luaEnv.L, -2);
-                LuaAPI.lua_pop(luaEnv.L, 1);
+                var L = State;
+                push(L);
+                metaTable.push(L);
+                LuaAPI.lua_setmetatable(L, -2);
+                LuaAPI.lua_pop(L, 1);
 #if THREAD_SAFE || HOTFIX_ENABLE
             }
 #endif
@@ -387,7 +388,7 @@ namespace XLua
 
         public T Cast<T>()
         {
-            var L = luaEnv.L;
+            var L = State;
             var translator = luaEnv.translator;
 #if THREAD_SAFE || HOTFIX_ENABLE
             lock (luaEnv.luaEnvLock)
@@ -409,10 +410,6 @@ namespace XLua
 #endif
         }
 
-        internal override void push(RealStatePtr L)
-        {
-            LuaAPI.lua_getref(L, luaReference);
-        }
         public override string ToString()
         {
             return "table :" + luaReference;

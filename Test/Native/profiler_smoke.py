@@ -100,6 +100,102 @@ plain_closure = function() return number, text end
     assert any(edge[:3] == (objects["root"], objects["float_key"], 2) and edge[4] == 1.5 for edge in edges)
     # Only table upvalues are references; numbers and strings are not reported.
     assert not any(edge[0] == objects["plain_closure"] for edge in edges), edges
+
+    # Tencent/xLua#1149 (https://github.com/Tencent/xLua/issues/1149; owner decision
+    # of 2026-10-28, crash-inventory.md item 11): the walks run over G(L)->allgc,
+    # which in the collector's sweep phase still holds dead objects that point to
+    # objects swept and freed already (the keys of a dead table, the upvalue boxes
+    # of a dead closure on Lua 5.4 and 5.5). Each round makes garbage whose parts
+    # are newer than their owners (swept first), then walks after every small
+    # collection step; the callbacks read every key and source name. Before the
+    # fix AddressSanitizer reported the reads of freed memory (sanitize.sh); the
+    # names must also be what the script made. The walks also stop the collector
+    # and restore its state.
+    bad = []
+
+    def read_edge(parent, child, kind, key, number, upvalue):
+        # ctypes reads each string here; key is the source name for kind 5.
+        for text in (key, upvalue):
+            if text is not None and (not text or any(b < 32 or b > 126 for b in text)):
+                bad.append(text)
+
+    read_callback = graph_cb(read_edge)
+    size_callback = size_cb(lambda obj, size: None)
+    # Small collection steps, so that the sweep phase spans many of them:
+    # one single step per call on Lua 5.4 (step size 2^1 bytes), about 340
+    # objects on 5.3 (the smallest multiplier), 200 on 5.5 (step size 800 bytes;
+    # a size that makes no work at all runs a whole cycle in one step).
+    garbage_code = b"""
+return function(round)
+    collectgarbage()
+    collectgarbage("stop")  -- only the steps below collect
+    if _VERSION == "Lua 5.4" then
+        collectgarbage("incremental", 0, 0, 1)
+    elseif _VERSION == "Lua 5.5" then
+        collectgarbage("incremental")
+        collectgarbage("param", "stepsize", 800)
+    else
+        collectgarbage("setstepmul", 40)
+    end
+    for i = 1, 1500 do
+        local t = {}
+        t["dead_key_" .. round .. "_" .. i] = {}  -- key and value newer than t
+        local up = {}
+        local f = function() return up end  -- its upvalue box is newer than f
+    end
+end
+"""
+    lib.lua_setglobal.argtypes = [P, C.c_char_p]
+    assert lib.luaL_loadstring(state, garbage_code) == 0 and lib.lua_pcall(state, 0, 1, 0) == 0
+    lib.lua_setglobal(state, b"make_garbage")
+    lib.lua_toboolean.argtypes = [P, C.c_int]
+    walks = 0
+    for round_ in range(4):
+        assert lib.luaL_loadstring(state, b"make_garbage(%d)" % round_) == 0
+        assert lib.lua_pcall(state, 0, 0, 0) == 0
+        for _ in range(5000):
+            assert lib.luaL_loadstring(state, b"return collectgarbage('step', 0)") == 0
+            assert lib.lua_pcall(state, 0, 1, 0) == 0
+            cycle_done = lib.lua_toboolean(state, -1)
+            lib.lua_settop(state, 0)
+            lib.xlua_report_object_relationship(state, read_callback)
+            lib.xlua_report_table_size(state, size_callback, walks % 2)
+            walks += 1
+            assert lib.xlua_gc(state, 9, 0) == 0  # LUA_GCISRUNNING: still stopped
+            if cycle_done:
+                break
+    assert not bad, bad[:10]
+    assert walks > 8, walks
+    # A running collector is stopped during a walk and runs again after it.
+    lib.xlua_gc(state, 1, 0)  # LUA_GCRESTART
+    lib.xlua_report_table_size(state, size_callback, 1)
+    lib.xlua_report_object_relationship(state, read_callback)
+    assert lib.xlua_gc(state, 9, 0) == 1
+    # A stopped collector stays stopped.
+    lib.xlua_gc(state, 0, 0)  # LUA_GCSTOP
+    lib.xlua_report_table_size(state, size_callback, 1)
+    lib.xlua_report_object_relationship(state, read_callback)
+    assert lib.xlua_gc(state, 9, 0) == 0
+    lib.xlua_gc(state, 1, 0)  # LUA_GCRESTART
+
+    # A walk from a C function whose free slots are used up (a C# function called
+    # from Lua): it pushed each closure without lua_checkstack, past the stack
+    # (Lua's API checks, sanitize.sh, stopped it); it grows the stack now.
+    full_edges = []
+
+    def full_stack(L):
+        for _ in range(20):  # LUA_MINSTACK
+            lib.lua_pushnil(L)
+        lib.xlua_report_object_relationship(L, graph_cb(
+            lambda parent, child, kind, key, number, upvalue: full_edges.append((parent, child, kind))))
+        return 0
+
+    full_stack_fn = C.CFUNCTYPE(C.c_int, P)(full_stack)
+    lib.lua_pushnil.argtypes = [P]
+    lib.lua_pushcclosure.argtypes = [P, P, C.c_int]
+    lib.lua_pushcclosure(state, C.cast(full_stack_fn, P), 0)
+    assert lib.lua_pcall(state, 0, 0, 0) == 0
+    assert (objects["closure"], objects["child"], 5) in full_edges, "no closure edge with a full stack"
     print("XLUA_PROFILER_SMOKE_PASS")
 finally:
     lib.lua_close(state)
