@@ -60,14 +60,19 @@ namespace XLuaBench
         public static float SumVecBoxed(BenchVec3Boxed v) { return v.x + v.y + v.z; }
         // Overload selection: Disjoint's overloads never match the same
         // value; Num's both match an integer (double declared first), and
-        // Obj's both match a BenchTarget (object declared first).
+        // Obj's both match a BenchTarget (object declared first); a
+        // BenchDerived costs one base class level for Obj(BenchTarget).
         public static int Disjoint(int a) { return a; }
         public static int Disjoint(string s) { return s.Length; }
         public static int Num(double a) { return 1; }
         public static int Num(int a) { return 2; }
         public static int Obj(object o) { return 1; }
         public static int Obj(BenchTarget o) { return 2; }
+        public static BenchTarget NewDerived() { return new BenchDerived(); }
     }
+
+    // Not configured: its wrapper comes from reflection or CodeEmit.
+    public class BenchDerived : BenchTarget { }
 
     [CSharpCallLua] public delegate void RunN(int n);
     [CSharpCallLua] public delegate double NumFn();
@@ -152,6 +157,7 @@ namespace XLuaBench
             add("lua_cs", "overload_num_integer", B, () => LuaLoop("local f = T.Num\nreturn function(n) for i = 1, n do f(i) end end"));
             add("lua_cs", "overload_num_float", B, () => LuaLoop("local f = T.Num\nreturn function(n) for i = 1, n do f(i + 0.5) end end"));
             add("lua_cs", "overload_obj_class", B, () => LuaLoop("local f, o = T.Obj, T()\nreturn function(n) for i = 1, n do f(o) end end"));
+            add("lua_cs", "overload_obj_derived", B, () => LuaLoop("local f, o = T.Obj, T.NewDerived()\nreturn function(n) for i = 1, n do f(o) end end"));
             add("lua_cs", "xlua_field_lookup", B, () => LuaLoop("return function(n) local f for i = 1, n do f = xlua.cast end return f end"));
 
             // C# -> Lua

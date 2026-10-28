@@ -402,12 +402,32 @@ namespace XLua
 
 			internal int Pick(ObjectTranslator translator, RealStatePtr L)
 			{
-				int best = -1, bestScore = int.MaxValue;
+				int best = -1, bestScore = int.MaxValue, number = -1;
 				for (int i = 0; i < types.Length; i++)
 				{
-					if (!translator.Assignable(L, 2, types[i])) continue;
-					if (!scored) return i;
-					int score = OverloadScore.Arg(translator, L, 2, kinds[i], scoreTypes[i]);
+					int score;
+					if (!scored)
+					{
+						if (translator.Assignable(L, 2, types[i])) return i;
+						continue;
+					}
+					// The check reads what the cost needs (OverloadScore.NumberCheck, CheckedArg).
+					int kind = kinds[i];
+					if (OverloadScore.IsNumeric(kind) && kind < OverloadScore.KindNullable)
+					{
+						if (!OverloadScore.NumberCheck(translator, L, 2, types[i], kind, ref number)) continue;
+						score = OverloadScore.NumberArg(L, 2, kind, ref number);
+					}
+					else if (kind == OverloadScore.KindOther)
+					{
+						score = OverloadScore.CheckedArg(translator, L, 2, types[i]);
+						if (score < 0) continue;
+					}
+					else
+					{
+						if (!translator.Assignable(L, 2, types[i])) continue;
+						score = OverloadScore.Arg(translator, L, 2, kind, scoreTypes[i]);
+					}
 					if (score < bestScore)
 					{
 						best = i;
