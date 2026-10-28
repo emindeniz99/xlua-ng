@@ -1667,6 +1667,21 @@ namespace Coverage
         {
             return new MultiListedPair { a = p.b, b = p.a };
         }
+
+        // params arrays of GCOptimize structs (CaseParityStructParams).
+        public static float SumVecs(params MultiListedVec[] v)
+        {
+            float sum = 0;
+            foreach (var e in v) sum += e.x + e.y;
+            return sum;
+        }
+
+        public static int SumPairs(params MultiListedPair[] p)
+        {
+            int sum = 0;
+            foreach (var e in p) sum += e.a * 10 + e.b;
+            return sum;
+        }
     }
 
     public class MultiReflected
@@ -1790,6 +1805,10 @@ namespace Coverage
         public string OptKind(int a, ParityKind k = ParityKind.B) { return a + ":" + k; }
         public string NulKind(ParityKind? k) { return k.HasValue ? "has " + k.Value : "null"; }
         public ParityKind KindField = ParityKind.A;
+        // params arrays of structs and enums (CaseParityStructParams).
+        public string ParamsStructs(params ParityStruct[] s) { return s.Length + ":" + string.Join(",", Array.ConvertAll(s, v => v.X.ToString())); }
+        public string ParamsNulStructs(params ParityStruct?[] s) { return s.Length + ":" + string.Join(",", Array.ConvertAll(s, v => v.HasValue ? v.Value.X.ToString() : "null")); }
+        public string ParamsKinds(params ParityKind[] k) { return k.Length + ":" + string.Join(",", Array.ConvertAll(k, v => v.ToString())); }
     }
 
     // [BlackList] on an indexer: left out in every mode.
@@ -1903,6 +1922,10 @@ namespace Coverage
         public string OptKind(int a, ParityReflectedKind k = ParityReflectedKind.B) { return a + ":" + k; }
         public string NulKind(ParityReflectedKind? k) { return k.HasValue ? "has " + k.Value : "null"; }
         public ParityReflectedKind KindField = ParityReflectedKind.A;
+        // params arrays of structs and enums (CaseParityStructParams).
+        public string ParamsStructs(params ParityReflectedStruct[] s) { return s.Length + ":" + string.Join(",", Array.ConvertAll(s, v => v.X.ToString())); }
+        public string ParamsNulStructs(params ParityReflectedStruct?[] s) { return s.Length + ":" + string.Join(",", Array.ConvertAll(s, v => v.HasValue ? v.Value.X.ToString() : "null")); }
+        public string ParamsKinds(params ParityReflectedKind[] k) { return k.Length + ":" + string.Join(",", Array.ConvertAll(k, v => v.ToString())); }
     }
 
     // ObsoleteOperator without configuration: reflection wrappers in the source
@@ -2002,6 +2025,15 @@ namespace Coverage
     public delegate MultiListedPair ParityPairResult();
     [CSharpCallLua]
     public delegate ParityKind ParityKindResult();
+    // Nullable<S> results (CaseParityStructResultKinds, owner decision Q59).
+    [CSharpCallLua]
+    public delegate ParityStruct? ParityNulStructResult();
+    [CSharpCallLua]
+    public delegate ParityReflectedStruct? ParityNulReflectedStructResult();
+    [CSharpCallLua]
+    public delegate MultiListedVec? ParityNulVecResult();
+    [CSharpCallLua]
+    public delegate MultiListedPair? ParityNulPairResult();
 
     [LuaCallCSharp]
     public static class ParityResults
@@ -2140,6 +2172,66 @@ namespace Coverage
                 Text(() => t.Get<MultiListedPair>(key).a.ToString()),
             });
         }
+
+        // Owner decision Q59 of 2026-10-28: a Nullable<S> C# reads back from
+        // Lua given a value of another kind raises "S expected, got <kind>" in
+        // every binding mode, as S does (Q56); nil and nothing give null. Before,
+        // these paths gave null. Each joins the results for ParityStruct?,
+        // ParityReflectedStruct?, MultiListedVec? and MultiListedPair? with " | ".
+        static string Nul<S>(Func<S?> f, Func<S, string> show) where S : struct
+        {
+            return Text(() =>
+            {
+                S? v = f();
+                return v.HasValue ? show(v.Value) : "null";
+            });
+        }
+
+        public static string NulFuncKinds(LuaFunction f)
+        {
+            return string.Join(" | ", new string[]
+            {
+                Nul(() => f.Func<int, ParityStruct?>(0), v => v.X.ToString()),
+                Nul(() => f.Func<int, ParityReflectedStruct?>(0), v => v.X.ToString()),
+                Nul(() => f.Func<int, MultiListedVec?>(0), v => v.x.ToString()),
+                Nul(() => f.Func<int, MultiListedPair?>(0), v => v.a.ToString()),
+            });
+        }
+
+        public static string NulCallKinds(ParityNulStructResult a, ParityNulReflectedStructResult b, ParityNulVecResult c, ParityNulPairResult d)
+        {
+            return string.Join(" | ", new string[]
+            {
+                Nul(() => a(), v => v.X.ToString()),
+                Nul(() => b(), v => v.X.ToString()),
+                Nul(() => c(), v => v.x.ToString()),
+                Nul(() => d(), v => v.a.ToString()),
+            });
+        }
+
+        // The four Nullable methods, then the Nullable property, of an interface bridge.
+        public static string NulInterfaceKinds(IParityResults i)
+        {
+            return string.Join(" | ", new string[]
+            {
+                Nul(() => i.NS(), v => v.X.ToString()),
+                Nul(() => i.NR(), v => v.X.ToString()),
+                Nul(() => i.NV(), v => v.x.ToString()),
+                Nul(() => i.NP(), v => v.a.ToString()),
+                Nul(() => i.NProp, v => v.X.ToString()),
+            });
+        }
+
+        public static string NulGetKinds(LuaTable t, string key)
+        {
+            return string.Join(" | ", new string[]
+            {
+                Nul(() => t.Get<ParityStruct?>(key), v => v.X.ToString()),
+                Nul(() => t.Get<ParityReflectedStruct?>(key), v => v.X.ToString()),
+                Nul(() => t.Get<MultiListedVec?>(key), v => v.x.ToString()),
+                Nul(() => t.Get<MultiListedPair?>(key), v => v.a.ToString()),
+            });
+        }
     }
 
     // Struct results of an interface bridge (CaseParityStructResultKinds, Q56).
@@ -2151,6 +2243,12 @@ namespace Coverage
         MultiListedVec V();
         MultiListedPair P();
         ParityStruct Prop { get; }
+        // Nullable<S> results (owner decision Q59).
+        ParityStruct? NS();
+        ParityReflectedStruct? NR();
+        MultiListedVec? NV();
+        MultiListedPair? NP();
+        ParityStruct? NProp { get; }
     }
 
     [LuaCallCSharp]

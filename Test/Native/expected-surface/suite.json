@@ -926,6 +926,20 @@
      "overloads": [
       "Coverage.MultiListedB::Swap(Coverage.MultiListedPair)"
      ]
+    },
+    {
+     "name": "SumPairs",
+     "static": true,
+     "overloads": [
+      "Coverage.MultiListedB::SumPairs(Coverage.MultiListedPair[])"
+     ]
+    },
+    {
+     "name": "SumVecs",
+     "static": true,
+     "overloads": [
+      "Coverage.MultiListedB::SumVecs(Coverage.MultiListedVec[])"
+     ]
     }
    ],
    "getters": [],
@@ -1223,6 +1237,27 @@
      "overloads": [
       "Coverage.Parity::NulKind(System.Nullable`1[Coverage.ParityKind])"
      ]
+    },
+    {
+     "name": "ParamsKinds",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::ParamsKinds(Coverage.ParityKind[])"
+     ]
+    },
+    {
+     "name": "ParamsNulStructs",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::ParamsNulStructs(System.Nullable`1[Coverage.ParityStruct][])"
+     ]
+    },
+    {
+     "name": "ParamsStructs",
+     "static": false,
+     "overloads": [
+      "Coverage.Parity::ParamsStructs(Coverage.ParityStruct[])"
+     ]
     }
    ],
    "getters": [
@@ -1475,6 +1510,34 @@
      "static": true,
      "overloads": [
       "Coverage.ParityResults::Reflected(System.Int32)"
+     ]
+    },
+    {
+     "name": "NulCallKinds",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityResults::NulCallKinds(Coverage.ParityNulStructResult,Coverage.ParityNulReflectedStructResult,Coverage.ParityNulVecResult,Coverage.ParityNulPairResult)"
+     ]
+    },
+    {
+     "name": "NulFuncKinds",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityResults::NulFuncKinds(XLua.LuaFunction)"
+     ]
+    },
+    {
+     "name": "NulGetKinds",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityResults::NulGetKinds(XLua.LuaTable,System.String)"
+     ]
+    },
+    {
+     "name": "NulInterfaceKinds",
+     "static": true,
+     "overloads": [
+      "Coverage.ParityResults::NulInterfaceKinds(Coverage.IParityResults)"
      ]
     }
    ],
@@ -6939,6 +7002,30 @@
     "FuncMultiParamsDelegate"
    ],
    "hotfix": 0
+  },
+  {
+   "key": "System.Nullable`1[Coverage.MultiListedPair]()",
+   "delegates": [
+    "Coverage.ParityNulPairResult"
+   ]
+  },
+  {
+   "key": "System.Nullable`1[Coverage.MultiListedVec]()",
+   "delegates": [
+    "Coverage.ParityNulVecResult"
+   ]
+  },
+  {
+   "key": "System.Nullable`1[Coverage.ParityReflectedStruct]()",
+   "delegates": [
+    "Coverage.ParityNulReflectedStructResult"
+   ]
+  },
+  {
+   "key": "System.Nullable`1[Coverage.ParityStruct]()",
+   "delegates": [
+    "Coverage.ParityNulStructResult"
+   ]
   }
  ],
  "interfaceBridges": [
@@ -7026,12 +7113,17 @@
   {
    "type": "Coverage.IParityResults",
    "methods": [
+    "Coverage.IParityResults::NP()",
+    "Coverage.IParityResults::NR()",
+    "Coverage.IParityResults::NS()",
+    "Coverage.IParityResults::NV()",
     "Coverage.IParityResults::P()",
     "Coverage.IParityResults::R()",
     "Coverage.IParityResults::S()",
     "Coverage.IParityResults::V()"
    ],
    "properties": [
+    "Coverage.IParityResults::NProp get",
     "Coverage.IParityResults::Prop get"
    ],
    "events": [],

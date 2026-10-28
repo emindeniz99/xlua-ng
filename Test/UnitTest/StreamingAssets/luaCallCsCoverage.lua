@@ -1192,6 +1192,9 @@ function CMyTestCaseLuaCallCSCoverage.CaseParityStructArgs(self)
         ASSERT_EQ(o:NulStruct(nil), "null")
         ASSERT_EQ(o:NulStruct(), "null")
         ASSERT_EQ(o:NulStruct(S(2)), "has 2")
+        -- A number for a Nullable<T> argument still gives null in every mode
+        -- (Q59 changed only the values C# reads back).
+        ASSERT_EQ(o:NulStruct(5), "null")
         -- A field of a struct type.
         o.Inner = S(3)
         ASSERT_EQ(o.Inner.X, 3)
@@ -1260,8 +1263,8 @@ function CMyTestCaseLuaCallCSCoverage.CaseParityStructResults(self)
     local R = CS.Coverage.ParityResults
     -- int, the four structs, two enums and ParityStruct? raise; ContainsKey and Get<object> are the alternatives (Q55).
     ASSERT_EQ(R.Get({}, "none"), "InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,missing,null")
-    -- A number: the structs raise (Q56), the enums convert, and ParityStruct? is null (not a strict struct).
-    ASSERT_EQ(R.Get({none = 7}, "none"), "7,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,7,7,null,contains,value")
+    -- A number: the structs raise (Q56), ParityStruct? too (Q59; it was null), and the enums convert.
+    ASSERT_EQ(R.Get({none = 7}, "none"), "7,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,7,7,InvalidCastException,contains,value")
     local function nothing() end
     local function none() return nil end
     ASSERT_EQ(R.Func(nothing), "0,0,0,0,InvalidCastException,0")
@@ -1280,7 +1283,9 @@ end
 -- results, LuaFunction.Func and LuaTable.Get, through ObjectTranslator.Get<T>.
 -- Before, only the generated readers of GCOptimize structs raised; the other
 -- paths gave default(S), and a C# object of another class threw the cast's
--- InvalidCastException. Nil and nothing still give default(S) (Q35).
+-- InvalidCastException. Nil and nothing still give default(S) (Q35). A
+-- Nullable<S> read back the same ways raises the same (owner decision Q59 of
+-- 2026-10-28; it gave null), and nil or nothing give null.
 function CMyTestCaseLuaCallCSCoverage.CaseParityStructResultKinds(self)
     local R = CS.Coverage.ParityResults
     local names = {"Coverage.ParityStruct", "Coverage.ParityReflectedStruct", "Coverage.MultiListedVec", "Coverage.MultiListedPair"}
@@ -1302,12 +1307,23 @@ function CMyTestCaseLuaCallCSCoverage.CaseParityStructResultKinds(self)
         ASSERT_EQ(R.CallKinds(f, f, f, f), expected(got))
         ASSERT_EQ(R.InterfaceKinds({S = m, R = m, V = m, P = m, Prop = v}), expected(got, true))
         ASSERT_EQ(R.GetKinds({k = v}, "k"), expected(got))
+        -- Nullable<S> raises the same (owner decision Q59 of 2026-10-28); it gave null.
+        ASSERT_EQ(R.NulFuncKinds(f), expected(got))
+        ASSERT_EQ(R.NulCallKinds(f, f, f, f), expected(got))
+        ASSERT_EQ(R.NulInterfaceKinds({NS = m, NR = m, NV = m, NP = m, NProp = v}), expected(got, true))
+        ASSERT_EQ(R.NulGetKinds({k = v}, "k"), expected(got))
     end
     local function nothing() end
     local function none(self) return nil end
     ASSERT_EQ(R.FuncKinds(nothing), "0 | 0 | 0 | 0")
     ASSERT_EQ(R.CallKinds(nothing, nothing, nothing, nothing), "0 | 0 | 0 | 0")
     ASSERT_EQ(R.InterfaceKinds({S = none, R = none, V = none, P = none}), "0 | 0 | 0 | 0 | 0")
+    -- Nullable<S>: nil and nothing give null.
+    ASSERT_EQ(R.NulFuncKinds(nothing), "null | null | null | null")
+    ASSERT_EQ(R.NulFuncKinds(none), "null | null | null | null")
+    ASSERT_EQ(R.NulCallKinds(nothing, nothing, nothing, nothing), "null | null | null | null")
+    ASSERT_EQ(R.NulCallKinds(none, none, none, none), "null | null | null | null")
+    ASSERT_EQ(R.NulInterfaceKinds({NS = none, NR = none, NV = none, NP = none}), "null | null | null | null | null")
     local s = CS.Coverage.ParityStruct(3)
     local r = R.Reflected(4)
     ASSERT_EQ(R.CallKinds(function() return s end, function() return r end, function() return { x = 5, y = 1 } end,
@@ -1317,6 +1333,17 @@ function CMyTestCaseLuaCallCSCoverage.CaseParityStructResultKinds(self)
     ASSERT_EQ(R.GetKinds({k = s}, "k"), "3 | InvalidCastException: Coverage.ParityReflectedStruct expected, got Coverage.ParityStruct"
         .. " | InvalidCastException: Coverage.MultiListedVec expected, got Coverage.ParityStruct"
         .. " | InvalidCastException: Coverage.MultiListedPair expected, got Coverage.ParityStruct")
+    -- Nullable<S> of a struct or a table that converts.
+    ASSERT_EQ(R.NulFuncKinds(function() return s end), "3 | InvalidCastException: Coverage.ParityReflectedStruct expected, got Coverage.ParityStruct"
+        .. " | InvalidCastException: Coverage.MultiListedVec expected, got Coverage.ParityStruct"
+        .. " | InvalidCastException: Coverage.MultiListedPair expected, got Coverage.ParityStruct")
+    ASSERT_EQ(R.NulCallKinds(function() return s end, function() return r end, function() return { x = 5, y = 1 } end,
+        function() return { a = 6, b = 1 } end), "3 | 4 | 5 | 6")
+    ASSERT_EQ(R.NulInterfaceKinds({NS = function() return s end, NR = function() return r end, NV = function() return { x = 5 } end,
+        NP = function() return { a = 6 } end, NProp = s}), "3 | 4 | 5 | 6 | 3")
+    ASSERT_EQ(R.NulGetKinds({k = r}, "k"), "InvalidCastException: Coverage.ParityStruct expected, got Coverage.ParityReflectedStruct"
+        .. " | 4 | InvalidCastException: Coverage.MultiListedVec expected, got Coverage.ParityReflectedStruct"
+        .. " | InvalidCastException: Coverage.MultiListedPair expected, got Coverage.ParityReflectedStruct")
 end
 
 -- A C# object of another class passed for a struct parameter or field raises
@@ -1339,4 +1366,46 @@ function CMyTestCaseLuaCallCSCoverage.CaseParityStructOtherObject(self)
     local a = CS.Coverage.MultiListedA(1)
     ASSERT_EQ(firstLine(errorOf(B.SumVec, a)), "c# exception:System.InvalidCastException: Coverage.MultiListedVec expected, got Coverage.MultiListedA")
     ASSERT_EQ(firstLine(errorOf(B.Swap, a)), "c# exception:System.InvalidCastException: Coverage.MultiListedPair expected, got Coverage.MultiListedA")
+end
+
+-- The elements of a params array of structs are struct arguments: a nil
+-- element raises "c# exception:System.InvalidCastException: S expected, got
+-- nil" in every binding mode, as a struct argument given nil does (owner
+-- decision Q60 of 2026-10-28, Q22). Before, generated and emitted wrappers
+-- read the elements through ObjectTranslator.GetParams<T> as values C# reads
+-- back and passed default(S) for nil; reflection wrappers raised. Nullable<S>
+-- elements still take nil. Enum elements follow the enum argument rule (Q34).
+function CMyTestCaseLuaCallCSCoverage.CaseParityStructParams(self)
+    for _, name in ipairs(parityTypes) do
+        local T = CS.Coverage[name]
+        local S = CS.Coverage[name .. "Struct"]
+        local K = CS.Coverage[name .. "Kind"]
+        local o = T(4)
+        local text = "c# exception:System.InvalidCastException: Coverage." .. name .. "Struct expected, got "
+        ASSERT_EQ(o:ParamsStructs(), "0:")
+        ASSERT_EQ(o:ParamsStructs(S(1), S(2)), "2:1,2")
+        ASSERT_EQ(o:ParamsStructs(S(1), {X = 3}), "2:1,3")
+        ASSERT_EQ(firstLine(errorOf(o.ParamsStructs, o, nil)), text .. "nil")
+        ASSERT_EQ(firstLine(errorOf(o.ParamsStructs, o, S(1), nil)), text .. "nil")
+        ASSERT_EQ(firstLine(errorOf(o.ParamsStructs, o, S(1), nil, S(2))), text .. "nil")
+        ASSERT_EQ(firstLine(errorOf(o.ParamsStructs, o, S(1), 5)), text .. "number")
+        ASSERT_EQ(firstLine(errorOf(o.ParamsStructs, o, S(1), o)), text .. "Coverage." .. name)
+        -- Nullable<S> elements take nil.
+        ASSERT_EQ(o:ParamsNulStructs(S(1), nil, S(2)), "3:1,null,2")
+        ASSERT_EQ(o:ParamsNulStructs(nil), "1:null")
+        -- Enum elements.
+        local ktext = "c# exception:System.InvalidCastException: Coverage." .. name .. "Kind expected, got "
+        ASSERT_EQ(o:ParamsKinds(K.A, 2, "B"), "3:A,B,B")
+        ASSERT_EQ(firstLine(errorOf(o.ParamsKinds, o, K.A, nil)), ktext .. "nil")
+        ASSERT_EQ(firstLine(errorOf(o.ParamsKinds, o, true)), ktext .. "boolean")
+        ASSERT_EQ(firstLine(errorOf(o.ParamsKinds, o, K.B, o)), ktext .. "Coverage." .. name)
+    end
+    -- GCOptimize structs: a packed one and one read field by field.
+    local B = CS.Coverage.MultiListedB
+    ASSERT_EQ(B.SumVecs({ x = 1, y = 2 }, { x = 3, y = 4 }), 10)
+    ASSERT_EQ(B.SumVecs(B.MakeVec(1, 2)), 3)
+    ASSERT_EQ(firstLine(errorOf(B.SumVecs, { x = 1, y = 2 }, nil)), "c# exception:System.InvalidCastException: Coverage.MultiListedVec expected, got nil")
+    ASSERT_EQ(firstLine(errorOf(B.SumVecs, nil)), "c# exception:System.InvalidCastException: Coverage.MultiListedVec expected, got nil")
+    ASSERT_EQ(B.SumPairs({ a = 1, b = 2 }, { a = 3, b = 4 }), 46)
+    ASSERT_EQ(firstLine(errorOf(B.SumPairs, { a = 1, b = 2 }, nil)), "c# exception:System.InvalidCastException: Coverage.MultiListedPair expected, got nil")
 end
