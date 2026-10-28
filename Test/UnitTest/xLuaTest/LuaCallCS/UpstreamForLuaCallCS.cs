@@ -803,6 +803,26 @@ namespace Upstream
 
         const string NoCounter = "no scan counter (ObjectTranslator.CSharpCallLuaScan.scans): every LuaEnv scans the loaded types; ";
 
+        // Whether the scan includes a dynamic assembly, which it cannot keep
+        // (a dynamic assembly can gain types): then every env scans again.
+        // The scan leaves out assemblies whose ManifestModule is a
+        // ModuleBuilder and XLuaCodeEmit. On Mono that is every
+        // AssemblyBuilder; the .NET Framework lists the runtime assembly behind
+        // a builder, so a builder made by the program (defineLater below)
+        // turns the cache off there (docs/research/windows-host.md).
+        static bool scansDynamic()
+        {
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (assembly.IsDynamic && !(assembly.ManifestModule is System.Reflection.Emit.ModuleBuilder)
+                    && assembly.GetName().Name != "XLuaCodeEmit")
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         // n envs in a row with the same assemblies loaded scan once at most,
         // and each still bridges a CSharpCallLua delegate and interface.
         // Nothing scans with generated delegate bridges or without CodeEmit.
@@ -827,7 +847,7 @@ namespace Upstream
                     env.Dispose();
                 }
             }
-            return errors + EmitCache.Check("scans for " + n + " envs", (int)scans.GetValue(null) - before, 0);
+            return errors + EmitCache.Check("scans for " + n + " envs", (int)scans.GetValue(null) - before, scansDynamic() ? n : 0);
         }
 
 // Mono only: .NET 5 and later have no AssemblyBuilderAccess.Save
@@ -910,7 +930,7 @@ namespace Upstream
             int after = (int)scans.GetValue(null);
             if (after == before) errors += "no scan after " + iface.Assembly.GetName().Name + " was loaded; ";
             errors += twiceInNewEnv(iface);
-            return errors + EmitCache.Check("scans for the env after that", (int)scans.GetValue(null), after);
+            return errors + EmitCache.Check("scans for the env after that", (int)scans.GetValue(null), after + (scansDynamic() ? 1 : 0));
         }
 #else
         public static string LaterAssembly()
@@ -1752,6 +1772,9 @@ namespace Upstream
                 end
             end
             for i = 1, 300 do
+                -- LuaJIT's require leaves its loading mark in package.loaded
+                -- when the loader raises (loop or previous error loading module).
+                package.loaded.raise_string, package.loaded.raise_number = nil, nil
                 local ok, err = pcall(require, 'raise_string')
                 expect(ok, err, 'raw luaL_error from C#', 'luaL_error')
                 ok, err = pcall(require, 'raise_number')
