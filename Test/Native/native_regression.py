@@ -10,7 +10,7 @@ integer_conversion, argerror, native_modules, luajit_int64, luajit_int64_helpers
 checked_accessors, checked_cache, registry_checks, core_state, core_host_oom, memory_snapshot_tables,
 memory_snapshot_userdata, memory_snapshot_functions, memory_snapshot_limits,
 memory_snapshot_reentrancy, memory_snapshot_out_of_memory, memory_snapshot_core_limit, uint64_table,
-std_libraries, library_parts, core_limits, core_stop_after_last_instruction, core_watchdog_race, core_stop_latency_env, core_sandbox, core_sandbox_abi, core_lua_api (default: all). Works with Lua
+std_libraries, library_parts, csharp_wrapper_error, open_selected_libs, core_limits, core_stop_after_last_instruction, core_watchdog_race, core_stop_latency_env, core_sandbox, core_sandbox_abi, core_lua_api (default: all). Works with Lua
 5.3, 5.4, 5.5 and LuaJIT plugins (LuaJIT also checks int64).
 
 A core library (XLUA_PRESET=core: no luaopen_xlua) runs the core_sandbox checks
@@ -1229,6 +1229,78 @@ collectgarbage()
     finally:
         lib.xlua_set_csharp_wrapper_caller(None)
     del callbacks, caller
+
+
+def check_csharp_wrapper_error(state):
+    # A GEN_CODE_MINIMIZE wrapper (xlua_push_csharp_wrapper) whose generated
+    # code reports an error, as the generated wrappers do with
+    # LuaAPI.luaL_error: the dispatcher's trampoline raises it after the
+    # dispatcher returned and resets the flag. Only the source generator's GCM
+    # pass of the managed suite reached this branch before (2026-10-28), and a
+    # coverage run without a .NET SDK left it untaken.
+    for name, args, res in [("xlua_push_csharp_wrapper", [P, C.c_int], None),
+                            ("xlua_set_csharp_wrapper_caller", [P], None),
+                            ("xlua_csharp_str_error", [P, C.c_char_p], C.c_int),
+                            ("xlua_csharp_error", [P], C.c_int)]:
+        getattr(lib, name).argtypes = args
+        getattr(lib, name).restype = res
+    WrapperCaller = C.CFUNCTYPE(C.c_int, P, C.c_int, C.c_int)
+
+    def dispatch(L, wrapper_id, top):
+        if wrapper_id == 1:
+            return lib.xlua_csharp_str_error(L, b"str error from a wrapper")
+        if wrapper_id == 2:
+            lib.lua_pushstring(L, b"error object from a wrapper")
+            return lib.xlua_csharp_error(L)
+        lib.xlua_pushinteger(L, top)
+        return 1
+
+    caller = WrapperCaller(dispatch)
+    lib.xlua_set_csharp_wrapper_caller(C.cast(caller, P))
+    try:
+        for name, wrapper_id in [(b"wfail_str", 1), (b"wfail", 2), (b"wcount", 3)]:
+            lib.xlua_push_csharp_wrapper(state, wrapper_id)
+            lib.lua_setglobal(state, name)
+        run(state, """
+local ok, err = pcall(wfail_str)
+assert(not ok and err == "str error from a wrapper", tostring(err))
+assert(wcount(1, 2) == 2)  -- the error flag was reset
+ok, err = pcall(wfail, "x")
+assert(not ok and err == "error object from a wrapper", tostring(err))
+assert(wcount() == 0)
+wfail_str, wfail, wcount = nil
+collectgarbage()
+""")
+    finally:
+        lib.xlua_set_csharp_wrapper_caller(None)
+    del caller
+
+
+def check_open_selected_libs(state):
+    # Lua 5.5's luaL_openselectedlibs(L, load, preload): libraries in 'load' are
+    # opened, those only in 'preload' go to package.preload, the rest are left
+    # out. xlua.c opens every library through it; a reduced XLUA_LIBS build has
+    # its own copy (build/xlua_libs.c), which this checks like linit.c's.
+    if not hasattr(lib, "luaL_openselectedlibs"):
+        print("open_selected_libs: not Lua 5.5, or the function is not exported")
+        return
+    lib.luaL_openselectedlibs.argtypes = [P, C.c_int, C.c_int]
+    lib.luaL_openselectedlibs.restype = None
+    glibk, loadlibk, strlibk, mathlibk = 1, 1 << 1, 1 << 7, 1 << 5
+    L = lib.luaL_newstate()
+    assert L
+    try:
+        lib.luaL_openselectedlibs(L, glibk | loadlibk, 0)
+        lib.luaL_openselectedlibs(L, 0, strlibk)
+        lib.luaL_openselectedlibs(L, mathlibk, 0)
+        run(L, """
+assert(string == nil and package.loaded.string == nil and type(package.preload.string) == "function")
+assert(type(math) == "table" and package.preload.math == nil and table == nil)
+local s = require("string")
+assert(s.rep("a", 2) == "aa")
+""")
+    finally:
+        lib.lua_close(L)
 
 
 def check_hook_tail_calls(state):
@@ -3259,7 +3331,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "traceback_levels", "csharp_functions", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "traceback_levels", "csharp_functions", "csharp_wrapper_error", "open_selected_libs", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "registry_checks", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",

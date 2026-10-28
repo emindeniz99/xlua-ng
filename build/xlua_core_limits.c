@@ -506,9 +506,6 @@ void xlua_core_open_coroutines(lua_State *L) {
 	/* XLUA_LIBS without coroutine: scripts cannot switch threads. */
 	(void)L;
 #else
-	if (xlua_core_of(L) == NULL) {
-		return;
-	}
 	luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
 	luaL_getsubtable(L, -1, LUA_COLIBNAME);  /* opened by luaL_openlibs before */
 	lua_pushcfunction(L, core_resume);
@@ -567,7 +564,12 @@ void xlua_core_budget(lua_State *L, int n) {
  * call that only runs host functions (a registered function called directly
  * from C#) cannot return normally after its limit tripped. Without a watchdog
  * (XLUA_LIMITS_CLOCK_CHECK) the deadline is read here too. The caller checks
- * entry_active first, so a call without limits pays nothing. */
+ * entry_active first, so a call without limits pays nothing. Only LuaScript's
+ * sandbox (XLUA_SANDBOX: the host function trampoline of xlua_core.c and
+ * xlua_core_sandbox.c) calls it; the bridge's C# function trampolines leave
+ * the stop to the hook and xlua_core_fail_stopped, so a library without the
+ * sandbox does not contain it. */
+#if defined(XLUA_SANDBOX)
 void xlua_core_check_stop(lua_State *L, xlua_core_t *xc) {
 	int reason;
 	TEST_POINT(TP_CHECK_STOP);
@@ -582,6 +584,7 @@ void xlua_core_check_stop(lua_State *L, xlua_core_t *xc) {
 		raise_stop(L, reason);
 	}
 }
+#endif
 
 /* An outermost entry of xlua.c whose body returned normally although its
  * call was stopped (e->stop, which xlua_core_end read under the lock as it
@@ -597,10 +600,6 @@ int xlua_core_fail_stopped(lua_State *L, int stop, int base) {
 	return LUA_ERRRUN;
 }
 #else
-void xlua_core_check_stop(lua_State *L, xlua_core_t *xc) {
-	(void)L;
-	(void)xc;
-}
 int xlua_core_fail_stopped(lua_State *L, int stop, int base) {
 	(void)L;
 	(void)stop;

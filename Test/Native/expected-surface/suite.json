@@ -1713,6 +1713,81 @@
    "lazy": []
   },
   {
+   "type": "Coverage.PropertyPoint",
+   "kind": "class",
+   "constructors": [],
+   "methods": [],
+   "getters": [
+    "X",
+    "Y"
+   ],
+   "setters": [
+    "X",
+    "Y"
+   ],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
+   "type": "Coverage.PropertyPointApi",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "Cast",
+     "static": true,
+     "overloads": [
+      "Coverage.PropertyPointApi::Cast(XLua.LuaTable)"
+     ]
+    },
+    {
+     "name": "DictionaryValue",
+     "static": true,
+     "overloads": [
+      "Coverage.PropertyPointApi::DictionaryValue(System.Collections.Generic.Dictionary`2[System.String,Coverage.PropertyPoint])"
+     ]
+    },
+    {
+     "name": "Generated",
+     "static": true,
+     "overloads": [
+      "Coverage.PropertyPointApi::Generated()"
+     ]
+    },
+    {
+     "name": "Get",
+     "static": true,
+     "overloads": [
+      "Coverage.PropertyPointApi::Get(XLua.LuaTable)"
+     ]
+    },
+    {
+     "name": "ListElement",
+     "static": true,
+     "overloads": [
+      "Coverage.PropertyPointApi::ListElement(System.Collections.Generic.List`1[Coverage.PropertyPoint])"
+     ]
+    },
+    {
+     "name": "Param",
+     "static": true,
+     "overloads": [
+      "Coverage.PropertyPointApi::Param(Coverage.PropertyPoint)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
    "type": "EmployeeTemplate",
    "kind": "class",
    "constructors": [],
@@ -6210,6 +6285,18 @@
    "groups": []
   },
   {
+   "type": "Coverage.PropertyPoint",
+   "kind": "value",
+   "pushed": true,
+   "flag": 0,
+   "size": 8,
+   "fields": [
+    "X System.Int32",
+    "Y System.Int32 property"
+   ],
+   "groups": []
+  },
+  {
    "type": "FirstPushEnum",
    "kind": "enum",
    "pushed": true,
@@ -6507,6 +6594,7 @@
   "Coverage.MultiListedPair root",
   "Coverage.MultiListedVec root",
   "Coverage.PackedPoint root",
+  "Coverage.PropertyPoint root",
   "Gen2FloatStruct root",
   "Gen3FloatStruct root",
   "Gen4FloatStruct root",

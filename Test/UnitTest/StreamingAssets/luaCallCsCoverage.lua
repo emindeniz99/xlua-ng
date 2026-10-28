@@ -442,6 +442,22 @@ function CMyTestCaseLuaCallCSCoverage.CaseStructArrays(self)
     ASSERT_EQ(a[0].Y, 8)
 end
 
+-- A table converted to a packable GCOptimize struct: with generated bindings,
+-- a parameter, LuaTable.Cast and Get, and list and dictionary elements all use
+-- the generated reader, which also sets the [AdditionalProperties] property Y
+-- (owner decision 2026-10-28; Cast and the elements filled public fields by
+-- reflection before). Without generated bindings reflection sets only X.
+function CMyTestCaseLuaCallCSCoverage.CaseGCOptimizeReaderEverywhere(self)
+    local api = CS.Coverage.PropertyPointApi
+    local t = {X = 1, Y = 2}
+    local expected = api.Generated() and 12 or 10
+    ASSERT_EQ(api.Param(t), expected)
+    ASSERT_EQ(api.Cast(t), expected)
+    ASSERT_EQ(api.Get({v = t}), expected)
+    ASSERT_EQ(api.ListElement({t}), expected)
+    ASSERT_EQ(api.DictionaryValue({k = t}), expected)
+end
+
 -- Lua tables passed for primitive array parameters.
 function CMyTestCaseLuaCallCSCoverage.CaseTablesToPrimitiveArrays(self)
     ASSERT_EQ(CS.Coverage.Probe.Join({1.5}, {0.25}, {true}, {7}, {8}, {-1}, {-2}, {3}, {65}, {4}, {"s"}),
