@@ -302,7 +302,9 @@ it.
 - `build.yml` (pushes) runs for `build/`, the NDK and OpenHarmony SDK
   installers, the checks of its jobs (`check_android_elf.py` with
   `managed_imports.py` and the C# it reads, `check_apple_minos.py`,
-  `ohos_check.sh` and its C files), and the workflow itself.
+  `ohos_check.sh` and its C files; for Windows, `check_exports.py`,
+  `profiler_smoke.py`, `native_regression.py` with the modules and cases it
+  reads, and `.github/scripts/find-python-x86.sh`), and the workflow itself.
 - `meta.yml` (pushes and pull requests) runs `Tools/check_meta.py` for
   `.meta` files, `Assets/`, `Test/UnitTest`, `Test/PrefTest`,
   `check_meta.py`, `make_upm_package.py` and itself (Test/README.md "Unity
