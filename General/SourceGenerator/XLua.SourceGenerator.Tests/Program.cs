@@ -1144,7 +1144,8 @@ namespace Lib
             Assert.True(player.Contains("Structs.Get_" + t), "Player reads " + t + " through Structs");
         Assert.True(player.Contains("Structs.Push_Game_V3_") && player.Contains("Structs.Update_Game_Mixed_"), "V3 is pushed and Mixed updated without boxing");
         Assert.True(player.Contains("Structs.Get_Game_Named_") && player.Contains("translator.Push(L, gen_ret)"), "Named is read from a table and pushed boxed");
-        Assert.True(player.Contains("translator.Get(L, 6, out _f)"), "a GCOptimize enum outside LuaCallCSharp goes through Get<T>");
+        Assert.True(player.Contains("BindingApi.GetStructArg(translator, L, 6, out _f)"),
+            "a GCOptimize enum outside LuaCallCSharp has no generated reader: GetStructArg, which raises for nil (Q34)");
         Assert.True(run.Source(Emitter.BridgesFile).Contains("Structs.Push_Game_V3_"), "delegate bridges push without boxing too");
         var packing = run.Source(Emitter.PackFile);
         Assert.True(packing.Contains("xlua_pack_float6(buff, offset, field.a, field.b, field.c, field.d, field.e, field.f)")
@@ -1155,6 +1156,9 @@ namespace Lib
             && bindings.Contains("b.Caster(typeof(global::Game.Settings), typeof(global::Game.Settings[]), Structs.Ops_Game_Settings_"), "registration");
         Assert.True(!bindings.Contains("b.Struct<") && !bindings.Contains("b.Caster<") && !bindings.Contains("b.ArrayAccessor<"),
             "no generic registration, which IL2CPP compiles once per value type");
+        // The registered readers read results (result: true, owner decision Q35).
+        var structSource = run.Source(Emitter.StructsFile);
+        Assert.True(structSource.Contains("out val, true);"), "Value_ and StructOp.Get read results:\n" + structSource);
 
         var context = new AssemblyLoadContext("structs", isCollectible: true);
         try
@@ -1891,9 +1895,11 @@ namespace Game
 
     // A struct parameter or field that Lua sets is read with
     // BindingApi.GetStructArg, which raises for nil or a number as the emitted
-    // and reflection wrappers do (owner decision of 2026-10-28); Nullable<T>,
-    // enums, decimal and the results C# reads keep translator.Get. The packed
-    // GCOptimize reader raises BindingApi.StructExpected in its last branch.
+    // and reflection wrappers do (owner decision of 2026-10-28); so is an enum
+    // parameter without a generated reader since owner decision Q34.
+    // Nullable<T>, decimal and the results C# reads keep translator.Get. The
+    // packed GCOptimize reader raises BindingApi.StructExpected in its last
+    // branch.
     public static void StructArgumentsRaiseForNil()
     {
         var run = Harness.Generate("Game", Usings + @"
@@ -1916,9 +1922,112 @@ namespace Game
         Assert.Compiles(run);
         string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
         int strict = all.Split(new[] { "BindingApi.GetStructArg(translator, L, " }, StringSplitOptions.None).Length - 1;
-        Assert.Equal(2, strict, "GetStructArg for Read(p) and the Field setter:\n" + all);
+        Assert.Equal(3, strict, "GetStructArg for Read(p), the Field setter and Day(d):\n" + all);
         Assert.True(all.Contains("BindingApi.StructExpected(L, index, typeof("), "the packed HitInfo reader raises StructExpected");
         Assert.True(all.Contains("Structs.Get_"), "Hit(h) keeps the generated HitInfo reader");
+    }
+
+    // Owner decisions Q34 to Q36 of 2026-10-28. The generated reader of a
+    // [LuaCallCSharp] enum raises StructExpected for an argument that is no
+    // number or value name; the readers take `result` and give default(T) for
+    // a struct result where Lua has no value: the bridges and the registration
+    // (ObjectTranslator.Get<T>, GetObject's caster) pass true, arguments do not;
+    // another type's userdata raises StructExpected instead of "invalid
+    // userdata for T", and the table reader checks the C# object's type.
+    public static void EnumArgumentsAndStructResults()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+namespace Game
+{
+    [LuaCallCSharp] public enum Mode { A, B }
+    [LuaCallCSharp] public class User
+    {
+        public static int Pick(Mode m) { return 0; }
+        public static int Hit(HitInfo h) { return 0; }
+        public static int Named(Labeled l) { return 0; }
+    }
+    [CSharpCallLua] public delegate HitInfo MakeHit();
+    [CSharpCallLua] public delegate Labeled MakeLabeled();
+    [CSharpCallLua] public delegate Mode MakeMode();
+    [GCOptimize] public struct HitInfo { public float x, y; }
+    [GCOptimize] public struct Labeled { public int X; public string Name; }
+}");
+        Assert.Diagnostics(run, "XLSG010:Warning");
+        Assert.Compiles(run);
+        string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
+        int expected = all.Split(new[] { "throw global::XLua.Binding.BindingApi.StructExpected(L, index, typeof(" }, StringSplitOptions.None).Length - 1;
+        Assert.True(expected >= 4, "StructExpected in the last branches and the table reader's type check (another type's packed userdata: BindingApi.StructBuffer):\n" + all);
+        int readers = all.Split(new[] { ", bool result = false)" }, StringSplitOptions.None).Length - 1;
+        Assert.Equal(3, readers, "Mode, HitInfo and Labeled readers take result:\n" + all);
+        int results = all.Split(new[] { ", true);" }, StringSplitOptions.None).Length - 1;
+        Assert.True(results >= 3, "the three bridges read their results with result: true:\n" + all);
+        Assert.True(all.Contains("(translator, L, index, out val, true);"), "Value_ and StructOp.Get, which the registration uses, read results:\n" + all);
+        Assert.True(all.Contains("if (!result && type != "), "the Mode reader raises for an argument that is no number or name");
+        Assert.True(all.Contains("if (result && (type == "), "a struct result where Lua has no value is default(T)");
+        Assert.True(all.Contains(" is global::Game.Labeled)) throw ") || all.Contains(" is Game.Labeled)) throw "),
+            "the Labeled table reader checks the C# object's type:\n" + all);
+        Assert.True(!all.Contains("BindingApi.GetStructArg("), "the three argument types have generated readers");
+    }
+
+    // XLSG014 for the GCOptimize structs of a referenced assembly (owner
+    // decision Q41 of 2026-10-28), such as xLua's UnityEngine defaults
+    // (GenAttributes.cs): in strict minimal, a member this assembly binds that
+    // passes one warns, naming the member and the attribute to add; nothing
+    // that exposes it, a [LuaCallCSharp] on it, or reflection keeps it quiet.
+    public static void Xlsg014ReferencedDefaultStructs()
+    {
+        var defaults = Harness.Generate(Harness.Compile("Defaults", new[] { Usings + @"
+[assembly: XLua.GCOptimize(typeof(UnityEngine.Vector3), typeof(UnityEngine.Color))]
+namespace UnityEngine
+{
+    public struct Vector3 { public float x, y, z; }
+    public struct Color { public float r, g, b, a; }
+}" }));
+        var defaultsRef = MetadataReference.CreateFromImage(Harness.Emit(defaults.Output));
+        var noReflection = Harness.ParseWith("XLUA_NO_REFLECTION");
+        Func<string, CSharpParseOptions, Run> game = (source, parse) => Harness.Generate(
+            Harness.Compile("Game", new[] { Usings + source }, new[] { Harness.Runtime, defaultsRef }, parse));
+        Func<Run, string[]> xlsg014 = r => r.Result.Diagnostics.Where(d => d.Id == "XLSG014")
+            .Select(d => d.GetMessage()).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+
+        const string exposes = @"
+namespace Game
+{
+    [LuaCallCSharp] public class Mover
+    {
+        public static UnityEngine.Vector3 Where() { return default(UnityEngine.Vector3); }
+        public UnityEngine.Vector3 Target;
+        public void Go(UnityEngine.Vector3[] path) { }
+    }
+    [LuaCallCSharp] public class Painter { public UnityEngine.Color? Tint { get; set; } }
+}";
+        var run = game(exposes, noReflection);
+        Assert.Diagnostics(run, "XLSG014:Warning", "XLSG014:Warning");
+        Assert.Compiles(run);
+        var messages = xlsg014(run);
+        Assert.True(messages[0].StartsWith("GCOptimize struct 'UnityEngine.Color', configured by assembly 'Defaults', has no generated bindings")
+            && messages[0].Contains("'Game.Painter.Tint'") && messages[0].Contains("(r, g, b, a)")
+            && messages[0].Contains("[assembly: XLua.LuaCallCSharp(typeof(UnityEngine.Color))]"), messages[0]);
+        Assert.True(messages[1].StartsWith("GCOptimize struct 'UnityEngine.Vector3'") && messages[1].Contains("'Game.Mover.")
+            && messages[1].Contains("(x, y, z)") && messages[1].Contains("[assembly: XLua.LuaCallCSharp(typeof(UnityEngine.Vector3))]"), messages[1]);
+
+        // The minimal preset implies XLUA_NO_REFLECTION.
+        var minimal = Harness.RuntimeWith("XLUA_PRESET_MINIMAL");
+        run = Harness.Generate(Harness.Compile("Game", new[] { Usings + exposes }, new[] { minimal, defaultsRef }, Harness.ParseWith("XLUA_PRESET_MINIMAL")));
+        Assert.True(xlsg014(run).Length == 2, "minimal preset: " + string.Join(", ", xlsg014(run)));
+
+        // Bound by this assembly: quiet for that struct.
+        run = game("[assembly: LuaCallCSharp(typeof(UnityEngine.Vector3))]\n" + exposes, noReflection);
+        messages = xlsg014(run);
+        Assert.True(messages.Length == 1 && messages[0].Contains("'UnityEngine.Color'"), string.Join(", ", messages));
+        Assert.Compiles(run);
+
+        // Nothing exposes them: quiet.
+        run = game("namespace Game { [LuaCallCSharp] public class Plain { public int N; public string Name(int x) { return null; } } }", noReflection);
+        Assert.Diagnostics(run);
+
+        // Reflection reads the fields: quiet.
+        Assert.Diagnostics(game(exposes, Harness.Parse));
     }
 
     // The assembly-level configuration of NameTableSource with several types per

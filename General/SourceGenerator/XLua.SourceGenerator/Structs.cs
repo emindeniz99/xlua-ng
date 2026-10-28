@@ -404,7 +404,8 @@ namespace XLua.SourceGenerator
                 w.Line();
                 w.Open("static " + cs + " Value_" + s.Id + "(this global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index)");
                 w.Line(cs + " val;");
-                w.Line("Get_" + s.Id + "(translator, L, index, out val);");
+                // ObjectTranslator.Get<T> reads results (result: true, Q35).
+                w.Line("Get_" + s.Id + "(translator, L, index, out val, true);");
                 w.Line("return val;");
                 w.Close();
             }
@@ -421,7 +422,9 @@ namespace XLua.SourceGenerator
             w.Line("{");
             w.Indent++;
             w.Line(cs + " val;");
-            w.Line("Get_" + s.Id + "(translator, L, index, out val);");
+            // The custom get and the caster of GetObject, which reads results
+            // too (Q35); arguments are checked before it (ObjectCasters.GetArgCaster).
+            w.Line("Get_" + s.Id + "(translator, L, index, out val, true);");
             w.Line("return val;");
             w.Close();
             if (value)
@@ -496,9 +499,16 @@ namespace XLua.SourceGenerator
             w.Close();
 
             w.Line();
-            w.Open("internal static void Get_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out " + cs + " val)");
+            // result: a value C# reads back from Lua (a bridge's result, a get
+            // function of ObjectTranslator.Get<T>), where a struct gives
+            // default(T) for nil or nothing (owner decision Q35 of 2026-10-28);
+            // an argument raises (Q22, Q34).
+            w.Open("internal static void Get_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out " + cs + " val, bool result = false)");
             w.Line(LuaTypes + " type = " + LuaAPI + ".lua_type(L, index);");
             w.Open("if (type == " + LuaTypes + ".LUA_TUSERDATA)");
+            // Another type's userdata, such as a C# object of another class,
+            // raises in StructBuffer as in the other binding modes (owner
+            // decision Q36); it threw Exception("invalid userdata for T").
             w.Line("global::System.IntPtr buff = " + Api + ".StructBuffer(translator, L, index, " + slot + ", " + name + ");");
             if (s.IsEnum)
             {
@@ -522,13 +532,25 @@ namespace XLua.SourceGenerator
             w.Open("else");
             if (s.IsEnum)
             {
+                // An argument that is no number or value name raises, as in the
+                // other binding modes (owner decision Q34; it threw
+                // NullReferenceException or "invalid value for enum T"); a
+                // result goes through the enum's caster as before.
+                w.Open("if (!result && type != " + LuaTypes + ".LUA_TNUMBER && type != " + LuaTypes + ".LUA_TSTRING)");
+                w.Line("throw " + Api + ".StructExpected(L, index, typeof(" + cs + "));");
+                w.Close();
                 w.Line("val = (" + cs + ")" + Api + ".GetCaster(translator, typeof(" + cs + "))(L, index, null);");
             }
             else
             {
                 // nil, a number, a string or nothing raises, as in the other
                 // binding modes (ObjectCasters.StructExpected); it threw
-                // NullReferenceException.
+                // NullReferenceException. A result where Lua has no value is
+                // default(T) (Q35).
+                w.Open("if (result && (type == " + LuaTypes + ".LUA_TNIL || type == " + LuaTypes + ".LUA_TNONE))");
+                w.Line("val = default(" + cs + ");");
+                w.Line("return;");
+                w.Close();
                 w.Line("object obj = " + Api + ".GetCaster(translator, typeof(" + cs + "))(L, index, null);");
                 w.Line("if (obj == null) throw " + Api + ".StructExpected(L, index, typeof(" + cs + "));");
                 w.Line("val = (" + cs + ")obj;");
@@ -565,10 +587,22 @@ namespace XLua.SourceGenerator
         {
             string cs = Names.Cs(s.Type);
             w.Line();
-            w.Open("internal static void Get_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out " + cs + " val)");
+            // result: as for the packed readers above.
+            w.Open("internal static void Get_" + s.Id + "(global::XLua.ObjectTranslator translator, global::System.IntPtr L, int index, out " + cs + " val, bool result = false)");
             w.Line(LuaTypes + " type = " + LuaAPI + ".lua_type(L, index);");
             w.Open("if (type == " + LuaTypes + ".LUA_TUSERDATA)");
-            w.Line("val = (" + cs + ")" + Api + ".FastGetCSObj(translator, L, index);");
+            if (s.Type.IsValueType)
+            {
+                // A C# object of another class raises (owner decision Q36); the
+                // cast threw the runtime's InvalidCastException.
+                w.Line("object obj = " + Api + ".FastGetCSObj(translator, L, index);");
+                w.Line("if (!(obj is " + cs + ")) throw " + Api + ".StructExpected(L, index, typeof(" + cs + "));");
+                w.Line("val = (" + cs + ")obj;");
+            }
+            else
+            {
+                w.Line("val = (" + cs + ")" + Api + ".FastGetCSObj(translator, L, index);");
+            }
             w.Close();
             w.Open("else if (type == " + LuaTypes + ".LUA_TTABLE)");
             w.Line("val = new " + cs + "();");
@@ -591,6 +625,13 @@ namespace XLua.SourceGenerator
             {
                 w.Open("else if (type == " + LuaTypes + ".LUA_TNIL || type == " + LuaTypes + ".LUA_TNONE)");
                 w.Line("val = null;");
+                w.Close();
+            }
+            if (s.Type.IsValueType)
+            {
+                // A result where Lua has no value is default(T) (Q35).
+                w.Open("else if (result && (type == " + LuaTypes + ".LUA_TNIL || type == " + LuaTypes + ".LUA_TNONE))");
+                w.Line("val = default(" + cs + ");");
                 w.Close();
             }
             w.Open("else");

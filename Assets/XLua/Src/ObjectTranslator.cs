@@ -1172,7 +1172,15 @@ namespace XLua
             {
                 object obj = objects.Get(udata);
                 RawObject rawObject = obj as RawObject;
-                return rawObject == null ? obj : rawObject.Target;
+                obj = rawObject == null ? obj : rawObject.Target;
+                // A C# object of another class for a struct or enum argument
+                // (reflection fields and properties; GetStructArg) raises in
+                // every binding mode (owner decision Q36 of 2026-10-28).
+                if (argument && obj != null && !type.IsInstanceOfType(obj) && ObjectCasters.IsStrictArg(type))
+                {
+                    throw ObjectCasters.StructExpected(L, index, type);
+                }
+                return obj;
             }
             else
             {
@@ -1230,10 +1238,11 @@ namespace XLua
             return objectCasters.GetArgCaster(type)(L, index, null);
         }
 
-        // A strict struct argument (ObjectCasters.IsStrictStruct) that Lua passes
-        // to a C# parameter or assigns to a field, property or indexer, for the
-        // emitted wrappers: the value, or ObjectCasters.StructExpected for nil, a
-        // number, a string or nothing (generated code: BindingApi.GetStructArg).
+        // A strict struct or enum argument (ObjectCasters.IsStrictArg) that Lua
+        // passes to a C# parameter or assigns to a field, property or indexer,
+        // for the emitted wrappers: the value, or ObjectCasters.StructExpected
+        // for nil, nothing, a value of another kind or a C# object of another
+        // class (generated code: BindingApi.GetStructArg).
         public object GetStructArg(RealStatePtr L, int index, Type type)
         {
             object obj = getObject(L, index, type, true);
@@ -1244,12 +1253,20 @@ namespace XLua
             return obj;
         }
 
-        // GetStructArg for generated code, as Get<T> otherwise.
+        // GetStructArg for generated code, as Get<T> otherwise. A get function
+        // (the generated reader of another assembly's GCOptimize type) reads
+        // results, which give default(T) for nil (owner decision Q35), so an
+        // argument is checked first.
         internal void GetStructArg<T>(RealStatePtr L, int index, out T v)
         {
             Func<RealStatePtr, int, T> get_func;
             if (tryGetGetFuncByType(typeof(T), out get_func))
             {
+                LuaTypes lua_type = LuaAPI.lua_type(L, index);
+                if (lua_type == LuaTypes.LUA_TNIL || lua_type == LuaTypes.LUA_TNONE)
+                {
+                    throw ObjectCasters.StructExpected(L, index, typeof(T));
+                }
                 v = get_func(L, index);
             }
             else
@@ -1258,6 +1275,10 @@ namespace XLua
             }
         }
 
+        // A value C# reads back from Lua. A struct where Lua has no value (or
+        // any value its caster does not take) is default(T), as the emitted
+        // bridges give, in every binding mode (owner decision Q35 of
+        // 2026-10-28); unboxing null threw NullReferenceException.
         public void Get<T>(RealStatePtr L, int index, out T v)
         {
             Func<RealStatePtr, int, T> get_func;
@@ -1267,7 +1288,8 @@ namespace XLua
             }
             else
             {
-                v = (T)GetObject(L, index, typeof(T));
+                object obj = GetObject(L, index, typeof(T));
+                v = obj == null ? default(T) : (T)obj;
             }
         }
 

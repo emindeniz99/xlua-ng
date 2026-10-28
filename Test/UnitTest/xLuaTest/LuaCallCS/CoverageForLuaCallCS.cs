@@ -1785,6 +1785,11 @@ namespace Coverage
         public string Opt(int a, ParityStruct s = default(ParityStruct)) { return a + ":" + s.X; }
         public string NulStruct(ParityStruct? s) { return s.HasValue ? "has " + s.Value.X : "null"; }
         public ParityStruct Inner;
+        // Enum parameters (CaseParityEnumArgs).
+        public string Kind(ParityKind k) { return k.ToString(); }
+        public string OptKind(int a, ParityKind k = ParityKind.B) { return a + ":" + k; }
+        public string NulKind(ParityKind? k) { return k.HasValue ? "has " + k.Value : "null"; }
+        public ParityKind KindField = ParityKind.A;
     }
 
     // [BlackList] on an indexer: left out in every mode.
@@ -1893,6 +1898,11 @@ namespace Coverage
         public string Opt(int a, ParityReflectedStruct s = default(ParityReflectedStruct)) { return a + ":" + s.X; }
         public string NulStruct(ParityReflectedStruct? s) { return s.HasValue ? "has " + s.Value.X : "null"; }
         public ParityReflectedStruct Inner;
+        // Enum parameters (CaseParityEnumArgs).
+        public string Kind(ParityReflectedKind k) { return k.ToString(); }
+        public string OptKind(int a, ParityReflectedKind k = ParityReflectedKind.B) { return a + ":" + k; }
+        public string NulKind(ParityReflectedKind? k) { return k.HasValue ? "has " + k.Value : "null"; }
+        public ParityReflectedKind KindField = ParityReflectedKind.A;
     }
 
     // ObsoleteOperator without configuration: reflection wrappers in the source
@@ -1963,6 +1973,100 @@ namespace Coverage
         [Obsolete("use Divide")] public static ObsoleteOperator operator /(ObsoleteOperator a, ObsoleteOperator b) { return new ObsoleteOperator(a.Value / b.Value); }
         public static ObsoleteOperator operator +(ObsoleteOperator a, ObsoleteOperator b) { return new ObsoleteOperator(a.Value + b.Value); }
         [Obsolete("gone")] public int this[int i] { get { return i; } }
+    }
+
+    [LuaCallCSharp]
+    public enum ParityKind
+    {
+        A = 1,
+        B = 2,
+    }
+
+    public enum ParityReflectedKind
+    {
+        A = 1,
+        B = 2,
+    }
+
+    // Values that C# reads back from Lua (CaseParityStructResults): a struct, an
+    // enum or a GCOptimize struct where Lua has no value gives default(T) in
+    // every binding mode (owner decision Q35 of 2026-10-28); a struct argument
+    // still raises (Q22).
+    [CSharpCallLua]
+    public delegate ParityStruct ParityStructResult();
+    [CSharpCallLua]
+    public delegate ParityReflectedStruct ParityReflectedStructResult();
+    [CSharpCallLua]
+    public delegate MultiListedVec ParityVecResult();
+    [CSharpCallLua]
+    public delegate MultiListedPair ParityPairResult();
+    [CSharpCallLua]
+    public delegate ParityKind ParityKindResult();
+
+    [LuaCallCSharp]
+    public static class ParityResults
+    {
+        static string Try(Func<string> f)
+        {
+            try
+            {
+                return f();
+            }
+            catch (Exception e)
+            {
+                return e.GetType().Name;
+            }
+        }
+
+        // LuaTable.Get<T> of key for each kind of type, joined with ",". A nil
+        // value raises "can not assign nil to T" for every value type, int
+        // included, before any conversion (upstream, the same in every mode).
+        public static string Get(LuaTable t, string key)
+        {
+            return string.Join(",", new string[]
+            {
+                Try(() => t.Get<ParityStruct>(key).X.ToString()),
+                Try(() => t.Get<ParityReflectedStruct>(key).X.ToString()),
+                Try(() => t.Get<MultiListedVec>(key).x.ToString()),
+                Try(() => t.Get<MultiListedPair>(key).a.ToString()),
+                Try(() => ((int)t.Get<ParityKind>(key)).ToString()),
+                Try(() => ((int)t.Get<ParityReflectedKind>(key)).ToString()),
+                Try(() => t.Get<ParityStruct?>(key).HasValue ? "has" : "null"),
+            });
+        }
+
+        // LuaFunction.Func<int, T>(0) for each kind of type, joined with ",".
+        public static string Func(LuaFunction f)
+        {
+            return string.Join(",", new string[]
+            {
+                Try(() => f.Func<int, ParityStruct>(0).X.ToString()),
+                Try(() => f.Func<int, ParityReflectedStruct>(0).X.ToString()),
+                Try(() => f.Func<int, MultiListedVec>(0).x.ToString()),
+                Try(() => f.Func<int, MultiListedPair>(0).a.ToString()),
+                Try(() => ((int)f.Func<int, ParityKind>(0)).ToString()),
+                Try(() => f.Func<int, int>(0).ToString()),
+            });
+        }
+
+        // An unconfigured struct, made where no reflection is needed.
+        public static ParityReflectedStruct Reflected(int x)
+        {
+            return new ParityReflectedStruct(x);
+        }
+
+        // The result of each delegate, joined with ",".
+        public static string Call(ParityStructResult a, ParityReflectedStructResult b, ParityVecResult c, ParityPairResult d, ParityKindResult e)
+        {
+            return string.Join(",", new string[]
+            {
+                Try(() => a().X.ToString()),
+                Try(() => b().X.ToString()),
+                Try(() => c().x.ToString()),
+                Try(() => d().a.ToString()),
+                Try(() => ((int)e()).ToString()),
+            });
+        }
     }
 
     [LuaCallCSharp]

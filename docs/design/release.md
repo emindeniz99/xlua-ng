@@ -15,7 +15,7 @@ release and pushes the package to the `upm` branch.
 | Release file | What it is | Who uses it |
 | --- | --- | --- |
 | `com.xlua-ng.xlua-<version>.tgz` | The UPM package: C#, the source generator, the Lua 5.5.1 plugins of Android (4 ABIs; `minimal` and `core` variants), iOS (device and simulator; `minimal` and `core` variants of both), macOS (universal bundle and arm64 dylib), Windows (x64, x86, ARM64), Linux (x64), the WebGL sources, the guides and two samples | Package Manager: "Add package from tarball", or a `file:` entry |
-| `lua55_<tag>.tgz`, `lua54_<tag>.tgz`, `lua53_<tag>.tgz`, `luajit_<tag>.tgz` | `Plugins/` of each runtime, for the Assets layout, OpenHarmony included | Projects that copy `Assets/` or swap the runtime |
+| `lua55_<tag>.tgz`, `lua54_<tag>.tgz`, `lua53_<tag>.tgz`, `luajit_<tag>.tgz` | `Plugins/` of each runtime, for the Assets layout, OpenHarmony included; LuaJIT without Windows in the first release (Q42, below) | Projects that copy `Assets/` or swap the runtime |
 | `android-symbols_<tag>.tgz` | The linked Android libraries with symbols, every runtime and variant | `ndk-stack`, the Play Console, Unity's symbol upload |
 | `xlua-tools_<tag>.tgz` | `Tools/XLuaHotfixInject.exe` with Mono.Cecil, and the other tools of `Tools/build_tools.py` | Projects that use hotfix: extract it into the project folder |
 | `sbom.cdx.json` | The CycloneDX SBOM of the repository | Dependency audits |
@@ -184,6 +184,23 @@ r30, Xcode 27.1, on a Mac):
   for the owner to decide; leaving them out means excluding the two
   artifacts in `assemble`. Not checked: a Unity player or Editor loading
   them, and `publish.yml` itself (not run).
+
+  **Decided 2026-10-28 (owner, Q42): Windows LuaJIT stays out of the first
+  release.** What ships where:
+  - `com.xlua-ng.xlua-<version>.tgz` (the UPM package, also the `upm`
+    branch): the Lua 5.5.1 plugins only (the `upm` job takes the
+    `plugin_lua55_*` artifacts). It never had LuaJIT for any platform, so
+    nothing changes there.
+  - `luajit_<tag>.tgz`: `assemble` still downloads every `plugin_luajit_*`
+    artifact, then deletes `Plugins/x86_64/xlua.dll`, `Plugins/x86/xlua.dll`
+    and `Plugins/arm64/xlua.dll` (Windows x64, x86 and ARM64 from the
+    `windows`, `windows-luajit-32` and `windows-arm64` jobs) and fails if any
+    `.dll` is left. The archive holds LuaJIT for Android, iOS, macOS and
+    Linux x64 only.
+  - The Windows LuaJIT jobs still run, so a publish run keeps checking that
+    the DLLs build (`windows` and `windows-luajit-32` fail without them).
+    Shipping them later means removing that step.
+  Not checked: `publish.yml` was not run.
 
 ## Decisions taken here
 

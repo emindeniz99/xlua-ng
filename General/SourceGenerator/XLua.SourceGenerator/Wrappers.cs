@@ -28,6 +28,7 @@ namespace XLua.SourceGenerator
         public string Fallbacks = "";   // "member: reason" lines of members left to reflection, for XLSG004
         public string LinkXml = "";     // "assembly|type|element|name" lines: members reached by reflection (LinkXml.cs)
         public string ObfuzLines = "";  // the same lines for the obfuz rules (ObfuzRules.cs), and enums read by name
+        public string StructUses = "";  // "struct CLR name|member" lines: the structs the bound members pass, the first member each (XLSG014)
 
         public string HintName
         {
@@ -38,7 +39,7 @@ namespace XLua.SourceGenerator
         {
             return o != null && LuaName == o.LuaName && TypeofExpr == o.TypeofExpr && ClassName == o.ClassName && Source == o.Source
                 && Manifest == o.Manifest && Dropped == o.Dropped && Fallbacks == o.Fallbacks && LinkXml == o.LinkXml
-                && ObfuzLines == o.ObfuzLines;
+                && ObfuzLines == o.ObfuzLines && StructUses == o.StructUses;
         }
 
         public override bool Equals(object obj)
@@ -80,6 +81,7 @@ namespace XLua.SourceGenerator
         public string PackManifest = "[]";     // JSON: the types with Pack/UnPack
         public string NotPackable = "";        // GCOptimize structs read from tables only (XLSG010), one per line
         public string UnboundStructs = "";     // "type|C# name|fields" lines: GCOptimize structs Lua cannot read without reflection (XLSG014)
+        public string ExposedStructs = "";     // "type|C# name|fields|member|assembly" lines: the same for a referenced assembly's struct that a bound member passes (XLSG014)
         public string LinkXml = "";            // the link.xml fragment (LinkXml.cs), or ""
         public string HotfixBridges = "";      // the members of the HotfixBridges class (HotfixBridges.cs), or ""
         public string HotfixManifest = "[]";   // JSON: the SignatureKey of every hotfix bridge
@@ -96,7 +98,7 @@ namespace XLua.SourceGenerator
                 && DelegateManifest == o.DelegateManifest && InterfaceManifest == o.InterfaceManifest
                 && StructsSource == o.StructsSource && PackSource == o.PackSource && StructRegistration == o.StructRegistration
                 && StructManifest == o.StructManifest && PackManifest == o.PackManifest && NotPackable == o.NotPackable
-                && UnboundStructs == o.UnboundStructs
+                && UnboundStructs == o.UnboundStructs && ExposedStructs == o.ExposedStructs
                 && LinkXml == o.LinkXml && HotfixBridges == o.HotfixBridges && HotfixManifest == o.HotfixManifest
                 && ObfuzRules == o.ObfuzRules && GcmMismatch == o.GcmMismatch && Gcm == o.Gcm;
         }
@@ -225,6 +227,9 @@ namespace XLua.SourceGenerator
                 }
                 models.Add(ModelOf(t, ctx, compilation));
             }
+            // Before the struct set is trimmed to what the wrappers use: a
+            // Nullable<T> or an array element is pushed boxed.
+            var exposed = NoReflectionDefined(compilation) && !runtimeItself ? ExposedStructs(structs, ctx, elsewhere, models) : new List<string>();
             var set2 = new WrapperSet
             {
                 Types = new EquatableArray<TypeModel>(models.OrderBy(m => m.LuaName, StringComparer.Ordinal).ToImmutableArray()),
@@ -248,6 +253,7 @@ namespace XLua.SourceGenerator
             set2.PackManifest = PackManifest(structs);
             set2.NotPackable = string.Join("\n", structs.NotPackable);
             set2.UnboundStructs = string.Join("\n", unbound);
+            set2.ExposedStructs = string.Join("\n", exposed);
             var reflectionUse = ReflectionUseLinkLines(compilation, entries, typed);
             set2.LinkXml = LinkXmlDocument(set2.Types.SelectMany(t => t.LinkXml.Split('\n')).Concat(reflectionUse));
             set2.ObfuzRules = ObfuzRulesDocument(set2.Types.SelectMany(t => t.ObfuzLines.Split('\n')).Concat(reflectionUse));
@@ -312,6 +318,74 @@ namespace XLua.SourceGenerator
                     && !ctx.Wrapped.Contains(s.Clr) && !elsewhere.ContainsKey(s.Clr))
                 .Select(s => s.Clr + "|" + s.Type.ToDisplayString() + "|" + string.Join(", ", s.Fields.Select(f => f.Name)))
                 .Distinct().OrderBy(x => x, StringComparer.Ordinal).ToList();
+        }
+
+        // XLSG014 for the structs a referenced assembly configures (owner
+        // decision Q41 of 2026-10-28), such as xLua's UnityEngine defaults in
+        // GenAttributes.cs: this assembly pushes them without boxing, but
+        // without reflection Lua reads their fields only through a wrapper.
+        // Reported only where a member this assembly binds passes one between
+        // Lua and C# (its parameters, result, property or field type), naming
+        // the first such member: a project that never exposes Vector3 hears
+        // nothing about it.
+        static List<string> ExposedStructs(StructSet structs, MemberContext ctx, Dictionary<string, string> elsewhere, List<TypeModel> models)
+        {
+            var candidates = new Dictionary<string, StructType>();
+            foreach (var s in structs.Values.Concat(structs.Tables))
+            {
+                if (!s.Own && !s.IsEnum && s.Type.IsValueType && s.Fields.Count > 0 && !(s.Flag == 1 && s.Size != -1)
+                    && !ctx.Wrapped.Contains(s.Clr) && !elsewhere.ContainsKey(s.Clr) && !candidates.ContainsKey(s.Clr))
+                {
+                    candidates.Add(s.Clr, s);
+                }
+            }
+            var first = new Dictionary<string, string>();
+            if (candidates.Count == 0) return new List<string>();
+            foreach (var m in models.OrderBy(m => m.LuaName, StringComparer.Ordinal))
+            {
+                foreach (var line in m.StructUses.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var parts = line.Split('|');
+                    if (candidates.ContainsKey(parts[0]) && !first.ContainsKey(parts[0])) first.Add(parts[0], parts[1]);
+                }
+            }
+            return first.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv =>
+            {
+                var s = candidates[kv.Key];
+                return s.Clr + "|" + s.Type.ToDisplayString() + "|" + string.Join(", ", s.Fields.Select(f => f.Name)) + "|" + kv.Value
+                    + "|" + (s.Type.ContainingAssembly == null ? "" : s.Type.ContainingAssembly.Name);
+            }).ToList();
+        }
+
+        // The struct types (not primitives, enums, decimal or Nullable<T>, but
+        // the T of a Nullable<T> or an array) that the bound members of a type
+        // pass between Lua and C#, with the first member that does, as
+        // "CLR name|C# member" lines (XLSG014, Q41).
+        static string StructUses(INamedTypeSymbol type, ClassInfo info)
+        {
+            var first = new Dictionary<string, string>();
+            string owner = type.ToDisplayString();
+            Action<ITypeSymbol, string> use = (t, member) =>
+            {
+                while (t is IArrayTypeSymbol array) t = array.ElementType;
+                if (t is INamedTypeSymbol n && n.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T) t = n.TypeArguments[0];
+                if (t == null || t.TypeKind != TypeKind.Struct || MemberContext.IsPrimitive(t) || t.SpecialType == SpecialType.System_Decimal) return;
+                string clr = Names.Clr(t);
+                if (!first.ContainsKey(clr)) first.Add(clr, owner + "." + member);
+            };
+            Action<IMethodSymbol, IEnumerable<IParameterSymbol>, string> method = (m, parameters, member) =>
+            {
+                use(m.ReturnType, member);
+                foreach (var p in parameters) use(p.Type, member);
+            };
+            foreach (var o in info.Constructors) method(o.Method, o.Parameters, "ctor");
+            foreach (var g in info.Methods) foreach (var o in g.Overloads) method(o.Method, o.Parameters, g.Name);
+            foreach (var g in info.Operators) foreach (var o in g.Overloads) method(o, o.Parameters, g.Name);
+            foreach (var a in info.Getters) use(a.Type, a.Name);
+            foreach (var a in info.Setters) use(a.Type, a.Name);
+            foreach (var i in info.Indexers) method(i, i.Parameters, "this[]");
+            foreach (var i in info.NewIndexers) method(i, i.Parameters, "this[]");
+            return string.Join("\n", first.Select(kv => kv.Key + "|" + kv.Value));
         }
 
         // XLua compiled with GEN_CODE_MINIMIZE declares XLua.CSharpWrapper, and
@@ -645,11 +719,19 @@ namespace XLua.SourceGenerator
             return t.IsValueType && !MemberContext.IsPrimitive(t);
         }
 
-        // ObjectCasters.IsStrictStruct: a struct that Lua must pass as one. An
-        // argument of such a type without a generated reader is read with
-        // BindingApi.GetStructArg, which raises for nil or a number as the
-        // emitted and reflection wrappers do (the generated readers of
-        // GCOptimize types raise the same, Structs.cs).
+        // ObjectCasters.IsStrictArg: a struct or enum that Lua must pass as one.
+        // An argument of such a type without a generated reader is read with
+        // BindingApi.GetStructArg, which raises for nil (and, for a struct, a
+        // number) as the emitted and reflection wrappers do (the generated
+        // readers of GCOptimize types and [LuaCallCSharp] enums raise the same,
+        // Structs.cs). Enums since owner decision Q34 of 2026-10-28.
+        internal static bool IsStrictArg(ITypeSymbol t)
+        {
+            return IsStrictStruct(t) || (t.TypeKind == TypeKind.Enum && t.IsValueType);
+        }
+
+        // ObjectCasters.IsStrictStruct: a struct other than a primitive, an
+        // enum, decimal or Nullable<T>.
         internal static bool IsStrictStruct(ITypeSymbol t)
         {
             return t.IsValueType && !MemberContext.IsPrimitive(t) && t.TypeKind != TypeKind.Enum
@@ -817,10 +899,10 @@ namespace XLua.SourceGenerator
                 return statement + caster + "(L, " + i + ")";
             if (name == "System.Object")
                 return statement + "translator.GetObject(L, " + i + ", typeof(object))";
-            if (isStruct && !luaResult && IsStrictStruct(Effective(t, c)) && StructsOf(c).GetterOf(Effective(t, c)) == null)
+            if (isStruct && !luaResult && IsStrictArg(Effective(t, c)) && StructsOf(c).GetterOf(Effective(t, c)) == null)
                 return statement + "global::XLua.Binding.BindingApi.GetStructArg(translator, L, " + i + ", out " + variable + ")";
             if (isStruct)
-                return statement + StructGet(Effective(t, c), i, variable, c);
+                return statement + StructGet(Effective(t, c), i, variable, c, luaResult);
             if (!luaResult && RefusesTables(Effective(t, c)))
                 return statement + "(" + Cs(t, c) + ")translator.GetUnityObjectArg(L, " + i + ", typeof(" + Cs(t, c) + "))";
             return statement + "(" + Cs(t, c) + ")translator.GetObject(L, " + i + ", typeof(" + Cs(t, c) + "))";
@@ -841,10 +923,13 @@ namespace XLua.SourceGenerator
 
         // TemplateCommon StructGetName: the generated reader of a GCOptimize
         // type or [LuaCallCSharp] enum (Structs.cs), else ObjectTranslator.Get<T>.
-        static string StructGet(ITypeSymbol t, string idx, string variable, Compilation c)
+        // luaResult: a value C# reads back from Lua, for which the reader gives
+        // default(T) where Lua has no value instead of raising (owner decision
+        // Q35 of 2026-10-28).
+        static string StructGet(ITypeSymbol t, string idx, string variable, Compilation c, bool luaResult = false)
         {
             var s = StructsOf(c).GetterOf(t);
-            return s != null ? "Structs.Get_" + s.Id + "(translator, L, " + idx + ", out " + variable + ")"
+            return s != null ? "Structs.Get_" + s.Id + "(translator, L, " + idx + ", out " + variable + (luaResult ? ", true)" : ")")
                 : "translator.Get(L, " + idx + ", out " + variable + ")";
         }
 
@@ -1024,6 +1109,7 @@ namespace XLua.SourceGenerator
                 Fallbacks = string.Join("\n", info.Lazy.Where(l => l.Reason != null).Select(l => l.Name + ": " + l.Reason)),
                 LinkXml = LazyLinkLines(type, info),
                 ObfuzLines = LazyLinkLines(type, info),
+                StructUses = StructUses(type, info),
             };
         }
 

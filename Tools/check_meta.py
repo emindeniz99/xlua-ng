@@ -18,7 +18,9 @@ Assets folder (Test/README.md); Unity gives those top-level folders their
    case hex digits, not all zero), and no two .meta files share a GUID.
 4. Every plugin under Assets/Plugins has the import settings that PLUGINS
    below lists for its path: the player platforms it is enabled for, with
-   their CPU, and the Editor's CPU and OS (or the Editor off). No other
+   their CPU, and the Editor's CPU and OS (or the Editor off: the 32-bit x86
+   desktop plugins, since the Editor is 64-bit only). An enabled Editor must
+   name a CPU of EDITOR_CPUS. No other
    platform may be enabled, "Any" never; a platform Unity 2021.3 no longer
    has (OSXIntel, LinuxUniversal ...) may stay enabled only when it is of the
    plugin's own OS. A plugin that PLUGINS does not list, and a plugin of
@@ -65,14 +67,19 @@ PLUGINS = {
     "iOS/HotfixFlags.cpp": ({"iOS": None}, None),
     "WebGL/xlua_webgl.cpp": ({"WebGL": None}, None),
     **{"WSA/%s/xlua.dll" % d: ({"WindowsStoreApps": d}, None) for d in ("ARM", "ARM64", "x64", "x86")},
-    "x86/xlua.dll": ({"Win": "AnyCPU"}, ("x86", "Windows")),
-    "x86/libxlua.so": ({"Linux": "x86"}, ("x86", "Linux")),
+    # 32-bit players only: the Unity Editor is 64-bit, and its EditorPluginCPUArchitecture has no x86 (owner
+    # decision Q40, 2026-10-28).
+    "x86/xlua.dll": ({"Win": "AnyCPU"}, None),
+    "x86/libxlua.so": ({"Linux": "x86"}, None),
     "x86_64/xlua.dll": ({"Win64": "x86_64"}, ("x86_64", "Windows")),
     "x86_64/libxlua.so": ({"Linux64": "x86_64"}, ("x86_64", "Linux")),
     "arm64/xlua.dll": ({"Win64": "ARM64"}, ("ARM64", "Windows")),
     "arm64/libxlua.dylib": ({"OSXUniversal": "AnyCPU"}, ("ARM64", "OSX")),
     "xlua.bundle": ({"OSXUniversal": "AnyCPU"}, ("AnyCPU", "OSX")),
 }
+# The CPU names of the Editor's EditorPluginCPUArchitecture (2021.3 to 6000.6); an enabled Editor with another
+# one, such as x86, names a CPU no Editor has.
+EDITOR_CPUS = {"AnyCPU", "x86_64", "ARM64"}
 # Platforms of the plugin's OS that may stay enabled besides the required ones: those Unity 2021.3 no longer
 # has (32-bit macOS and Linux, the universal Linux player), which upstream's .meta files still list.
 LEGACY = {"Linux": {"Linux", "LinuxUniversal"}, "Windows": set(), "OSX": {"OSXIntel", "OSXIntel64"}}
@@ -191,6 +198,9 @@ def check_plugin(meta, expected, problems, label):
         if platform not in found:
             problems.append("%s: no settings for %s" % (label, platform))
     enabled, settings = found.get("Editor", (False, {}))
+    if enabled and str(settings.get("CPU")) not in EDITOR_CPUS:
+        problems.append("%s: enabled for the Editor with CPU %s, which no Unity Editor has (%s)"
+                        % (label, settings.get("CPU"), ", ".join(sorted(EDITOR_CPUS))))
     if editor is None and enabled:
         problems.append("%s: enabled for the Editor, which must not load it" % label)
     elif editor is not None:

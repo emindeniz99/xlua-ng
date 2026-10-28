@@ -114,6 +114,14 @@ namespace XLua.SourceGenerator
                     spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnboundStruct, Location.None, parts[0], parts[2], parts[1]));
                 }
             }
+            if (wrappers.ExposedStructs.Length > 0)
+            {
+                foreach (var line in wrappers.ExposedStructs.Split('\n'))
+                {
+                    var parts = line.Split('|');
+                    spc.ReportDiagnostic(Diagnostic.Create(Diagnostics.UnboundReferencedStruct, Location.None, parts[0], parts[2], parts[1], parts[3], parts[4]));
+                }
+            }
             spc.AddSource(BindingsFile, SourceText.From(Bindings(assembly, named, wrappers), Encoding.UTF8));
             if (wrappers.DelegateBridges.Length > 0) spc.AddSource(BridgesFile, SourceText.From(Bridges(assembly, wrappers), Encoding.UTF8));
             if (wrappers.HotfixBridges.Length > 0)

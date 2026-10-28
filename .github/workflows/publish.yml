@@ -640,6 +640,19 @@ jobs:
           pattern: plugin_luajit_*
           path: plugin_luajit/
           merge-multiple: true
+      - name: Leave Windows LuaJIT out of the first release
+        # Owner decision Q42 of 2026-10-28 (docs/design/release.md, "Open for the owner"): the
+        # first release ships no Windows LuaJIT. The windows, windows-luajit-32 and windows-arm64
+        # jobs still build the DLLs (x64, x86, ARM64); they stay out of luajit_<tag>.tgz. The UPM
+        # package holds Lua 5.5.1 only and never had LuaJIT.
+        run: |
+          set -euo pipefail
+          rm -f plugin_luajit/Plugins/x86_64/xlua.dll plugin_luajit/Plugins/x86/xlua.dll \
+            plugin_luajit/Plugins/arm64/xlua.dll
+          if find plugin_luajit -iname '*.dll' | grep .; then
+            echo "Windows LuaJIT files left in plugin_luajit" >&2
+            exit 1
+          fi
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

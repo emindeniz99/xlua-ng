@@ -14,11 +14,9 @@ PluginImporter:
       enabled: 0
       settings: {}
     Editor:
-      enabled: 1
+      enabled: 0
       settings:
-        CPU: x86
         DefaultValueInitialized: true
-        OS: Windows
     Linux:
       enabled: 0
       settings:

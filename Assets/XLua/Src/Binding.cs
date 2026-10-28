@@ -182,14 +182,17 @@ namespace XLua.Binding
         // xlua_gettypeid and lua_touserdata, which trusted the header of any
         // userdata given the type's metatable (docs/research/crash-inventory.md,
         // item 10). Zero for such a userdata: Pack and UnPack return false for
-        // it, which raises "pack fail" or "unpack fail".
+        // it, which raises "pack fail" or "unpack fail". Another type's
+        // userdata raises ObjectCasters.StructExpected, as in the other binding
+        // modes (owner decision Q36 of 2026-10-28: "T expected, got C" for a C#
+        // object of another class); it was Exception("invalid userdata for T").
         public static IntPtr StructBuffer(ObjectTranslator translator, RealStatePtr L, int index, int slot, string typeName)
         {
             int typeId = TypeId(translator, L, slot);
             IntPtr buff = LuaAPI.xlua_tostructbuffer(L, index, typeId);
             if (buff == IntPtr.Zero && LuaAPI.xlua_gettypeid(L, index) != typeId)
             {
-                throw new Exception("invalid userdata for " + typeName);
+                throw ObjectCasters.StructExpected(L, index, typeName);
             }
             return buff;
         }
@@ -243,14 +246,28 @@ namespace XLua.Binding
 
         // The registry reference of the cache table for the slot's enum type
         // (value -> userdata); it replaces the <T>_EnumRef fields. Scripts
-        // cannot reach it.
+        // cannot reach it, except through debug.getregistry: with the bridge
+        // checks (XLUA_BRIDGE_CHECKS, owner decision Q37) a cache that a script
+        // replaced with something other than a table is replaced by a new one,
+        // since generated code reads and writes it with lua_rawgeti and
+        // lua_rawseti, which took a number or a string for a table (a crash).
         public static int EnumCacheRef(ObjectTranslator translator, RealStatePtr L, int slot)
         {
             int[] refs = translator.bindingEnumRefs;
             if (slot < refs.Length)
             {
                 int r = refs[slot];
+#if XLUA_BRIDGE_CHECKS
+                if (r != -1)
+                {
+                    LuaAPI.xlua_rawgeti(L, LuaIndexes.LUA_REGISTRYINDEX, r);
+                    bool table = LuaAPI.lua_type(L, -1) == LuaTypes.LUA_TTABLE;
+                    LuaAPI.lua_pop(L, 1);
+                    if (table) return r;
+                }
+#else
                 if (r != -1) return r;
+#endif
             }
             return BindingRegistry.EnumCacheRefSlow(translator, L, slot);
         }

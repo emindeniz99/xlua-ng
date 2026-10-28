@@ -698,6 +698,25 @@ Tests:
    assembly for xLua's defaults that its wrappers push (`Vector3` returned by a
    bound method) when nothing binds them; that would need a decision on where
    such a warning belongs.
+   **Decided 2026-10-28 (owner, Q41): warn in the project's assembly.** In
+   strict minimal the generator now also reports XLSG014 for a `[GCOptimize]`
+   struct that a referenced assembly configures (xLua's UnityEngine defaults
+   in GenAttributes.cs, or another library) when a member that this assembly
+   binds passes it between Lua and C#: a parameter, a result, a property,
+   field or indexer type, also as `Nullable<T>` or an array element. The
+   message names the struct, the assembly that configures it, the first such
+   member (`Game.Mover.Where`), the fields and the attribute to add
+   (`[assembly: XLua.LuaCallCSharp(typeof(UnityEngine.Vector3))]`). Quiet when
+   no bound member passes such a struct, when this assembly or a referenced
+   one binds it, with reflection, and in xLua's own assembly. Not covered:
+   `[CSharpCallLua]` delegates and interfaces that pass one to Lua (the
+   decision names bound members). Each bound type records the structs its
+   members pass (`TypeModel.StructUses`), so metadata types keep their cached
+   models. Generator test `Xlsg014ReferencedDefaultStructs` (a referenced
+   assembly with `[assembly: GCOptimize(typeof(UnityEngine.Vector3),
+   typeof(UnityEngine.Color))]` stands in for xLua's defaults, which the
+   `XLUA_GENERAL` runtime of the tests leaves out); it fails on the generator
+   before the change, which reported nothing.
 5. **`System.Object` and `System.Type`:** bind them by default in minimal
    (`obj:ToString()`, `typeof(T).Name`), or leave them to the project, as now?
    **Decided 2026-10-28 (owner): leave them to the project.** No binding by
