@@ -48,13 +48,15 @@
  *
  * Known crashes of docs/research/crash-inventory.md are left out unless
  * FUZZ_BRIDGE_TRICKS=1 is set in the environment (see "tricks" in the
- * driver): foreign userdata with a struct header or shorter than an int
- * (item 10), LuaJIT's newproxy (item 10), debug.getregistry (registry[8]
- * and xLua's references, item 22), the C function inside a trampoline and
- * replacing it, and a class indexer's fields upvalue that is not a table
- * (item 18), __gc errors on Lua 5.3 (item 8), debug.setmetatable on io
- * files, which LuaJIT's trace recorder takes as immutable (item 23), and
- * debug.traceback levels near INT_MIN and INT_MAX (item 24). FUZZ_BRIDGE_TRACE=1 says how the
+ * driver): another library's userdata with the bridge tag, debug.getregistry
+ * (registry[8] and xLua's references, item 22), the C function inside a
+ * trampoline and replacing it, and a class indexer's fields upvalue that is
+ * not a table (item 18), debug.setmetatable on io files, which LuaJIT's
+ * trace recorder takes as immutable (item 23), and debug.traceback levels
+ * near INT_MIN and INT_MAX (item 24). Foreign userdata with a struct header
+ * or shorter than the header and LuaJIT's newproxy (item 10), and __gc
+ * errors on Lua 5.3 (item 8), were tricks until their fixes of 2026-10-28.
+ * FUZZ_BRIDGE_TRACE=1 says how the
  * driver ended, 2 also lists every call, 3 also the value readers. */
 #define _GNU_SOURCE /* dladdr, for the trace */
 #include <dlfcn.h>
@@ -90,8 +92,8 @@ static const char DRIVER[] =
     "local xlua, buffer, collectgarbage = xlua, buffer, collectgarbage or function() end\n"
     "local pairs, ipairs, rawequal, rawlen, error = pairs, ipairs, rawequal, rawlen, error\n"
     "local v53 = math.type ~= nil\n"
-    /* a __gc that raises only with tricks on Lua 5.3, where the error leaves the GC step (item 8) */
-    "local gc_ok = tricks or _VERSION ~= 'Lua 5.3'\n"
+    /* a __gc that raises: on Lua 5.3 the error left the GC step until 2026-10-28 (item 8) */
+    "local gc_ok = true\n"
     "local check = X.check or function() end\n"
     "local log = X.log\n"
     "local pos, len = 1, #input\n"
@@ -598,22 +600,15 @@ static int x_lud(lua_State *L) {
     return 1;
 }
 
-/* X.ud(size, fill, mt): a full userdata of another library. Without tricks it
- * has room for an int and does not start with -1, the struct marker: shorter
- * ones, and those with a struct header, are crash-inventory item 10. */
+/* X.ud(size, fill, mt): a full userdata of another library, of 0 to 32 bytes.
+ * Filled with 0xff it starts with a struct header (fake_id -1), and from 8
+ * bytes an odd fill gives it a length far past the block: crash-inventory
+ * item 10, a trick until the bounds checks of 2026-10-28. */
 static int x_ud(lua_State *L) {
     unsigned size = (unsigned)lua_tointeger(L, 1) % 33;
     unsigned fill = (unsigned)lua_tointeger(L, 2) & 0xff;
     int mt = (int)(lua_tointeger(L, 3) % 6);
     unsigned char *p;
-    if (!tricks) {
-        if (size < 4) {
-            size = 4;
-        }
-        if (fill == 0xff) {
-            fill = 0x7f;
-        }
-    }
     p = (unsigned char *)lua_newuserdata(L, size);
     memset(p, (int)fill, size);
     if (size >= 8 && (fill & 1)) {
@@ -648,10 +643,10 @@ static int x_ud(lua_State *L) {
 }
 
 /* X.foreign(sel): a userdata a standard library makes (io's files), or
- * LuaJIT's newproxy (0 bytes, item 10: tricks only). */
+ * LuaJIT's newproxy (0 bytes, item 10; a trick until 2026-10-28). */
 static int x_foreign(lua_State *L) {
     int sel = (int)(lua_tointeger(L, 1) % 2);
-    if (sel == 1 && tricks) {
+    if (sel == 1) {
         lua_getglobal(L, "__fuzz_newproxy");
         if (lua_isfunction(L, -1)) {
             lua_pushboolean(L, 1);

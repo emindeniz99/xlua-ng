@@ -754,6 +754,12 @@ def check_struct_bounds(state):
     lib.lua_setmetatable(state, -2)
     assert lib.xlua_tostructbuffer(state, -1, 5) is None
     lib.lua_setglobal(state, b"liar")
+    # A 24-byte block whose header says only 4 bytes follow: the header limits the fields.
+    roomy = push_userdata(state, 24)
+    C.memset(roomy, 0, 24)
+    C.c_int.from_address(roomy).value = -1
+    C.c_uint.from_address(roomy + 4).value = 4
+    lib.lua_setglobal(state, b"roomy")
     # Blocks shorter than the header, every byte 0xff (fake_id -1, len 2^32 - 1).
     for size in range(8):
         tiny = push_userdata(state, size)
@@ -780,6 +786,24 @@ def check_struct_bounds(state):
     field = C.c_int(7)
     assert lib.xlua_unpack_int32_t(None, 0, C.byref(field)) == 0 and field.value == 7
     assert lib.xlua_pack_int32_t(None, 0, 1) == 0
+    out = (C.c_double * 6)()  # room for any helper's results
+    for kind, ctype in [("int8_t", C.c_int8), ("int16_t", C.c_int16), ("int32_t", C.c_int32),
+                        ("int64_t", C.c_int64), ("float", C.c_float), ("double", C.c_double)]:
+        getattr(lib, "xlua_pack_" + kind).argtypes = [P, C.c_int, ctype]
+        getattr(lib, "xlua_unpack_" + kind).argtypes = [P, C.c_int, P]
+        assert getattr(lib, "xlua_pack_" + kind)(None, 0, ctype(1)) == 0, kind
+        assert getattr(lib, "xlua_unpack_" + kind)(None, 0, C.cast(out, P)) == 0, kind
+    ptrs = [C.cast(C.byref(out, 8 * i), P) for i in range(6)]
+    for n in range(2, 7):
+        getattr(lib, "xlua_pack_float%d" % n).argtypes = [P, C.c_int] + [C.c_float] * n
+        getattr(lib, "xlua_unpack_float%d" % n).argtypes = [P, C.c_int] + [P] * n
+        assert getattr(lib, "xlua_pack_float%d" % n)(None, 0, *([1.0] * n)) == 0, n
+        assert getattr(lib, "xlua_unpack_float%d" % n)(None, 0, *ptrs[:n]) == 0, n
+    lib.xlua_pack_decimal.argtypes = [P, C.c_int, P]
+    lib.xlua_unpack_decimal.argtypes = [P, C.c_int, P, P, P, P]
+    decimal = (C.c_int * 4)(1, 0, 0, 0)
+    assert lib.xlua_pack_decimal(None, 0, C.cast(decimal, P)) == 0
+    assert lib.xlua_unpack_decimal(None, 0, *ptrs[:4]) == 0
     run(state, """
 local function refused(f, ...)
     local ok, err = pcall(f, ...)
@@ -810,6 +834,13 @@ end
 local getreal = xlua.genaccessor(12, 4)
 assert(getreal(real) == 0)
 refused(xlua.structclone, liar)
+local get4, set4 = xlua.genaccessor(0, 4)
+set4(roomy, 3)
+assert(get4(roomy) == 3)
+get4, set4 = xlua.genaccessor(8, 4)  -- inside the block, past the header's length
+refused(get4, roomy)
+refused(set4, roomy, 3)
+roomy = nil
 refused(xlua.structclone, tiny0)
 refused(xlua.structclone, tiny7)
 assert(xlua.structclone(real) ~= nil)
