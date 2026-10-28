@@ -663,9 +663,9 @@ metatable passes it, so the bounds check is needed with it too.
   idx, type_id)` take a struct only when `8 + len <= lua_rawlen` (`struct_block`).
 - The pack and unpack helpers take a pointer and no `lua_State`, so C# could
   not check there: it called `xlua_gettypeid` and then `lua_touserdata`. C#
-  (`ObjectTranslator`'s `decimal`) and the source generator's struct readers
-  and writers (`Structs.cs`, `Get_` and `Update_`) now call
-  `xlua_tostructbuffer`, which checks the type id and the length in one call
+  (`ObjectTranslator`'s `decimal`, and `BindingApi.StructBuffer`, which the
+  source generator's struct readers and writers `Get_` and `Update_` call)
+  now calls `xlua_tostructbuffer`, which checks the type id and the length in one call
   and returns NULL otherwise; the helpers return 0 for NULL, which raises
   "unpack fail for T". Bridge version 111.
 
@@ -1099,6 +1099,63 @@ the finalizer deadlock under `HOTFIX_ENABLE` (#1127) and the WebGL GC queue
   macOS arm64. [C] The wrapper now converts the handler first and raises
   "#3 need T!" as generated code does (`CaseParityEvents`,
   [binding-mode-parity.md](binding-mode-parity.md)).
+- **`x >> math.mininteger` on Lua 5.3.6** (2026-10-28, open, owner question).
+  Found by `fuzz_bridge.c` (legacy 5.3.6, 300 s, after items 8 and 10 stopped
+  being tricks; reproducer
+  `q24-28-2026-10-28/verify/fuzzb-5.3.6/bridge-legacy-5.3.6/crash-fb611043...`
+  in the output folder). Lua 5.3.6's `OP_SHR` (`lvm.c:986`) computes
+  `luaV_shiftl(ib, -ic)`, and negating `math.mininteger` is signed overflow:
+  UBSan "negation of -9223372036854775808 cannot be represented" [C]. Any
+  script reaches it with a shift; no wrong result or crash seen (undefined
+  behaviour that compilers can exploit). Lua 5.4 negates with
+  `intop(-, 0, y)` (unsigned arithmetic) in `luaV_shiftr`. Fix option: the same
+  one-line change in the vendored 5.3.6 `lvm.c` (and its constant folding,
+  `lcode.c`/`lobject.c` `luaO_arith`, if it has the same expression), with a
+  `LUA_PATCHES.md` row, as item 24 asks for `luaL_traceback`. Not fixed here:
+  outside the four decisions of 2026-10-28.
+
+## Owner decisions of 2026-10-28: items 8, 10, 11 and 12
+
+Each decision, its implementation, cost and test are in the item's section
+above. Tests run on the merge with main (`664a7863`) and the test additions
+after it, macOS 27.0.1 arm64 (M2 Pro), Mono 6.14.1, .NET SDK 10.0.401 unless
+stated:
+
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`:
+  514 tests in each of two modes in all four passes, legacy on Lua 5.3.6,
+  5.4.9, 5.5.1 and LuaJIT 2.1, and on 5.5.1 with a minimal-preset plugin and
+  `--define XLUA_PRESET_MINIMAL` (the two new cases need reflection there, as
+  the other helpers of `UpstreamForLuaCallCS.cs` do: `needs_reflection.lua`).
+- `native_regression.py` (all checks) and `check_exports.py` on the four
+  runtimes; `profiler_smoke.py` on 5.3.6, 5.4.9 and 5.5.1.
+- `xlua-analysis:26.04` container (Linux arm64, `--memory 6g`): `sanitize.sh`
+  for 5.3.6 and 5.5.1 (ASan, UBSan, API checks; export check, native
+  regression, profiler smoke, managed suite through reflection): pass.
+  `coverage.sh` (5.3.6, 5.4.9, 5.5.1): `xlua.c` at 100% of branches on each
+  (410, 424, 424); the first run found the `NULL` branch of every pack and
+  unpack helper and the header-length branch of the accessors untested,
+  which `struct_bounds` now covers.
+- Fuzzing in the container: `fuzz_struct` 120 s each on 5.5.1 (88,728 runs)
+  and 5.3.6 (80,304), no report; `fuzz_bridge` (legacy, 300 s, items 8 and 10
+  no longer tricks) on 5.5.1 (16,957 runs) and LuaJIT (59,938 runs), no
+  report; on 5.3.6 the shift overflow above.
+- Before the fixes, against the same tests [C]: `struct_bounds` crashed the
+  old 5.5.1 library (SIGSEGV, macOS) and failed under ASan; `gc_errors`
+  panicked and aborted on the old 5.3.6; `profiler_smoke.py` reported heap
+  use after free under ASan on the old 5.3.6, 5.4.9 and 5.5.1; the managed
+  `CaseDisposedLuaBaseThrows` and `CaseGcErrorsAreWarnings` failed on the old
+  runtime with the old 5.3.6 plugin.
+- `lua_tests.py --versions 5.3.6`: basic, complete and internal print
+  `final OK` (macOS).
+- `hotfix_check.py` (Lua 5.5.1): pass. `editor_compile_check.py`: 7 editors
+  x 85 configurations, 588 ok, 7 skipped. `Tools/dependencies.py --check`:
+  up to date. `node sync.mjs --check`: all links resolve.
+- Benchmarks: `benchmark.py` and a native loop before the merge, numbers in
+  items 10 and 12.
+- Not run: Windows, Linux x86-64, Unity players and the Unity editor suite,
+  IL2CPP, devices, `sanitize.sh` for 5.4.9 and LuaJIT (the native checks ran
+  on the host for them), the minimal preset under the sanitizers, and
+  `fuzz_bridge` with `FUZZ_TRICKS=1`.
 
 ## Reproduction results
 
