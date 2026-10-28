@@ -506,9 +506,6 @@ void xlua_core_open_coroutines(lua_State *L) {
 	/* XLUA_LIBS without coroutine: scripts cannot switch threads. */
 	(void)L;
 #else
-	if (xlua_core_of(L) == NULL) {
-		return;
-	}
 	luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
 	luaL_getsubtable(L, -1, LUA_COLIBNAME);  /* opened by luaL_openlibs before */
 	lua_pushcfunction(L, core_resume);

@@ -1840,7 +1840,9 @@ static int builtin_chunk(lua_State *L) {
 
 LUA_API void luaopen_xlua(lua_State *L) {
 	luaL_openlibs(L);
-	xlua_core_open_coroutines(L);  /* core states: the budget follows coroutine switches */
+	if (xlua_core_of(L) != NULL) {
+		xlua_core_open_coroutines(L);  /* core states: the budget follows coroutine switches */
+	}
 #if defined(XLUA_LUASOCKET) || defined(XLUA_MIME)
 	preload_native_modules(L);
 #endif

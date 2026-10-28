@@ -429,7 +429,8 @@ XLUA_INTERNAL void xlua_core_free_frame(xlua_core_t *xc, void *ptr);
 /* For the profiler (xlua.c): set or clear its hook on a core state. */
 XLUA_INTERNAL void xlua_core_set_profiler(lua_State *L, xlua_core_t *xc, lua_Hook hook);
 /* Replaces coroutine.resume, wrap and close of a core state with versions
- * that move the budget between threads (luaopen_xlua and xlua_core_open call it). */
+ * that move the budget between threads; L must be a core state (luaopen_xlua
+ * checks, xlua_core_open makes one). */
 XLUA_INTERNAL void xlua_core_open_coroutines(lua_State *L);
 /* A thread switch from 'from' to 'to' (a resume) or back (a yield, return or
  * error): moves the instruction budget and the stop to the thread that runs
