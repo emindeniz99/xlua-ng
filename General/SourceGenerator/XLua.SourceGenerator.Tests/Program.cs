@@ -1927,6 +1927,36 @@ namespace Game
         Assert.True(all.Contains("Structs.Get_"), "Hit(h) keeps the generated HitInfo reader");
     }
 
+    // Owner decision Q59 of 2026-10-28: ObjectTranslator.Get<T> raises for a
+    // Nullable<S> read back from Lua given a value of another kind, so a
+    // Nullable<S> argument of a strict struct is read with GetObject, as the
+    // emitted and reflection wrappers read it, also when S has a generated
+    // GCOptimize reader; a Nullable<S> result keeps translator.Get, and a
+    // Nullable<int> argument too.
+    public static void NullableStructArgumentsUseGetObject()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+namespace Game
+{
+    public struct Plain { public int X; }
+    [LuaCallCSharp] public class User
+    {
+        public static int Maybe(Plain? p) { return 0; }
+        public static int MaybeHit(HitInfo? h) { return 0; }
+        public static int Count(int? n) { return 0; }
+    }
+    [CSharpCallLua] public delegate Plain? MakeMaybe();
+    [GCOptimize] public struct HitInfo { public float x, y; }
+}");
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+        string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
+        int getObject = all.Split(new[] { "?)translator.GetObject(L, 1, typeof(" }, StringSplitOptions.None).Length - 1;
+        Assert.Equal(2, getObject, "GetObject for Maybe(p) and MaybeHit(h):\n" + all);
+        int get = all.Split(new[] { "translator.Get(L, " }, StringSplitOptions.None).Length - 1;
+        Assert.Equal(2, get, "translator.Get for Count(n) and the MakeMaybe result:\n" + all);
+    }
+
     // Owner decisions Q34 to Q36 of 2026-10-28. The generated reader of a
     // [LuaCallCSharp] enum raises StructExpected for an argument that is no
     // number or value name; the readers take `result` and give default(T) for
