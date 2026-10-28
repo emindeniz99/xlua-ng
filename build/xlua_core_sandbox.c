@@ -303,11 +303,13 @@ int xlua_core_push_ref(lua_State *L, int32_t h) {
 	return LUA_TNONE;
 }
 
-/* The XLUA_T_* type of the value at idx. Non-raising; two free stack slots. */
+/* The XLUA_T_* type of the value at idx, a valid index. Non-raising; two free
+ * stack slots. */
 static int type_of(lua_State *L, int idx) {
 	static const unsigned char types[] = {
 		XLUA_T_NIL, XLUA_T_BOOL, XLUA_T_OTHER, XLUA_T_NUM, XLUA_T_STR, XLUA_T_TABLE, XLUA_T_FUNC, XLUA_T_OTHER, XLUA_T_THREAD
 	};
+	_Static_assert(sizeof(types) == LUA_NUMTYPES, "a type of every LUA_T* from LUA_TNIL to LUA_TTHREAD");
 	int t = lua_type(L, idx);
 	if (t == LUA_TNUMBER && lua_isinteger(L, idx)) {
 		return XLUA_T_INT;
@@ -318,7 +320,7 @@ static int type_of(lua_State *L, int idx) {
 		return xlua_core_buffer_at(L, idx, &len) != NULL ? XLUA_T_BUFFER : XLUA_T_OTHER;
 	}
 #endif
-	return t >= 0 && t < (int)sizeof(types) ? types[t] : XLUA_T_NIL;
+	return types[t];  /* every caller passes a valid index, so t is not LUA_TNONE */
 }
 
 int xlua_core_push_value(lua_State *L, const xlua_value *v) {
@@ -705,10 +707,13 @@ typedef struct register_args {
 
 /* The host function at idx (absolute), if it is one, is unregistered: its id
  * becomes 0, so the closure fails wherever a script keeps it. Returns its id,
- * or 0 for any other value. */
+ * or 0 for any other value. Every closure of xlua_core_trampoline, which no
+ * host can push itself (XLUA_INTERNAL), comes from register_body with its id
+ * as its one upvalue. */
 static int32_t kill_function(lua_State *L, int idx) {
 	int32_t id = 0;
-	if (lua_tocfunction(L, idx) == xlua_core_trampoline && lua_getupvalue(L, idx, 1) != NULL) {
+	if (lua_tocfunction(L, idx) == xlua_core_trampoline) {
+		lua_getupvalue(L, idx, 1);
 		id = (int32_t)lua_tointeger(L, -1);
 		lua_pop(L, 1);
 		lua_pushinteger(L, 0);
@@ -1031,10 +1036,11 @@ static int co_body(lua_State *L, call_args *a, lua_State *co) {
 		lua_remove(L, 5);
 		return 0;
 	}
-	if (lua_checkstack(co, 1)) {  /* keep the error on co for its __close handlers when it is closed */
-		lua_pushvalue(co, -1);
-	}
-	lua_xmove(co, L, 1);  /* the error */
+	/* The error, and a copy back into the slot it left on co (whose stack may
+	 * be full): co keeps it for its __close handlers when it is closed. */
+	lua_xmove(co, L, 1);
+	lua_pushvalue(L, -1);
+	lua_xmove(L, co, 1);
 	if (a->status == LUA_ERRRUN) {
 		describe_error(L, co, 0);
 	}
@@ -1100,9 +1106,13 @@ static int call_body(lua_State *L) {
 			return 1;
 		}
 		lua_pushvalue(L, 3);
+#if defined(XLUA_TRUSTED_BYTECODE)
 		if (lua_setupvalue(L, -2, 1) == NULL) {  /* _ENV: a text chunk's only upvalue */
 			lua_pop(L, 1);  /* a binary chunk of a function without upvalues */
 		}
+#else
+		lua_setupvalue(L, -2, 1);  /* _ENV: a text chunk always has it as its only upvalue */
+#endif
 	}
 	else {
 		return call_fail(L, a, XLUA_ERRCONFIG, "this kind of call is not supported");
@@ -1483,7 +1493,7 @@ LUA_API int xlua_core_handle(lua_State *L, int32_t op, xlua_value *v) {
 	if (status == LUA_OK) {
 		status = a.status;
 	}
-	else if (status == LUA_ERRRUN && lua_type(L, -1) == LUA_TSTRING) {
+	else if (status == LUA_ERRRUN) {  /* always a message of Lua's (luaG_runerror) or of to_value */
 		size_t len;
 		lua_rawsetp(L, LUA_REGISTRYINDEX, &msg_key);  /* an existing key: no allocation */
 		lua_rawgetp(L, LUA_REGISTRYINDEX, &msg_key);
