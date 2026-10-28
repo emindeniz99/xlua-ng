@@ -1180,6 +1180,28 @@ namespace Lib
         }
     }
 
+    // link.xml for wrapped types (docs/design/source-generator.md, "link.xml entries
+    // audited (2026-10-28)"): a [LuaCallCSharp] type gets no entry, since the wrapper
+    // calls its members, and [ReflectionUse] on the same type keeps it whole
+    // (preserve="all"), the way back to the legacy link.xml that MIGRATING.md names.
+    public static void ReflectionUseKeepsBoundTypeWhole()
+    {
+        var run = Harness.Generate("Game", Usings + @"
+[assembly: LuaCallCSharp(typeof(Game.Bound), typeof(Game.Kept))]
+[assembly: ReflectionUse(typeof(Game.Kept))]
+namespace Game
+{
+    public class Bound { public void Call() { } int hidden; }
+    public class Kept { public void Call() { } int hidden; }
+}");
+        Assert.Compiles(run);
+        Assert.True(run.Result.GeneratedSources.Any(x => x.HintName.StartsWith("W_Game_Kept_")), "[ReflectionUse] does not take the wrapper away");
+        var linkXml = run.Source(Emitter.LinkXmlFile);
+        Assert.True(linkXml != null && linkXml.Contains("<type fullname=\"\"Game.Kept\"\" preserve=\"\"all\"\"/>"), "link.xml does not keep Kept whole:\n" + linkXml);
+        Assert.True(!linkXml.Contains("Game.Bound") && !linkXml.Contains("<method") && !linkXml.Contains("<field"),
+            "a wrapped type needs no link.xml entry:\n" + linkXml);
+    }
+
     const string FallbackSource = Usings + @"
 [assembly: DoNotGen(typeof(Game.Outer.Inner), ""Slow"", ""count"")]
 [assembly: ReflectionUse(typeof(Game.Reflected))]
