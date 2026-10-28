@@ -42,6 +42,7 @@ return {
     ["CMyTestCaseLuaCallCS.CaseOverloadNumbers"] = true,
     ["CMyTestCaseLuaCallCS.CaseOverloadParamsAndDefaults"] = true,
     ["CMyTestCaseLuaCallCS.CaseOverloadReferenceTypes"] = true,
+    ["CMyTestCaseLuaCallCS.CaseOverloadTypeCache"] = true,
     ["CMyTestCaseLuaCallCS.CaseReflectEvent1"] = true,
     ["CMyTestCaseLuaCallCS.CaseSetUnknownMemberRaises"] = true,
     ["CMyTestCaseLuaCallCS.CaseStackToStringCSharpValues"] = true,

@@ -3754,6 +3754,37 @@ function CMyTestCaseLuaCallCS.CaseOverloadReferenceTypes(self)
 	}), "")
 end
 
+-- The cost of a C# object is cached per pair of object and parameter type:
+-- the same call site sees a derived class, its base class and an unrelated
+-- class in turn, in both orders, three times over.
+function CMyTestCaseLuaCallCS.CaseOverloadTypeCache(self)
+	self.count = 1 + self.count
+	local base, derived, other = CS.OverloadBase(), CS.OverloadDerived(), CS.OverloadOther()
+	local cases = {}
+	for _ = 1, 3 do
+		for _, case in ipairs({
+			{"ObjectBase", derived, "base"}, {"ObjectBase", base, "base"}, {"ObjectBase", other, "object"},
+			{"ObjectBase", base, "base"}, {"ObjectBase", derived, "base"},
+			{"InterfaceBase", derived, "base"}, {"InterfaceBase", base, "base"}, {"InterfaceBase", other, "interface"},
+			{"InterfaceBase", derived, "base"},
+			{"BaseDerived", derived, "derived"}, {"BaseDerived", base, "base"}, {"BaseDerived", derived, "derived"},
+			{"DerivedBase", base, "base"}, {"DerivedBase", derived, "derived"}, {"DerivedBase", base, "base"},
+		}) do
+			table.insert(cases, case)
+		end
+	end
+	local failures = {overloadRun(cases)}
+	-- An unrelated class matches neither overload, also after the others.
+	for _, class in ipairs(overloadClasses) do
+		for _, name in ipairs({"BaseDerived", "DerivedBase"}) do
+			if pcall(class[2][name], other) then
+				table.insert(failures, class[1] .. "." .. name .. "(OverloadOther) did not fail")
+			end
+		end
+	end
+	ASSERT_EQ(table.concat(failures, "\n"), "")
+end
+
 function CMyTestCaseLuaCallCS.CaseOverloadParamsAndDefaults(self)
 	self.count = 1 + self.count
 	ASSERT_EQ(overloadRun({
