@@ -131,11 +131,11 @@ rm -f "$work"/fuzz-*.log
 # -jobs writes each job's log as fuzz-<n>.log into the current directory.
 if (cd "$work" && FUZZ_BRIDGE_TRICKS="${FUZZ_TRICKS:-0}" ASAN_OPTIONS="detect_leaks=1:abort_on_error=1" \
     UBSAN_OPTIONS="print_stacktrace=1" "$bin" "${args[@]}" "$corpus" >"$work/fuzz.log" 2>&1); then
-    grep -h -E '^stat::number_of_executed_units|^stat::peak_rss_mb|^stat::average_exec_per_sec' "$work"/fuzz*.log || true
+    grep -E '^stat::number_of_executed_units|^stat::peak_rss_mb|^stat::average_exec_per_sec' "$work/fuzz.log" || true
     echo "XLUA_FUZZ_PASS: bridge on $preset, Lua $version, $what"
 else
     echo "fuzz_bridge: crash or failure, see $work/fuzz*.log"
-    grep -h -E 'ERROR|runtime error|SUMMARY|fuzz_bridge:|Assertion|crash-|timeout-|oom-' "$work"/fuzz*.log | head -20 || true
+    grep -E 'ERROR|runtime error|SUMMARY|fuzz_bridge:|Assertion|crash-|timeout-|oom-' "$work/fuzz.log" | head -20 || true
     status=1
 fi
 if [[ "${FUZZ_MERGE:-0}" == 1 && "$mode" != replay ]]; then

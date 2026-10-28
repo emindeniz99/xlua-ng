@@ -164,10 +164,10 @@ for target in $targets; do
     # -jobs writes each job's log as fuzz-<n>.log into the current directory.
     if (cd "$work" && ASAN_OPTIONS="detect_leaks=1:abort_on_error=1" UBSAN_OPTIONS="print_stacktrace=1" \
         "$bin" "${args[@]}" "$corpus" >"$work/fuzz.log" 2>&1); then
-        grep -h -E '^stat::number_of_executed_units|^stat::peak_rss_mb' "$work"/fuzz*.log || true
+        grep -E '^stat::number_of_executed_units|^stat::peak_rss_mb' "$work/fuzz.log" || true
     else
         echo "fuzz_$target: crash or failure, see $work/fuzz*.log"
-        grep -h -E 'ERROR|runtime error|SUMMARY|crash-|timeout-|oom-' "$work"/fuzz*.log | head -20 || true
+        grep -E 'ERROR|runtime error|SUMMARY|crash-|timeout-|oom-' "$work/fuzz.log" | head -20 || true
         status=1
     fi
     if [[ "${FUZZ_MERGE:-0}" == 1 && "$mode" != replay ]]; then
