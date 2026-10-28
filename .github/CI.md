@@ -193,7 +193,7 @@ and weekly, and uploads its results to code scanning. **Native analysis** (`anal
 `Test/Native/analyze.sh`, `Test/Native/coverage.sh` and `Test/Fuzz/run.sh`
 (seconds per target as an input) and uploads logs, coverage HTML and crash
 reproducers. Its `coverage` job fails when `xlua.c`'s branch coverage drops
-below `coverage.sh`'s `MIN_BRANCH_COVERAGE` (99%, Test/README.md). Its `lua-tests` job runs lua.org's official test suites through
+below `coverage.sh`'s `MIN_BRANCH_COVERAGE` (100%, Test/README.md). Its `lua-tests` job runs lua.org's official test suites through
 `Test/Native/lua_tests.py` for Lua 5.3.6 (also with `LUAC_COMPATIBLE_FORMAT`),
 5.4.9 and 5.5.1, plain and under ASan and UBSan; the script downloads the
 pinned archives and checks their SHA-256. Check workflow changes with

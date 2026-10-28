@@ -53,6 +53,17 @@ namespace Coverage
             System.Threading.Thread.Sleep(milliseconds);
             return milliseconds;
         }
+
+        // The environment that InterruptAndReturn stops (LuaOptionsApi.StopAfterLastInstruction).
+        internal static LuaEnv InterruptTarget;
+
+        // Interrupts the running call and returns normally: a chunk that ends with
+        // `return InterruptAndReturn(n)` has no Lua instruction left for the stop hook.
+        public static int InterruptAndReturn(int value)
+        {
+            InterruptTarget.Interrupt();
+            return value;
+        }
     }
 
     // Bound, so that the cases run without reflection too (XLUA_NO_REFLECTION, the minimal preset).
@@ -658,6 +669,56 @@ namespace Coverage
             try
             {
                 Stopped<LuaTimeLimitException>(env, "local s = ('a'):rep(1e5) s:find('.-.-.-.-b')", "a pattern under the time limit alone");
+            }
+            finally
+            {
+                Dispose(env);
+            }
+        }
+
+        // A call stopped after its last Lua instruction (build/xlua.c: lua_pcall's
+        // check after its body, core-luascript.md section 8.14). The stop hook raises at
+        // the next instruction, and a chunk that returns through a C# function
+        // (`return f()`, a tail call) has none left; without the check DoString
+        // returned the C# function's result. Deterministic: the C# function interrupts
+        // the call itself, or pcall catches the instruction limit right before the
+        // return. The message has no traceback, as no Lua frame is left to show.
+        public static void StopAfterLastInstruction()
+        {
+            if (!HasLimits())
+            {
+                return;
+            }
+            const string Stop = "CS.Coverage.LuaOptionsHelper.InterruptAndReturn";
+            var env = new LuaEnv(new LuaOptions { AllowInterrupt = true });
+            LuaOptionsHelper.InterruptTarget = env;
+            try
+            {
+                var e = throws<LuaInterruptedException>(() => env.DoString("return " + Stop + "(7)"), "return through a C# function");
+                expect(e.Limit == LuaLimit.Interrupt && e.Message.Contains("interrupted"), e.Message);
+                expect(Convert.ToInt64(env.DoString("return 1 + 1")[0]) == 2, "usable afterwards");
+                using (var f = (LuaFunction)env.DoString("return function(n) return " + Stop + "(n) end")[0])
+                {
+                    throws<LuaInterruptedException>(() => f.Call(5), "LuaFunction.Call");
+                    throws<LuaInterruptedException>(() => f.Func<int, int>(5), "LuaFunction.Func");
+                }
+                throws<LuaInterruptedException>(() => env.DoString("return coroutine.wrap(function() return " + Stop + "(1) end)()"),
+                    "from a coroutine");
+                expect(Convert.ToInt64(env.DoString("return coroutine.wrap(function() return 3 end)()")[0]) == 3, "usable afterwards");
+            }
+            finally
+            {
+                LuaOptionsHelper.InterruptTarget = null;
+                Dispose(env);
+            }
+            env = new LuaEnv(new LuaOptions { InstructionLimit = 100000 });
+            try
+            {
+                var e = throws<LuaInstructionLimitException>(() => env.DoString("return pcall(function() while true do end end)"),
+                    "pcall caught the limit right before the return");
+                expect(e.Message.Contains("instruction limit exceeded"), e.Message);
+                expect(env.LastInstructionCount == 100000, "count " + env.LastInstructionCount);
+                expect(Convert.ToInt64(env.DoString("return 1 + 1")[0]) == 2, "usable afterwards");
             }
             finally
             {

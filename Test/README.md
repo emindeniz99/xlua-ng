@@ -583,6 +583,14 @@ an earlier limit, the message handler's traceback after a stop, `Interrupt`
 from a C callback, the WebGL clock check, a watchdog thread (also inside a
 coroutine and against back-to-back calls), the C budget of patterns, plain
 `find` and `table.move`, and the profiler on the same hook.
+`core_stop_after_last_instruction` covers a call stopped after its last Lua
+instruction, which `lua_pcall` fails after its body (`build/xlua.c`): the
+chunk returns through a tail call into a C function that interrupts the call
+or polls `xlua_core_watch` past a 1 ns deadline, the C function is called
+directly, from a coroutine or a nested entry, or a `pcall` caught the
+instruction limit right before the return. No thread and no timing; each case
+checks the status, the message, a balanced stack and the next call
+([core-stop-latency.md](../docs/research/core-stop-latency.md#the-stop-after-the-last-instruction-tested-2026-10-28)).
 `core_watchdog_race` runs 3,000 calls that only the watchdog can stop under
 a 1 ms time limit, with a watchdog thread that sleeps between polls as
 `LuaWatchdog` does; a call still running after 10 s ends the run with exit
@@ -977,7 +985,7 @@ python3 Test/Native/run_core.py --bridge --plugin /path/legacy-with-luascript/li
 in Core may need the bridge, and runs them on Mono (against Mono's 4.5
 profile) and on .NET (against the SDK's reference pack), each with a timeout
 that kills the process group and names the test that hung. Every run must pass
-`EXPECTED_TESTS` (84). The library needs the sandbox: the core preset's, or a
+`EXPECTED_TESTS` (85). The library needs the sandbox: the core preset's, or a
 bridge library built with `XLUA_LUASCRIPT=ON`. `--bridge` compiles them with
 the whole runtime (the `XLua.Mini` sources) and adds
 `TestLuaEnvAndLuaScriptSideBySide` (both APIs in one process),
@@ -1505,17 +1513,27 @@ checker (2026-10-17, Linux arm64: 2 of 46 on 5.5.1, 3 of 46 on 5.3.6, 4 of 48
 on 5.4.9); `xlua.c` stays at 100% of branches (390, 390 and 404).
 
 **Coverage gate (since 2026-10-28):** `coverage.sh` fails when a file's branch
-coverage is below `MIN_BRANCH_COVERAGE`, default `xlua.c=99` (more files:
-`MIN_BRANCH_COVERAGE="xlua.c=99 xlua_core.c=95"`; empty turns it off). It
+coverage is below `MIN_BRANCH_COVERAGE`, default `xlua.c=100` (more files:
+`MIN_BRANCH_COVERAGE="xlua.c=100 xlua_core.c=95"`; empty turns it off). It
 measures every runtime first and prints an `XLUA_COVERAGE_GATE` line per
 runtime and file (`Test/Native/coverage_gate.py` reads llvm-cov's
 `summary.json`); the analysis workflow's `coverage` job runs it with the
-default and uploads `branches.txt` and `summary.json` as well. The threshold
-is slightly below the value of 2026-10-28 (arm64 container, reflection only,
-no .NET SDK): `xlua.c` 348 of 348 branches on 5.3.6 and 361 of 362 (99.72%)
-on 5.4.9 and 5.5.1. The untaken branch is the `entry.stop != 0` side of
-`lua_pcall`'s check for a state stopped after its last instruction
-(`xlua.c:343`). With a .NET SDK the source generator's passes run too. Since
+default and uploads `branches.txt` and `summary.json` as well. The gate began
+at 99, below the value of that morning (`xlua.c` 348 of 348 branches on 5.3.6
+and 361 of 362 on 5.4.9 and 5.5.1). The untaken branch was the
+`entry.stop != 0` side of `lua_pcall`'s check for a call stopped after its
+last Lua instruction (`xlua.c:341`), which no test reached. The
+`core_stop_after_last_instruction` check of `native_regression.py` and
+`CaseLuaOptionsStopAfterLastInstruction` of the managed suite now take it on
+every run without threads or timing: the call ends with a tail call into a C
+or C# function that interrupts it, or with a `pcall` that caught the limit
+([core-stop-latency.md](../docs/research/core-stop-latency.md#the-stop-after-the-last-instruction-tested-2026-10-28)).
+The same day's main had fewer branches in `xlua.c` (338 on 5.3.6, 352 on
+5.4.9 and 5.5.1); on it the container run (arm64, reflection only, no .NET
+SDK) measured 351 of 352 on 5.5.1 before these tests and 100% on all three
+runtimes after them (338 of 338, 352 of 352 and 352 of 352; the check taken
+22 times on 5.5.1), so the default is now 100. With a .NET SDK the source
+generator's passes run too. Since
 `build/CMakeLists.txt` records sources as `build/...`
 ([reproducible builds](../build/README.md#reproducible-builds)),
 `coverage.sh` passes `-path-equivalence=build,<checkout>/build` to llvm-cov.
