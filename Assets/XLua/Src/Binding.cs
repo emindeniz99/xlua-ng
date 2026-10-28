@@ -271,10 +271,10 @@ namespace XLua.Binding
         }
 
         // The Lua state of a bridge's LuaEnv; throws ObjectDisposedException when
-        // the env is disposed (one comparison, LuaEnv.L).
+        // the bridge or the env is disposed (LuaBase.State).
         public static RealStatePtr State(LuaBase o)
         {
-            return o.Env.L;
+            return o.State;
         }
 
         // Bindings generated before 2026-10-19 call this; it is State now. It
@@ -282,7 +282,7 @@ namespace XLua.Binding
         // after LuaEnv.Dispose passed NULL to pcall_prepare (Tencent/xLua#999).
         public static RealStatePtr RawState(LuaBase o)
         {
-            return o.Env.L;
+            return o.State;
         }
 
         public static ObjectTranslator Translator(LuaBase o)

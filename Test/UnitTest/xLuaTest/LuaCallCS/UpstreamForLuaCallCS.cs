@@ -2349,6 +2349,119 @@ namespace Upstream
         }
     }
 
+    // A LuaFunction, LuaTable, delegate or interface bridge used after its own
+    // Dispose while the env lives (docs/research/crash-inventory.md, item 12;
+    // owner decision of 2026-10-28). Dispose releases the registry reference,
+    // and the next reference taken gets the same number, so a call used to run
+    // the newer function and a read or write reached the newer table. Every use
+    // now throws ObjectDisposedException; ToString and a second Dispose still work.
+    public static class DisposedLuaBase
+    {
+        static string Expect(string what, Action use)
+        {
+            try
+            {
+                use();
+                return what + ": no exception after Dispose; ";
+            }
+            catch (ObjectDisposedException)
+            {
+                return "";
+            }
+            catch (Exception e)
+            {
+                return what + ": " + e.GetType().Name + " instead of ObjectDisposedException (" + e.Message + "); ";
+            }
+        }
+
+        public static string Check()
+        {
+            var env = new LuaEnv();
+            try
+            {
+                env.DoString(@"
+                    function old() return 'old' end
+                    function new() return 'new' end
+                    old_t = { x = 'old' }
+                    new_t = { x = 'new', Answer = function(self, n) return n + 100 end }
+                    iface_t = { Answer = function(self, n) return n * 2 end }");
+                var function = env.Global.Get<LuaFunction>("old");
+                var table = env.Global.Get<LuaTable>("old_t");
+                var del = env.Global.Get<Func<string>>("old");
+                var iface = env.Global.Get<Coverage.IMultiListed>("iface_t");
+                if ((string)function.Call()[0] != "old" || table.Get<string>("x") != "old" || del() != "old"
+                    || iface.Answer(2) != 4)
+                {
+                    return "the objects do not work before Dispose";
+                }
+                string functionName = function.ToString(), tableName = table.ToString();
+                function.Dispose();
+                table.Dispose();
+                ((IDisposable)del.Target).Dispose();
+                ((IDisposable)iface).Dispose();
+                // New references: luaL_ref hands out the four released numbers again.
+                var newFunction = env.Global.Get<LuaFunction>("new");
+                var newTable = env.Global.Get<LuaTable>("new_t");
+                var others = new List<LuaBase>();
+                for (int i = 0; i < 4; i++) others.Add(env.Global.Get<LuaTable>("new_t"));
+                var numbers = new HashSet<string>();
+                foreach (var o in new List<LuaBase>(others) { newFunction, newTable })
+                {
+                    numbers.Add(o.ToString().Substring(o.ToString().IndexOf(':') + 1));
+                }
+                if (!numbers.Contains(functionName.Substring(functionName.IndexOf(':') + 1))
+                    || !numbers.Contains(tableName.Substring(tableName.IndexOf(':') + 1)))
+                {
+                    return "the released references were not reused: " + functionName + ", " + tableName + "; ";
+                }
+                var holder = env.NewTable();
+                string failures = Expect("LuaFunction.Call", () => function.Call())
+                    + Expect("LuaFunction.Func", () => function.Func<int, string>(1))
+                    + Expect("LuaFunction.Action", () => function.Action(1))
+                    + Expect("LuaFunction.Cast", () => function.Cast<Action>())
+                    + Expect("LuaFunction.SetEnv", () => function.SetEnv(newTable))
+                    + Expect("LuaFunction.SetEnv(disposed table)", () => newFunction.SetEnv(table))
+                    + Expect("LuaFunction pushed to Lua", () => holder.Set("f", function))
+                    + Expect("LuaFunction.Equals", () => function.Equals(newFunction))
+                    + Expect("LuaFunction.GetHashCode", () => function.GetHashCode())
+                    + Expect("LuaTable.Get", () => table.Get<string>("x"))
+                    + Expect("LuaTable.Set", () => table.Set("x", "changed"))
+                    + Expect("LuaTable.ContainsKey", () => table.ContainsKey("x"))
+                    + Expect("LuaTable.GetInPath", () => table.GetInPath<string>("x"))
+                    + Expect("LuaTable.SetInPath", () => table.SetInPath("x", "changed"))
+                    + Expect("LuaTable.Length", () => { var n = table.Length; })
+                    + Expect("LuaTable.ForEach", () => table.ForEach<string, object>((k, v) => { }))
+                    + Expect("LuaTable.GetKeys", () => { foreach (var k in table.GetKeys()) { } })
+                    + Expect("LuaTable.Cast", () => table.Cast<Coverage.IMultiListed>())
+                    + Expect("LuaTable.SetMetaTable", () => table.SetMetaTable(holder))
+                    + Expect("LuaTable.SetMetaTable(disposed)", () => holder.SetMetaTable(table))
+                    + Expect("LuaTable pushed to Lua", () => holder.Set("t", table))
+                    + Expect("LuaTable as DoString's env", () => env.DoString("return 1", "chunk", table))
+                    + Expect("delegate bridge", () => del())
+                    + Expect("interface bridge", () => iface.Answer(1));
+                if (failures != "") return failures;
+                // The newer objects are untouched and still work.
+                if ((string)newFunction.Call()[0] != "new" || newTable.Get<string>("x") != "new")
+                {
+                    return "the newer objects changed";
+                }
+                // Neither throws: ToString names the old reference, Dispose is idempotent.
+                if (function.ToString() != functionName) return "ToString after Dispose";
+                function.Dispose();
+                table.Dispose();
+                foreach (var o in others) o.Dispose();
+                newFunction.Dispose();
+                newTable.Dispose();
+                holder.Dispose();
+                return "";
+            }
+            finally
+            {
+                env.Dispose();
+            }
+        }
+    }
+
     // Lua 5.3 raised an error of a __gc finalizer from the collection step that
     // ran it: LuaEnv.FullGc (unprotected) and LuaEnv.Dispose (its first step)
     // ended in the panic handler (docs/research/crash-inventory.md, item 8).
