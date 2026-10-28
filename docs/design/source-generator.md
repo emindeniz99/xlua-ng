@@ -3649,23 +3649,34 @@ generator -3,468, with `XLUA_REFLECTION` -5,768.
 - The name table entries of the eight types (eight calls) and
   `PackUnpack`'s table readers.
 
-Tested on macOS arm64 with Unity 6000.3.21f1's editor files and the .NET SDK
-10.0.401:
+Tested on macOS arm64 with the .NET SDK 10.0.401 and Unity 6000.3.21f1, on
+`3042ef63` with this change and again after merging main at `503331c7`
+(the numbers below are the merged ones; before the merge: 44 generator
+tests, 508 suite tests, the same results):
 
-- `build_source_generator.py --test`: 44 of 44.
+- `build_source_generator.py --test`: 46 of 46.
 - `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`
   with host plugins built from this tree: Lua 5.5.1 and LuaJIT, each in the
   legacy preset and with `--define XLUA_PRESET_MINIMAL` (the minimal
-  libraries): 508 tests in each of two modes in every pass, surface, bridge
+  libraries): 511 tests in each of two modes in every pass; surface, bridge
   and struct diffs equal to `expected-surface/suite.json`.
-- `editor_compile_check.py`, 7 editors x 85 configurations: 587 ok,
-  7 skipped, and one crash of Mono's csc (`player-ios-minimal-hotfix` on
-  6000.3.26f1, ok when run again).
-- `size_report.py run --configs strict,sg-minimal` before and after
-  (SIZE.md).
+- `editor_compile_check.py`, 7 editors x 85 configurations: 588 ok,
+  7 skipped (before the merge one crash of Mono's csc, ok when run again).
+- The strict minimal smoke player (`Test/MobileSmoke/prepare.py
+  --source-gen`, `XLUA_SMOKE_DEFINES=XLUA_PRESET_MINIMAL`, release, Android
+  ARM64 IL2CPP, Lua 5.5.1 plugins built from the merged tree with NDK r30) on
+  the `xlua16k` emulator (API 36, 16 KB pages): `XLUA_NG_SMOKE_PASS`, with
+  "source generator (no reflection fallback, GCM, 4 methods of
+  W_SgApi_0217fb75, 9 generated types, ...)".
+- `size_report.py run --configs strict,sg-minimal` before and after, before
+  the merge (SIZE.md).
+- `asmdef_compile_check.py --source-gen` on 6000.3.21f1: `XLua.dll` and
+  `XLua.Player.dll` compile with the generator; the examples'
+  `Assembly-CSharp` fails on `SignatureLoaderTest.cs` (`UnityEditor` under
+  `UNITY_EDITOR`), at `3042ef63` without this change as well.
 
-Not run: the Unity editor suite, `asmdef_compile_check.py`, `hotfix_check.py`
-(no hotfix code changed), iOS, WebGL, High stripping, a phone.
+Not run: the Unity editor suite, `hotfix_check.py` (no hotfix code changed),
+iOS, WebGL, High stripping, a phone, and the sizes after the merge.
 
 **Questions for the owner:**
 
