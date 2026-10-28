@@ -477,7 +477,7 @@ jobs:
           retention-days: 14
 
   # Test/UnityMatrix/il2cpp_suite.py: the general Lua suite (Test/UnitTest,
-  # the 522 cases run_managed.py runs under Mono) in an Android IL2CPP player,
+  # the cases run_managed.py runs under Mono) in an Android IL2CPP player,
   # in three configurations: plain (the generator), gcm (GEN_CODE_MINIMIZE)
   # and strict (XLUA_PRESET_MINIMAL without reflection, the minimal plugin
   # variant). The build job prepares and configures the project with the
