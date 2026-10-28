@@ -73,7 +73,7 @@ In this way, xLua will help you to create a new instance and set the correspondi
       Table properties can be more or less than class properties. You can nest other complex classes.
 It should be noted that this process is to copy values. Complex classes will have higher overhead. And, modified field values of the class will not be synchronized to table, and vice versa.
 
-      This feature can reduce the generation overhead by adding the class to GCOptimize. For details, please see the configuration documentation.
+      This feature can reduce the generation overhead by adding the class to GCOptimize. For details, please see the configuration documentation. In the minimal preset (`XLUA_PRESET_MINIMAL` without `XLUA_REFLECTION`) the class needs GCOptimize: without it the mapping raises "has no generated table converter" ([GCOptimize](Configure_EN.md#xluagcoptimize)).
 Is mapping in the reference mode available? Yes, this is one method:
 
    2. Map to an interface

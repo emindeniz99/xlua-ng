@@ -718,6 +718,11 @@ namespace XLua
         }
 
 
+        // Lua calls this for an error with no protected call around it; Lua aborts if it returns.
+        // It throws, as upstream does, everywhere: the exception unwinds the native Lua frames.
+        // Mono does that; IL2CPP does not promise it (undefined behaviour), but it worked in every
+        // Android IL2CPP player tested, and the smoke player's XLUA_SMOKE_PANIC mode checks it
+        // (owner decision 2026-10-28, docs/research/crash-inventory.md, item 9).
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         internal static int Panic(RealStatePtr L)
         {

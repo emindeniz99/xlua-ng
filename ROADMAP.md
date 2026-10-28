@@ -249,6 +249,14 @@ every action item from the 2026-10-17 research is in
 
 ## Optional features, after the above is stable
 
+- A descriptor wrapper mode, GCM's opt-in successor: about 445 KB less APK
+  than GCM at game size, 2–17 ns slower per call on the host. Decided
+  2026-10-28 by the owner: once the other open work is done, measure the
+  prototype (branch `spike/descriptor-wrappers`) on the phone and the
+  emulator, then decide; the full version is about 12 working days. The plan
+  is in [backlog.md](docs/design/backlog.md) and the measurements in
+  [descriptor-wrappers.md](docs/research/descriptor-wrappers.md).
+
 - A JSON module: decided 2026-10-18 by the owner, no native module (yyjson
   would cost 38 to 104 KB, our own parser risks bugs). The FAQ recommends
   pure-Lua libraries (dkjson, lunajson) loaded as ordinary modules; kept here
