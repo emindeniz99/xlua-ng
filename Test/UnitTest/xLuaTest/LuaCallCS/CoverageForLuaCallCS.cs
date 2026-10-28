@@ -1580,6 +1580,99 @@ namespace Coverage
             shared[0] = shared[1] = null;
             return head + string.Join("", results) + hung;
         }
+
+        // Lua -> C# calls in several envs at once, an env per thread, while
+        // another thread creates and disposes envs. A call with an object
+        // argument looks up its env's translator (ObjectTranslatorPool.Find),
+        // which reads without a lock since 2026-10-28: env creation and
+        // Dispose publish new tables instead of changing them. Each call must
+        // get its own env's object back. Under THREAD_SAFE or HOTFIX_ENABLE the
+        // threads run at the same time, otherwise one after another (as
+        // Upstream.EmitCache.Threads). Returns the errors.
+        static Ref[] poolTokens;
+
+        public static bool PoolEcho(Ref token, int k)
+        {
+            return ReferenceEquals(token, poolTokens[k]);
+        }
+
+        public static string PoolThreads(int threads, int calls)
+        {
+            poolTokens = new Ref[threads];
+            for (int i = 0; i < threads; i++) poolTokens[i] = new Ref("token " + i);
+            var results = new string[threads];
+            var workers = new System.Threading.Thread[threads];
+            int running = threads;
+            for (int i = 0; i < threads; i++)
+            {
+                int k = i;
+                workers[i] = new System.Threading.Thread(() =>
+                {
+                    try
+                    {
+                        var env = new LuaEnv();
+                        try
+                        {
+                            env.Global.Set("pool_token", poolTokens[k]);
+                            object bad = env.DoString(@"
+                                local echo, token, k = CS.Coverage.Bridges.PoolEcho, pool_token, " + k + @"
+                                local bad = 0
+                                for i = 1, " + calls + @" do
+                                    if not echo(token, k) then bad = bad + 1 end
+                                end
+                                return bad")[0];
+                            results[k] = Convert.ToInt32(bad) == 0 ? "" : "thread " + k + ": " + bad + " calls got another env's object; ";
+                            env.Global.Set("pool_token", (object)null);
+                        }
+                        finally
+                        {
+                            env.Dispose();
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        results[k] = "thread " + k + ": " + e.GetType().Name + ": " + e.Message + "; ";
+                    }
+                    finally
+                    {
+                        System.Threading.Interlocked.Decrement(ref running);
+                    }
+                });
+                workers[i].IsBackground = true;
+            }
+            string churn = "";
+            var churner = new System.Threading.Thread(() =>
+            {
+                try
+                {
+                    while (System.Threading.Volatile.Read(ref running) > 0) new LuaEnv().Dispose();
+                }
+                catch (Exception e)
+                {
+                    churn = "churn: " + e.GetType().Name + ": " + e.Message + "; ";
+                }
+            });
+            churner.IsBackground = true;
+            string hung = "";
+#if THREAD_SAFE || HOTFIX_ENABLE
+            churner.Start();
+            for (int i = 0; i < threads; i++) workers[i].Start();
+            for (int i = 0; i < threads; i++)
+            {
+                if (!workers[i].Join(60000)) hung += "thread " + i + " did not finish in 60 s; ";
+            }
+#else
+            for (int i = 0; i < threads; i++)
+            {
+                workers[i].Start();
+                if (!workers[i].Join(60000)) hung += "thread " + i + " did not finish in 60 s; ";
+            }
+            churner.Start();
+#endif
+            if (!churner.Join(60000)) hung += "the churn thread did not finish in 60 s; ";
+            poolTokens = null;
+            return string.Join("", results) + churn + hung;
+        }
     }
 
     // Types configured only by lists of several types. run_managed.py

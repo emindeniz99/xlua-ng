@@ -377,6 +377,20 @@
      ]
     },
     {
+     "name": "PoolEcho",
+     "static": true,
+     "overloads": [
+      "Coverage.Bridges::PoolEcho(Coverage.Ref,System.Int32)"
+     ]
+    },
+    {
+     "name": "PoolThreads",
+     "static": true,
+     "overloads": [
+      "Coverage.Bridges::PoolThreads(System.Int32,System.Int32)"
+     ]
+    },
+    {
      "name": "Threads",
      "static": true,
      "overloads": [

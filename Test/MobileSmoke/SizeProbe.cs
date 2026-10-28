@@ -4,6 +4,8 @@
 // and has no xLua sources.
 // With XLUA_SIZE_UWR (the +uwr variants) it also creates one UnityWebRequest, as a project that
 // downloads anything does, so engine code stripping keeps the UnityWebRequest modules in every case.
+// With XLUA_SIZE_HOTFIX_BENCH (the +hfbench variants) it also runs Test/Native/HotfixBench.cs, which logs
+// XLUA_HOTFIX_BENCH lines: ns per call of unpatched and patched hotfix methods, entry checks and the lock.
 // With XLUA_SIZE_STRICT (ng-5.5+minimal+strict) the source generator binds SizeProbeApi, so the minimal
 // preset's player, which has no reflection fallback, runs the probe.
 // With XLUA_SIZE_MIXED (mixed-5.5) it also runs SizeProbeCore.Run(), LuaScript in the same player.
@@ -50,6 +52,9 @@ public class XluaSmoke : MonoBehaviour {
 #if XLUA_SIZE_GAME
     + "; " + GameCalls(env)
 #endif
+#if XLUA_SIZE_HOTFIX_BENCH
+    + "; " + HotfixBenchRun(env)
+#endif
     ;
   }
 #endif
@@ -93,6 +98,18 @@ return {
   }
   cases.Dispose();
   return string.Join(" ", summary.ToArray());
+ }
+#endif
+#if XLUA_SIZE_HOTFIX_BENCH && !XLUA_SIZE_BASELINE
+ // Test/Native/HotfixBench.cs: one XLUA_HOTFIX_BENCH line per case in the log.
+ static string HotfixBenchRun(LuaEnv env) {
+  int lines = 0;
+  HotfixBench.Bench.Run(env, line => { Debug.Log(line); lines++; }, null, 1, 9);
+  // The patches are removed; their bridges must be collected before the env is disposed.
+  System.GC.Collect();
+  System.GC.WaitForPendingFinalizers();
+  System.GC.Collect();
+  return "hotfix bench " + lines + " lines";
  }
 #endif
  void Start() { Debug.Log(Run()); }
