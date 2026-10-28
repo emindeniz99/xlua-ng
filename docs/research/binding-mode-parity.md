@@ -362,3 +362,37 @@ this tree (run folder `owner-decisions-2026-10-28b`):
 - Not run: Lua 5.3.6 and 5.4.9, Linux, the sanitizers, the Unity editor
   suite and players (no IL2CPP run of the reflection changes).
 - `node sync.mjs --check`: all links resolve. [C]
+
+### Tests of the 2026-10-28 decisions (Q34 to Q37, Q41)
+
+macOS 27 arm64, Mono 6.14.1, after merging main at ab73d3b9 (run folder
+`c-part-2026-10-28`):
+
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`,
+  517 tests in each mode of each of the four passes, surface diff included:
+  Lua 5.5.1, 5.3.6 and LuaJIT 2.1, legacy and `--define XLUA_PRESET_MINIMAL`
+  (libraries built with `XLUA_PRESET=minimal`). All pass. [C]
+- `native_regression.py` and `check_exports.py` on the six libraries: pass.
+  [C]
+- Docker (`xlua-analysis:26.04`, Linux arm64, `--memory 6g`): `sanitize.sh`
+  for 5.5.1 and 5.3.6 (ASan, UBSan, API checks; the managed suite through
+  reflection, as the image has no .NET SDK) pass; `coverage.sh` for 5.3.6,
+  5.4.9 and 5.5.1 passes the gate, `xlua.c` at 100% of its branches (it fell
+  to 349 of 350 before `registry_checks` called the plain `xlua_pushcsobj`
+  without the cache, which the managed suite, running with the bridge
+  checks, no longer calls). [C]
+- `build_source_generator.py --test`: 48 tests pass; `EnumArgumentsAndStructResults`,
+  `Xlsg014ReferencedDefaultStructs`, `StructArgumentsRaiseForNil` and
+  `StructsFollowTheLegacyModel` fail on the generator before the change. [C]
+- `lua_tests.py` (basic, complete, internal) on 5.3.6, 5.4.9 and 5.5.1 with
+  the `luaL_traceback` patch: final OK. [C]
+- `editor_compile_check.py`: 7 editors x 85 configurations, 587 ok, 7
+  skipped, one failure where Mono's `csc` crashed (exit -6, no compiler
+  error) on `player-android-il2cpp-xlua-no-load-assembly` for 6000.6.6f1; that
+  configuration passed on all seven editors when run again. [C]
+- `check_meta.py`, `check_pinvoke_abi.py`, `Tools/dependencies.py --check`,
+  `node sync.mjs --check`: pass. [C]
+- Not run: Lua 5.4.9 managed suites, Windows and Linux hosts for the managed
+  suite, the Unity editor suite and players (no IL2CPP run of the enum,
+  struct and registry changes), `publish.yml`, a benchmark of the debug-build
+  registry checks.

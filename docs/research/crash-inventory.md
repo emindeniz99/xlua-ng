@@ -955,6 +955,16 @@ were not run.
 
 ### Tests run for these fixes
 
+- Owner decisions Q37 and Q38 (2026-10-28): `native_regression.py
+  registry_checks` and `traceback_levels` pass on six macOS arm64 libraries
+  (Lua 5.5.1, 5.3.6, LuaJIT; legacy and minimal) and in `sanitize.sh` for
+  5.5.1 and 5.3.6 (Docker, UBSan included); `CaseRegistryChecks` passes in
+  every pass of the managed suite on those six, strict minimal included.
+  Before the change the managed case crashed the suite (SIGSEGV in
+  `lua_setmetatable`, Lua 5.5.1), and a UBSan build of each unpatched
+  interpreter stopped at the traceback overflow. The release exports'
+  machine code is unchanged (`objdump` of the LuaJIT library). Details in
+  [binding-mode-parity.md](binding-mode-parity.md#tests-of-the-2026-10-28-decisions-q34-to-q37-q41).
 - Each regression check failed before its fix and passes after it, in the
   container under ASan, UBSan and the API checks: `native_regression.py
   protected_helpers` (5.4.9), `error_handler` (LuaJIT; 5.4.9 after),
