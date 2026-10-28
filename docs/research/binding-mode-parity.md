@@ -365,11 +365,11 @@ this tree (run folder `owner-decisions-2026-10-28b`):
 
 ### Tests of the 2026-10-28 decisions (Q34 to Q37, Q41)
 
-macOS 27 arm64, Mono 6.14.1, after merging main at ab73d3b9 (run folder
-`c-part-2026-10-28`):
+macOS 27 arm64, Mono 6.14.1, after merging main at c816ab26 (run folder
+`c-part-2026-10-28`; native bridge version 112):
 
 - `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`,
-  517 tests in each mode of each of the four passes, surface diff included:
+  519 tests in each mode of each of the four passes, surface diff included:
   Lua 5.5.1, 5.3.6 and LuaJIT 2.1, legacy and `--define XLUA_PRESET_MINIMAL`
   (libraries built with `XLUA_PRESET=minimal`). All pass. [C]
 - `native_regression.py` and `check_exports.py` on the six libraries: pass.
@@ -386,7 +386,8 @@ macOS 27 arm64, Mono 6.14.1, after merging main at ab73d3b9 (run folder
   `StructsFollowTheLegacyModel` fail on the generator before the change. [C]
 - `lua_tests.py` (basic, complete, internal) on 5.3.6, 5.4.9 and 5.5.1 with
   the `luaL_traceback` patch: final OK. [C]
-- `editor_compile_check.py`: 7 editors x 85 configurations, 587 ok, 7
+- `editor_compile_check.py` (on the tree merged with main at ab73d3b9, before
+  main's struct bounds work): 7 editors x 85 configurations, 587 ok, 7
   skipped, one failure where Mono's `csc` crashed (exit -6, no compiler
   error) on `player-android-il2cpp-xlua-no-load-assembly` for 6000.6.6f1; that
   configuration passed on all seven editors when run again. [C]
