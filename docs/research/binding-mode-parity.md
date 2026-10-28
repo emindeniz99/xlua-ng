@@ -451,7 +451,10 @@ changes, host plugins built from this tree (run folder `q55-58-2026-10-28`):
   (libraries built with `XLUA_PRESET=minimal`). All pass. In the minimal
   runs XLSG014 is reported for exactly `MultiListedVec` and `MultiListedPair`,
   as before, now naming the `[CSharpCallLua]` delegate that passes each
-  (`Coverage.ParityVecResult`, `Coverage.ParityPairResult`). [C]
+  (`Coverage.ParityVecResult`, `Coverage.ParityPairResult`). The same four
+  runs pass again after merging main at 859b9d59 (its native changes to
+  `xlua_core_set_limits` and the LuaJIT profiler), with plugins rebuilt from
+  the merged tree. [C]
 - Before the runtime change (the runtime of ee765495 with the new cases, Lua
   5.5.1 legacy, first pass): `CaseParityStructResultKinds` fails in both
   modes, `LuaFunction.Func` giving `0` for all four structs where Lua
