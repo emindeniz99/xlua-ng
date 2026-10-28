@@ -115,13 +115,22 @@ Makes the calling thread the owner of the LuaEnv. A LuaEnv is not thread-safe an
 
 Description:
 
-Gets the value at key and converts it to T. A missing value can become null for reference types; conversion to an incompatible type, including nil to a non-nullable value type, can throw an exception.
+Gets the value at key and converts it to T. A missing value (nil) becomes null for a reference type. For a value type it throws `InvalidCastException: can not assign nil to T` before any conversion: `int`, `float`, `bool`, an enum, a struct and `Nullable<T>` alike, in every binding mode, as upstream xLua does (kept by owner decision Q55 of 2026-10-28). A value of another kind also throws for a struct, such as a number where a `Vector3` is expected (`InvalidCastException: UnityEngine.Vector3 expected, got number`); a table converts.
+
+Where a key may be missing, test it first with `ContainsKey`, or read it as `object` (or another class type), which gives null for nil:
+
+```csharp
+int hp = table.ContainsKey("hp") ? table.Get<int>("hp") : 100;
+object raw = table.Get<object>("hp");   // null when missing
+```
+
+`LuaTable` has no `TryGet`; the `TryGet` methods of `LuaTableRef` and `LuaValue` belong to `LuaScript`, below.
 
 #### `T GetInPath<T>(string path)`
 
 Description:
 
-The difference from Get is that this function will identify the "." in the path. For example, `var i = tbl.GetInPath<int>("a.b.c")` is equivalent to executing `i = tbl.a.b.c` in Lua. This avoids calling Get multiple times and obtaining intermediate variables. It has higher execution efficiency.
+The difference from Get is that this function will identify the "." in the path. For example, `var i = tbl.GetInPath<int>("a.b.c")` is equivalent to executing `i = tbl.a.b.c` in Lua. This avoids calling Get multiple times and obtaining intermediate variables. It has higher execution efficiency. A missing value throws for a value type as `Get<T>` does; `GetInPath<object>` gives null for it.
 
 #### `void SetInPath<T>(string path, T val)`
 
@@ -133,7 +142,13 @@ Setter corresponding to `GetInPath<T>`.
 
 Description:
 
-The key of the APIs described above can only be a string, but this API has no such restriction.
+The key of the APIs described above can only be a string, but this API has no such restriction. A missing value throws for a value type, as for `Get<T>`.
+
+#### `bool ContainsKey<TKey>(TKey key)`
+
+Description:
+
+Whether the value at key is not nil, without converting it. Use it before `Get` where a key may be missing.
 
 #### `void Set<TKey, TValue>(TKey key, TValue value)`
 

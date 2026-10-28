@@ -106,7 +106,7 @@ namespace XLua.SourceGenerator
         // ---- [CSharpCallLua]: which types get bridges ----
 
         static void CallLuaBridges(WrapperSet set, Compilation compilation, EquatableArray<ConfigEntry> entries,
-            Dictionary<string, ITypeSymbol> typed, MemberContext ctx, List<string> notBound, CancellationToken ct)
+            Dictionary<string, ITypeSymbol> typed, MemberContext ctx, List<string> notBound, List<string> structUses, CancellationToken ct)
         {
             var delegates = new List<INamedTypeSymbol>();
             var interfaces = new List<KeyValuePair<INamedTypeSymbol, List<ISymbol>>>();
@@ -135,6 +135,7 @@ namespace XLua.SourceGenerator
                 if (named.TypeKind == TypeKind.Delegate) delegates.Add(named);
                 else interfaces.Add(new KeyValuePair<INamedTypeSymbol, List<ISymbol>>(named, members));
             }
+            structUses.AddRange(CallLuaStructUses(delegates, interfaces));
             DelegateBridges(set, delegates, ctx.Compilation);
             var models = interfaces.Select(kv => InterfaceModel(kv.Key, kv.Value, ctx.Compilation)).OrderBy(m => m.LuaName, StringComparer.Ordinal).ToList();
             set.Interfaces = new EquatableArray<TypeModel>(models.ToImmutableArray());

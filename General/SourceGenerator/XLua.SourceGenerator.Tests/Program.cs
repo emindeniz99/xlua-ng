@@ -2030,6 +2030,87 @@ namespace Game
         Assert.Diagnostics(game(exposes, Harness.Parse));
     }
 
+    // XLSG014 for [CSharpCallLua] delegates and interfaces (owner decision Q58
+    // of 2026-10-28): in strict minimal, a delegate's or interface's parameter
+    // or result of a [GCOptimize] struct that nothing binds warns, naming the
+    // delegate or interface member and the attribute to add, for a struct of a
+    // referenced assembly (xLua's Vector3) and for the project's own struct;
+    // quiet once everything is bound and with reflection.
+    public static void Xlsg014CallLuaStructs()
+    {
+        var defaults = Harness.Generate(Harness.Compile("Defaults", new[] { Usings + @"
+[assembly: XLua.GCOptimize(typeof(UnityEngine.Vector3), typeof(UnityEngine.Color), typeof(UnityEngine.Rect))]
+namespace UnityEngine
+{
+    public struct Vector3 { public float x, y, z; }
+    public struct Color { public float r, g, b, a; }
+    public struct Rect { public float x, y, width, height; }
+}" }));
+        var defaultsRef = MetadataReference.CreateFromImage(Harness.Emit(defaults.Output));
+        var noReflection = Harness.ParseWith("XLUA_NO_REFLECTION");
+        Func<string, CSharpParseOptions, Run> game = (source, parse) => Harness.Generate(
+            Harness.Compile("Game", new[] { Usings + source }, new[] { Harness.Runtime, defaultsRef }, parse));
+        Func<Run, string[]> xlsg014 = r => r.Result.Diagnostics.Where(d => d.Id == "XLSG014")
+            .Select(d => d.GetMessage()).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+
+        // A delegate result (Vector3), a delegate parameter array (Rect[]), an
+        // interface property (Color?) and a project struct that an interface
+        // method takes. Nothing binds any of them.
+        const string passes = @"
+namespace Game
+{
+    [GCOptimize] public struct Hit { public int Damage; }
+    [CSharpCallLua] public delegate UnityEngine.Vector3 Aim(int target);
+    [CSharpCallLua] public delegate void Layout(UnityEngine.Rect[] areas);
+    [CSharpCallLua] public interface IShip
+    {
+        UnityEngine.Color? Tint { get; }
+        void Take(Hit hit);
+    }
+}";
+        var run = game(passes, noReflection);
+        Assert.Diagnostics(run, "XLSG014:Warning", "XLSG014:Warning", "XLSG014:Warning", "XLSG014:Warning");
+        Assert.Compiles(run);
+        var messages = xlsg014(run);
+        Assert.True(messages[0].StartsWith("GCOptimize struct 'Game.Hit' has no generated bindings")
+            && messages[0].Contains("(the [CSharpCallLua] interface member 'Game.IShip.Take' passes them)")
+            && messages[0].Contains("(Damage)") && messages[0].Contains("Mark it [LuaCallCSharp]")
+            && messages[0].Contains("[assembly: XLua.LuaCallCSharp(typeof(Game.Hit))]"), messages[0]);
+        Assert.True(messages[1].StartsWith("GCOptimize struct 'UnityEngine.Color', configured by assembly 'Defaults'")
+            && messages[1].Contains("the [CSharpCallLua] interface member 'Game.IShip.Tint' passes such values")
+            && messages[1].Contains("(r, g, b, a)") && messages[1].Contains("[assembly: XLua.LuaCallCSharp(typeof(UnityEngine.Color))]"), messages[1]);
+        Assert.True(messages[2].StartsWith("GCOptimize struct 'UnityEngine.Rect'")
+            && messages[2].Contains("the [CSharpCallLua] delegate 'Game.Layout' passes such values")
+            && messages[2].Contains("[assembly: XLua.LuaCallCSharp(typeof(UnityEngine.Rect))]"), messages[2]);
+        Assert.True(messages[3].StartsWith("GCOptimize struct 'UnityEngine.Vector3'")
+            && messages[3].Contains("the [CSharpCallLua] delegate 'Game.Aim' passes such values")
+            && messages[3].Contains("(x, y, z)") && messages[3].Contains("[assembly: XLua.LuaCallCSharp(typeof(UnityEngine.Vector3))]"), messages[3]);
+
+        // The minimal preset implies XLUA_NO_REFLECTION.
+        var minimal = Harness.RuntimeWith("XLUA_PRESET_MINIMAL");
+        run = Harness.Generate(Harness.Compile("Game", new[] { Usings + passes }, new[] { minimal, defaultsRef }, Harness.ParseWith("XLUA_PRESET_MINIMAL")));
+        Assert.True(xlsg014(run).Length == 4, "minimal preset: " + string.Join(", ", xlsg014(run)));
+
+        // A member this assembly binds is named before a delegate.
+        run = game("namespace Game { [LuaCallCSharp] public class Mover { public UnityEngine.Vector3 Target; } }\n" + passes, noReflection);
+        messages = xlsg014(run);
+        Assert.True(messages.Length == 4 && messages[3].Contains("'Game.Mover.Target' passes such values"), string.Join(", ", messages));
+
+        // Everything bound: quiet.
+        run = game("[assembly: LuaCallCSharp(typeof(UnityEngine.Vector3), typeof(UnityEngine.Color), typeof(UnityEngine.Rect), typeof(Game.Hit))]\n"
+            + passes, noReflection);
+        Assert.Diagnostics(run);
+        Assert.Compiles(run);
+
+        // An own struct that no delegate or interface passes keeps its message.
+        run = game("namespace Game { [GCOptimize] public struct Lone { public int N; } [CSharpCallLua] public delegate int Count(string s); }", noReflection);
+        messages = xlsg014(run);
+        Assert.True(messages.Length == 1 && messages[0].Contains("without boxing, but"), string.Join(", ", messages));
+
+        // Reflection reads the fields: quiet.
+        Assert.Diagnostics(game(passes, Harness.Parse));
+    }
+
     // The assembly-level configuration of NameTableSource with several types per
     // attribute (owner decision, 2026-10-18), in the same order.
     static readonly string NameTableSourceGrouped = Usings + @"

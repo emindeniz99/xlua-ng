@@ -717,6 +717,30 @@ Tests:
    typeof(UnityEngine.Color))]` stands in for xLua's defaults, which the
    `XLUA_GENERAL` runtime of the tests leaves out); it fails on the generator
    before the change, which reported nothing.
+   **Decided 2026-10-28 (owner, Q58): extend XLSG014 to `[CSharpCallLua]`
+   delegates and interfaces.** In strict minimal the generator now also
+   counts what the bridged `[CSharpCallLua]` delegates (the parameters and
+   result of `Invoke`) and interfaces (the parameters and results of their
+   methods, the types of their properties and indexers, also as
+   `Nullable<T>` or an array element) of this assembly pass between Lua and
+   C# (`Wrappers.CallLuaStructUses`). A struct that a referenced assembly
+   configures, such as xLua's `Vector3`, and that nothing binds now warns when
+   only such a delegate or interface passes it; the message names it ("the
+   [CSharpCallLua] delegate 'Game.Aim'", "the [CSharpCallLua] interface
+   member 'Game.IShip.Tint'") and the attribute to add
+   (`[assembly: XLua.LuaCallCSharp(typeof(UnityEngine.Vector3))]`); a bound
+   member that passes it is still named first. The project's own unbound
+   `[GCOptimize]` structs were reported already, whatever passes them; their
+   warning now names the first such delegate or interface member too ("Lua
+   gets its values without boxing (the [CSharpCallLua] interface member
+   'Game.IShip.Take' passes them)"), and keeps its text when none does.
+   Quiet when everything is bound, with reflection, and in xLua's own
+   assembly. Generator test `Xlsg014CallLuaStructs`, which fails on the
+   generator before the change (it reported only the project's own struct,
+   without the interface). The unit suite gets no new warnings: its two
+   structs in `EXPECTED_XLSG014` (`MultiListedVec`, `MultiListedPair`) were
+   reported before, and it references no struct another assembly configures,
+   so `EXPECTED_XLSG014` is unchanged.
 5. **`System.Object` and `System.Type`:** bind them by default in minimal
    (`obj:ToString()`, `typeof(T).Name`), or leave them to the project, as now?
    **Decided 2026-10-28 (owner): leave them to the project.** No binding by

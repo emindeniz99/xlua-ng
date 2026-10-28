@@ -260,6 +260,48 @@ Compatibility questions the search found, not changed:
      for a struct result) still differs: generated `[GCOptimize]` readers
      raise `S expected, got number`, the other paths give `default(S)`; not
      decided, reported.
+
+     **Decided 2026-10-28 (owner, Q55): `LuaTable.Get<T>` and `GetInPath<T>`
+     of a missing key keep raising** `InvalidCastException: can not assign
+     nil to T` for every value type (`int`, enums, structs and `Nullable<T>`
+     alike, since `typeof(T?).IsValueType` is true), as upstream does
+     (`LuaTable.cs:57`, `:152`) [C]. Recorded only, no code change. The API
+     guide ([XLua_API_EN.md](../../Assets/XLua/Doc/XLua_API_EN.md), the
+     `LuaTable` section) now says so and names the alternatives that exist:
+     `ContainsKey<TKey>` (`LuaTable.cs:78`: true unless the value is nil) [C],
+     and `Get<object>` (or a class type), which gives null for nil. `LuaTable`
+     has no `TryGet` [C]; `TryGet<T>` (`Assets/XLua/Core/LuaTableRef.cs:95`)
+     and the `TryGet...` of `LuaValue` belong to `LuaScript`, the sandbox
+     without the bridge, and do not apply to `LuaTable`.
+
+     **Decided 2026-10-28 (owner, Q56): a value of the wrong kind read back
+     as a struct raises in every mode.** Implemented [C]:
+     `ObjectTranslator.GetStructResult` reads a strict struct
+     (`ObjectCasters.IsStrictStruct`) that C# reads back from Lua: null for
+     nil or nothing, which the callers turn into `default(S)` (Q35 unchanged),
+     the struct, or `ObjectCasters.StructExpected` (`S expected, got number`,
+     `string`, `boolean`, `function`, or the class of a C# object of another
+     class, Q36's text) for anything else. `ObjectTranslator.Get<T>` uses it
+     for a strict struct without a get function (delegate and interface
+     results and `out` values of generated bridges without a reader,
+     `GenericDelegateBridge`, `LuaFunction.Func`, `LuaTable.Get` and
+     `GetInPath`, `LuaTable.ForEach`), tested once per type
+     (`StrictStruct<T>`); the emitted bridges (`CodeEmit.EmitGetObject` with
+     `luaResult`: results, `out` values, interface properties) call it
+     instead of `GetObject`. The generated `[GCOptimize]` readers already
+     raised for these values and are unchanged, so the generator does not
+     change. Before, these paths gave `default(S)` for a value of another
+     kind, and for a C# object of another class unboxing threw the runtime's
+     `InvalidCastException` ("Specified cast is not valid."). Tables still
+     convert. Enums are outside the decision: a result of the wrong kind
+     raises `invalid value for enum E` in every mode, as before.
+     Side effect, the same in every mode: a `params` array of a struct type
+     in generated and emitted wrappers reads its elements through
+     `GetParams<T>`, so a number given for one now raises there as it does in
+     reflection wrappers (`ObjectTranslator.GetParams`); a nil element still
+     gives `default(S)` there and raises through reflection, a difference
+     from before that this change does not touch [C, by reading the code; not
+     tested].
    - **Q36, a C# object of another class for a struct parameter:
      `InvalidCastException` with the Q22 text.** `ObjectCasters.StructExpected`
      names the class of a C# object (`S expected, got Coverage.Parity`),
@@ -397,3 +439,36 @@ macOS 27 arm64, Mono 6.14.1, after merging main at c816ab26 (run folder
   suite, the Unity editor suite and players (no IL2CPP run of the enum,
   struct and registry changes), `publish.yml`, a benchmark of the debug-build
   registry checks.
+
+### Tests of the 2026-10-28 decisions (Q55, Q56, Q58)
+
+macOS 27 arm64, Mono 6.14.1, on ee765495 (equal to main then) with the
+changes, host plugins built from this tree (run folder `q55-58-2026-10-28`):
+
+- `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`,
+  520 tests in each mode of each of the four passes, surface diff included:
+  Lua 5.5.1 and LuaJIT 2.1, legacy and `--define XLUA_PRESET_MINIMAL`
+  (libraries built with `XLUA_PRESET=minimal`). All pass. In the minimal
+  runs XLSG014 is reported for exactly `MultiListedVec` and `MultiListedPair`,
+  as before, now naming the `[CSharpCallLua]` delegate that passes each
+  (`Coverage.ParityVecResult`, `Coverage.ParityPairResult`). The same four
+  runs pass again after merging main at 859b9d59 (its native changes to
+  `xlua_core_set_limits` and the LuaJIT profiler), with plugins rebuilt from
+  the merged tree. [C]
+- Before the runtime change (the runtime of ee765495 with the new cases, Lua
+  5.5.1 legacy, first pass): `CaseParityStructResultKinds` fails in both
+  modes, `LuaFunction.Func` giving `0` for all four structs where Lua
+  returns 5. [C]
+- `build_source_generator.py --test`: 49 tests pass; `Xlsg014CallLuaStructs`
+  fails on the generator of ee765495, which reported only the project's own
+  struct. [C]
+- `node sync.mjs --check`: all links resolve. [C]
+- `editor_compile_check.py`: 7 editors x 85 configurations, 581 ok, 13
+  skipped, 1 failure. Mono's `csc` crashed (exit -6, no compiler error) on
+  `editor-osx-thread-safe` for 6000.6.6f1 and while compiling the test
+  framework for 6000.3.26f1, which skipped that editor's six `*-tests`
+  configurations; run again, the first passed and the six compiled (the
+  seventh skip is `editor-osx-csharp12-tests`, skipped on every editor). [C]
+- Not run: Lua 5.3.6 and 5.4.9, Windows and Linux hosts, the sanitizers, the
+  Unity editor suite and players (no IL2CPP run of the struct result change),
+  a benchmark (`Get<T>` adds one static bool read per struct result).

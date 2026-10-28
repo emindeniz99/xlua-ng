@@ -119,6 +119,8 @@ namespace XLua
         private static readonly MethodInfo ObjectTranslator_GetUnityObjectArg = typeof(ObjectTranslator).GetMethod("GetUnityObjectArg");
         private static readonly MethodInfo ObjectTranslator_GetStructArg = typeof(ObjectTranslator).GetMethod("GetStructArg", new Type[] { typeof(RealStatePtr),
             typeof(int), typeof(Type) });
+        // A struct result: default for nil, raises for a value of another kind (Q56).
+        private static readonly MethodInfo ObjectTranslator_GetStructResult = typeof(ObjectTranslator).GetMethod("GetStructResult");
         private static readonly MethodInfo ObjectTranslator_GetParams = typeof(ObjectTranslator).GetMethod("GetParams", new Type[] { typeof(RealStatePtr), typeof(int) });
         private static readonly MethodInfo ObjectTranslator_Update = typeof(ObjectTranslator).GetMethod("Update");
         private static readonly MethodInfo LuaAPI_lua_pushvalue = LuaApiMethod("lua_pushvalue");
@@ -448,9 +450,12 @@ namespace XLua
                     il.Emit(OpCodes.Call, Type_GetTypeFromHandle); // typeof(type)
                     // An argument of a strict struct or enum type raises for nil
                     // or a value of another kind (GetStructArg) instead of
-                    // passing the zero value below; a result keeps it (Q35).
+                    // passing the zero value below; a result keeps it for nil
+                    // (Q35) and raises for a value of another kind
+                    // (GetStructResult, Q56).
                     il.Emit(OpCodes.Callvirt, !luaResult && ObjectCasters.RefusesTables(type) ? ObjectTranslator_GetUnityObjectArg
-                        : !luaResult && ObjectCasters.IsStrictArg(type) ? ObjectTranslator_GetStructArg : ObjectTranslator_GetObject);
+                        : !luaResult && ObjectCasters.IsStrictArg(type) ? ObjectTranslator_GetStructArg
+                        : luaResult && ObjectCasters.IsStrictStruct(type) ? ObjectTranslator_GetStructResult : ObjectTranslator_GetObject);
                 }
                 if (type.IsValueType)
                 {

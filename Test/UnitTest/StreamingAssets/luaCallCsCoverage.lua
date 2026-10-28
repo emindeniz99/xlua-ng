@@ -1258,7 +1258,10 @@ end
 -- did already. Arguments still raise (CaseParityStructArgs, CaseParityEnumArgs).
 function CMyTestCaseLuaCallCSCoverage.CaseParityStructResults(self)
     local R = CS.Coverage.ParityResults
-    ASSERT_EQ(R.Get({}, "none"), "InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException")
+    -- int, the four structs, two enums and ParityStruct? raise; ContainsKey and Get<object> are the alternatives (Q55).
+    ASSERT_EQ(R.Get({}, "none"), "InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,missing,null")
+    -- A number: the structs raise (Q56), the enums convert, and ParityStruct? is null (not a strict struct).
+    ASSERT_EQ(R.Get({none = 7}, "none"), "7,InvalidCastException,InvalidCastException,InvalidCastException,InvalidCastException,7,7,null,contains,value")
     local function nothing() end
     local function none() return nil end
     ASSERT_EQ(R.Func(nothing), "0,0,0,0,InvalidCastException,0")
@@ -1269,6 +1272,51 @@ function CMyTestCaseLuaCallCSCoverage.CaseParityStructResults(self)
     ASSERT_EQ(R.Call(function() return CS.Coverage.ParityStruct(3) end, function() return R.Reflected(4) end,
         function() return { x = 5, y = 1 } end, function() return { a = 6, b = 1 } end, function() return CS.Coverage.ParityKind.B end),
         "3,4,5,6,2")
+end
+
+-- A struct C# reads back from Lua given a value of another kind raises
+-- "c# exception:System.InvalidCastException: S expected, got <kind>" in every
+-- binding mode (owner decision Q56 of 2026-10-28): delegate and interface
+-- results, LuaFunction.Func and LuaTable.Get, through ObjectTranslator.Get<T>.
+-- Before, only the generated readers of GCOptimize structs raised; the other
+-- paths gave default(S), and a C# object of another class threw the cast's
+-- InvalidCastException. Nil and nothing still give default(S) (Q35).
+function CMyTestCaseLuaCallCSCoverage.CaseParityStructResultKinds(self)
+    local R = CS.Coverage.ParityResults
+    local names = {"Coverage.ParityStruct", "Coverage.ParityReflectedStruct", "Coverage.MultiListedVec", "Coverage.MultiListedPair"}
+    local function expected(got, extra)
+        local t = {}
+        for i, n in ipairs(names) do t[i] = "InvalidCastException: " .. n .. " expected, got " .. got end
+        if extra then t[#t + 1] = "InvalidCastException: Coverage.ParityStruct expected, got " .. got end
+        return table.concat(t, " | ")
+    end
+    local values = {
+        {5, "number"}, {"x", "string"}, {true, "boolean"}, {print, "function"},
+        {CS.Coverage.Parity(4), "Coverage.Parity"},
+    }
+    for _, case in ipairs(values) do
+        local v, got = case[1], case[2]
+        local f = function() return v end
+        local m = function(self) return v end
+        ASSERT_EQ(R.FuncKinds(f), expected(got))
+        ASSERT_EQ(R.CallKinds(f, f, f, f), expected(got))
+        ASSERT_EQ(R.InterfaceKinds({S = m, R = m, V = m, P = m, Prop = v}), expected(got, true))
+        ASSERT_EQ(R.GetKinds({k = v}, "k"), expected(got))
+    end
+    local function nothing() end
+    local function none(self) return nil end
+    ASSERT_EQ(R.FuncKinds(nothing), "0 | 0 | 0 | 0")
+    ASSERT_EQ(R.CallKinds(nothing, nothing, nothing, nothing), "0 | 0 | 0 | 0")
+    ASSERT_EQ(R.InterfaceKinds({S = none, R = none, V = none, P = none}), "0 | 0 | 0 | 0 | 0")
+    local s = CS.Coverage.ParityStruct(3)
+    local r = R.Reflected(4)
+    ASSERT_EQ(R.CallKinds(function() return s end, function() return r end, function() return { x = 5, y = 1 } end,
+        function() return { a = 6, b = 1 } end), "3 | 4 | 5 | 6")
+    ASSERT_EQ(R.InterfaceKinds({S = function() return s end, R = function() return r end, V = function() return { x = 5 } end,
+        P = function() return { a = 6 } end, Prop = s}), "3 | 4 | 5 | 6 | 3")
+    ASSERT_EQ(R.GetKinds({k = s}, "k"), "3 | InvalidCastException: Coverage.ParityReflectedStruct expected, got Coverage.ParityStruct"
+        .. " | InvalidCastException: Coverage.MultiListedVec expected, got Coverage.ParityStruct"
+        .. " | InvalidCastException: Coverage.MultiListedPair expected, got Coverage.ParityStruct")
 end
 
 -- A C# object of another class passed for a struct parameter or field raises
