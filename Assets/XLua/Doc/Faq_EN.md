@@ -89,6 +89,12 @@ The preset does not bind `System.Object` and `System.Type` for you, so `obj:ToSt
 [assembly: XLua.LuaCallCSharp(typeof(object), typeof(System.Type))]
 ```
 
+`[ReflectionUse]` does not help here: in the minimal preset it only writes `link.xml` entries and does not open reflection for its type. The only way back to the reflection fallback is `XLUA_REFLECTION`, for the whole project.
+
+## What does "T has no generated table converter" mean?
+
+The project uses the minimal preset without `XLUA_REFLECTION`, and Lua passed a table where C# expects a class or struct `T`: a parameter, a field or property, `LuaTable.Get<T>` or `Cast<T>`, a delegate's or interface's result, or an element of a list. Upstream filled the object's public fields from the table through reflection; the preset does that only through code the source generator writes, which it writes for `[GCOptimize]` types: structs, and classes with a public parameterless constructor. Mark `T` `[GCOptimize]` (or add `[assembly: XLua.GCOptimize(typeof(T))]`), pass a `T` made in C# instead of a table, or define `XLUA_REFLECTION`. A `[GCOptimize]` struct whose fields Lua reads needs `[LuaCallCSharp]` too (warning XLSG014). See [MIGRATING.md](../../../docs/MIGRATING.md#reflection-off-in-the-minimal-preset).
+
 ## What does the Unity 5.5 .NET runtime warning mean?
 
 The historical message `WARNING: The runtime version supported by this application is unavailable.` came from running the .NET 3.5 injection tool under Unity 5.5's MonoBleedingEdge environment. Upstream reported that backward compatibility allowed injection despite the warning.
@@ -148,6 +154,8 @@ Configure enums and eligible structs with `GCOptimize`. This does not promise th
 Yes, but account for AOT compilation and stripping. C#-to-Lua delegate/interface adapters created with reflection emit require runtime code generation; generate `CSharpCallLua` bridges for AOT players instead.
 
 For Lua-to-C# calls using reflection, configure `ReflectionUse`: the source generator writes `link.xml` preservation entries for those types, without `LuaCallCSharp` wrappers, and the player build passes them to UnityLinker. Generated C#-to-Lua bridges remain required; Lua-to-C# wrappers can often be replaced by reflection if preservation and AOT requirements are satisfied.
+
+The minimal preset has no reflection fallback: there `ReflectionUse` only preserves its types, for `xlua.get_generic_method`, `xlua.tofunction` and, with `HOTFIX_ENABLE`, `xlua.private_accessible` and `xlua.access`, and Lua reaches other members only through `LuaCallCSharp` wrappers. Define `XLUA_REFLECTION` to use reflection in that preset.
 
 ## Can I call generic methods?
 
