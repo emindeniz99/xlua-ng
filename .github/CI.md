@@ -192,7 +192,23 @@ symbol the managed side imports.
 5.3.6, 5.4.9 and 5.5.1, and C# without a build. Code scanning on a private
 repository needs GitHub Advanced Security, so the workflow was manual until
 the repository went public; it now runs on pushes to `main`, pull requests
-and weekly, and uploads its results to code scanning. **Native analysis** (`analysis.yml`) runs
+and weekly, and uploads its results to code scanning. Since 2026-10-28 (owner
+decision Q67) both languages run the `security-extended` suite, and C/C++
+also runs Trail of Bits' security queries,
+`trailofbits/cpp-queries@0.3.0:codeql-suites/tob-cpp-security.qls` (unsigned
+decrement wrap in comparisons, missing NUL terminators, wrong `strn*` sizes,
+unsafe implicit conversions; not its OpenSSL crypto suite). CodeQL pins a pack
+by version only, so a step before `init` checks the pack's GHCR manifest
+digest, recorded in the matrix (`pack-digest`); a new pack version needs both
+values changed. `paths-ignore` does not apply to a traced build, and the build
+compiles the vendored Lua, LuaJIT headers and LuaSocket too, so `analyze` does
+not upload: `.github/scripts/codeql-drop-vendored.py` removes results under
+`build/lua-<version>/`, `build/luajit-2.1/` and `build/luasocket/`, and
+`upload-sarif` sends the rest. The unfiltered SARIF stays in the
+`codeql-<language>-sarif` artifact (14 days). Manual runs upload only with the
+`upload` input. The first runs and the triage of every result are in
+[docs/research/codeql-extended.md](../docs/research/codeql-extended.md).
+**Native analysis** (`analysis.yml`) runs
 `Test/Native/analyze.sh`, `Test/Native/coverage.sh` and `Test/Fuzz/run.sh`
 (seconds per target as an input) and uploads logs, coverage HTML and crash
 reproducers. Its `coverage` job measures the legacy (Lua 5.3.6, 5.4.9,

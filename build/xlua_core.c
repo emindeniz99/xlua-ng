@@ -471,6 +471,11 @@ LUA_API int xlua_gc(lua_State *L, int what, int data) {
         default:
             return (what >= 0 && what <= 4) ? lua_gc(L, what) : -1;
     }
+#elif LUA_VERSION_NUM == 504
+    /* Lua 5.4's lua_gc is variadic: LUA_GCGEN (10) reads two ints and
+     * LUA_GCINC (11) three. The ones C# cannot pass are 0, "leave unchanged";
+     * other operations ignore the extra arguments. */
+    return lua_gc(L, what, data, 0, 0);
 #else
     return lua_gc(L, what, data);
 #endif
