@@ -402,12 +402,32 @@ namespace XLua
 
 			internal int Pick(ObjectTranslator translator, RealStatePtr L)
 			{
-				int best = -1, bestScore = int.MaxValue;
+				int best = -1, bestScore = int.MaxValue, number = -1;
 				for (int i = 0; i < types.Length; i++)
 				{
-					if (!translator.Assignable(L, 2, types[i])) continue;
-					if (!scored) return i;
-					int score = OverloadScore.Arg(translator, L, 2, kinds[i], scoreTypes[i]);
+					int score;
+					if (!scored)
+					{
+						if (translator.Assignable(L, 2, types[i])) return i;
+						continue;
+					}
+					// The check reads what the cost needs (OverloadScore.NumberCheck, CheckedArg).
+					int kind = kinds[i];
+					if (OverloadScore.IsNumeric(kind) && kind < OverloadScore.KindNullable)
+					{
+						if (!OverloadScore.NumberCheck(translator, L, 2, types[i], kind, ref number)) continue;
+						score = OverloadScore.NumberArg(L, 2, kind, ref number);
+					}
+					else if (kind == OverloadScore.KindOther)
+					{
+						score = OverloadScore.CheckedArg(translator, L, 2, types[i]);
+						if (score < 0) continue;
+					}
+					else
+					{
+						if (!translator.Assignable(L, 2, types[i])) continue;
+						score = OverloadScore.Arg(translator, L, 2, kind, scoreTypes[i]);
+					}
 					if (score < bestScore)
 					{
 						best = i;
@@ -1765,11 +1785,34 @@ namespace XLua
 			if (!IsPublic(type))
 			{
 				return subject + name + " is not public, so it has no generated bindings" + off
-					+ ". Reach it through a public base class or interface with [LuaCallCSharp], or define XLUA_REFLECTION";
+					+ ". Reach it through a public base class or interface with [LuaCallCSharp], or define XLUA_REFLECTION"
+					+ objectOrTypeHint(type, member);
 			}
 			return subject + name + " has no generated bindings" + off + ". Mark it [LuaCallCSharp], or add [assembly: XLua.LuaCallCSharp(typeof("
 				+ csharpName(type) + "))] for a type you cannot change (XLua > Migrate Configuration to Attributes converts "
-				+ "configuration lists), or define XLUA_REFLECTION";
+				+ "configuration lists), or define XLUA_REFLECTION" + objectOrTypeHint(type, member);
+		}
+
+		// The minimal preset binds neither System.Object nor System.Type (owner
+		// decision 2026-10-28, docs/design/presets.md): obj:ToString() and
+		// typeof(CS.T).Name raise, but tostring() works without bindings
+		// (StaticLuaCallbacks.ToString, the __tostring of every C# object).
+		static string objectOrTypeHint(Type type, string member)
+		{
+			if (member == null)
+			{
+				return "";
+			}
+			if (type == typeof(object))
+			{
+				return ". Without bindings, tostring(obj) gives obj:ToString() followed by ': ' and the hash code";
+			}
+			if (typeof(Type).IsAssignableFrom(type))
+			{
+				return ". Without bindings, tostring(typeof(CS.T)) gives the type's name followed by ': ' and the hash code;"
+					+ " to use the members of types, bind System.Type: [assembly: XLua.LuaCallCSharp(typeof(System.Type))]";
+			}
+			return "";
 		}
 
 		// The hint after "This type must add to CSharpCallLua" under XLUA_NO_REFLECTION,

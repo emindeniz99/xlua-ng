@@ -42,6 +42,7 @@ return {
     ["CMyTestCaseLuaCallCS.CaseOverloadNumbers"] = true,
     ["CMyTestCaseLuaCallCS.CaseOverloadParamsAndDefaults"] = true,
     ["CMyTestCaseLuaCallCS.CaseOverloadReferenceTypes"] = true,
+    ["CMyTestCaseLuaCallCS.CaseOverloadTypeCache"] = true,
     ["CMyTestCaseLuaCallCS.CaseReflectEvent1"] = true,
     ["CMyTestCaseLuaCallCS.CaseSetUnknownMemberRaises"] = true,
     ["CMyTestCaseLuaCallCS.CaseStackToStringCSharpValues"] = true,
@@ -182,6 +183,7 @@ return {
 
     -- CMyTestCaseLuaCallCSUpstream
     ["CMyTestCaseLuaCallCSUpstream.CaseBridgeAfterDisposeThrows"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseDeepCSharpRecursion"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseDisposeWhileRunningThrows"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEmitCacheEnvsOnThreads"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEmitCacheOneAssembly"] = true,
@@ -191,6 +193,7 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseEnvReflectionReused"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEnvScanReused"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseEnvScanSeesLaterAssembly"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseErrorsThroughCSharpCallbacks"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseFinalizerQueueReleasesAll"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseGCOptimizeBoolCharPointerFields"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseInDefaultTypeLoads"] = true,
@@ -200,6 +203,7 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseNullableDefaultTypeLoads"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseNullableDefaultValue"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseOperatorErrorNamesTheOperand"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseOwnerThreadCheck"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CasePointerReturn"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseRequireLoaderData"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseReturnHookOnRepeatedCalls"] = true,
@@ -214,4 +218,5 @@ return {
     ["CMyTestCaseLuaCallCSUpstream.CaseUnityObjectFieldRefusesTable"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseUnityObjectParameterRefusesTable"] = true,
     ["CMyTestCaseLuaCallCSUpstream.CaseUtf8StringParameters"] = true,
+    ["CMyTestCaseLuaCallCSUpstream.CaseUtf8TypeNames"] = true,
 }

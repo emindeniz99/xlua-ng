@@ -156,6 +156,17 @@ they follow the build type in every preset, as `XLUA_BRIDGE_CHECKS`
    release players by `XLUA_BRIDGE_CHECKS` and left out by
    `XLUA_NO_BRIDGE_CHECKS`. Not added here.
 
+   **Decided 2026-10-28 (owner) and implemented:** as proposed, in debug
+   builds only. The owner is the thread that created the env;
+   `LuaEnv.SetOwnerThread()` and `LuaScript.SetOwnerThread()` hand an env or
+   a script to the calling thread; the exception names both thread IDs and
+   the fixes (`SetOwnerThread`, `THREAD_SAFE`, no Lua calls from finalizers).
+   The condition is `XLUA_BRIDGE_CHECKS && !THREAD_SAFE && !HOTFIX_ENABLE`,
+   since `HOTFIX_ENABLE` takes the same lock as `THREAD_SAFE`;
+   `LuaOptions.CheckThread = false` turns it off for one env. Implementation,
+   cost and tests are in
+   [crash-inventory.md](../research/crash-inventory.md#5-6-two-threads-in-one-luaenv-finalizers-that-call-lua).
+
 ### B. Reduced `debug` library (audit item 7, done 2026-10-18 with option 1)
 
 Implemented as option 1 below, with the define of option 2 deciding the

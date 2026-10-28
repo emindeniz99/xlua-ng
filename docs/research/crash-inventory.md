@@ -52,9 +52,9 @@ owner question; (c) by design: documented.
 | 2 | `LuaEnv.Dispose` from a C# function Lua called (also in a coroutine or `__gc`) | all | `lua_close` under the running call: SIGABRT | **fixed** here | one `lua_getstack` per Dispose | (a) |
 | 3 | `LuaTable.ForEach` / `GetKeys` after the table changed | all | `lua_next` raises "invalid key to 'next'" with no handler: panic | **fixed** here | +22 ns per element (pcall) | (a) |
 | 4 | `__len` that raises, for `LuaTable.Length`, `AddSearcher` and tables converted to `T[]` / `List<T>` | 5.3+ | luaL_len raises with no handler (panic) or across the caster's managed frames | **fixed** here | none without `__len` | (a) |
-| 5 | Two threads in one `LuaEnv` without `THREAD_SAFE` | all | heap corruption: SIGABRT, or wrong errors | open | thread check per call | (b) |
-| 6 | A C# finalizer that calls Lua (a second thread) | all | as 5: SIGABRT | open | as 5 | (b) |
-| 7 | Deep C# ↔ Lua recursion | LuaJIT | native stack overflow at about 10,240 levels: SIGSEGV | open | counter in the C# trampoline (LuaJIT) | (b) |
+| 5 | Two threads in one `LuaEnv` without `THREAD_SAFE` | all | heap corruption: SIGABRT, or wrong errors | **checked** in debug builds (2026-10-28) | about 1 to 2 ns per call into Lua where checked | (b) |
+| 6 | A C# finalizer that calls Lua (a second thread) | all | as 5: SIGABRT | **checked** in debug builds (2026-10-28) | as 5 | (b) |
+| 7 | Deep C# ↔ Lua recursion | LuaJIT | native stack overflow at about 10,240 levels: SIGSEGV | **fixed** (2026-10-28) | about 2.5 ns per C# call on LuaJIT | (b) |
 | 8 | Errors in `__gc` on Lua 5.3 | 5.3 | propagate from a GC step: panic in an unprotected C# call (`FullGc`, any allocating push) | open | a protected `FullGc`; or a vendored `lgc.c` change | (b) |
 | 9 | The panic handler throws a C# exception through native frames | all | undefined behaviour; Mono unwinds, IL2CPP need not | open | none | (b) |
 | 10 | Struct accessors read the 8-byte header of any full userdata, whatever its size | all (mostly LuaJIT) | heap over-read; a write if the bytes look like a header | open | +1 `lua_rawlen` per accessor | (b) |
@@ -257,6 +257,100 @@ release players and under `THREAD_SAFE`. The agent working on the build-type
 checks (`XLUA_CHECK_OBJECTS` and the like) owns the defines; this note only
 proposes the check. Owner question: also in release, or never?
 
+**Decided 2026-10-28 (owner) and implemented.** One of the bridge checks: in
+debug builds only, off under `THREAD_SAFE`; the owner is the creating thread;
+a public hand-off; an `InvalidOperationException` that names both thread IDs
+and the fixes. As implemented [C]:
+
+- **The check.** `LuaEnv.L` (`Assets/XLua/Src/LuaEnv.cs:67`), which every
+  C#→Lua entry reads (bridges through `BindingApi.State`, `LuaTable`,
+  `LuaFunction`, `DoString`, `Tick`, `Dispose`), compares `ownerThread` with
+  the calling thread's `Environment.CurrentManagedThreadId`, cached in a
+  `[ThreadStatic]` field (`:104`), under
+  `#if XLUA_BRIDGE_CHECKS && !THREAD_SAFE && !HOTFIX_ENABLE`; a mismatch calls
+  the out-of-line `CheckOwnerThread` (`:138`), which fills the cache on a
+  thread's first check, so the getter stays small.
+  `HOTFIX_ENABLE` is exempt as well as `THREAD_SAFE`: both take `luaEnvLock`
+  around every entry (`#if THREAD_SAFE || HOTFIX_ENABLE` in `LuaEnv.cs`,
+  `LuaTable.cs`, `LuaFunction.cs`, `GenericDelegateBridge.cs`, `CodeEmit.cs`
+  and the source generator's `Bridges.cs`; `LuaDLLBridge.cs:465` shares the
+  string buffer only without both), so a hotfixed method may run on any
+  thread, as upstream allows. This differs from the brief's
+  `!THREAD_SAFE` alone; see the questions below.
+- **Owner and hand-off.** `ownerThread` is set in the constructor before the
+  state exists (`LuaEnv.cs:216`). `LuaEnv.SetOwnerThread()` (`:117`) makes
+  the calling thread the owner; `LuaScript.SetOwnerThread()`
+  (`Assets/XLua/Core/LuaScript.cs:236`) is new with the same name, since
+  `LuaScript`'s `ownerThread` was `readonly` and had no hand-off. Neither
+  refuses while the other thread runs a call: the caller must hand over once
+  the old owner is done, which also orders the write before the old owner's
+  last use. `LuaOptions.CheckThread = false`, which only `LuaScript` read,
+  turns the check off for one `LuaEnv` too, so both classes share the option.
+- **Any thread, as `LuaScript`:** `Interrupt()` (reads `rawL`), and the
+  statistics getters (`MemoryUsed`, `MemoryPeak`, `LastInstructionCount`, the
+  limits' getters) through `StatsState` (`:124`), which checks only for
+  disposal. The setters stay checked.
+- **Exemptions checked.** Dispose from the owner: `FullGc` and `Dispose(bool)`
+  read `L` on the owner. The finalizers: `~LuaBase` (`LuaBase.cs:45`) calls
+  `Dispose(false)`, which only calls `equeueGCAction` (`:84`; a lock-free push,
+  `LuaEnv.cs:1091`) and never reads `L`; it is the only finalizer in
+  `Assets/XLua/Src` and `Core` besides `~LuaScript`, which closes the state
+  without the thread check (`LuaScript.cs:155`). Delegate, interface and
+  generated bridges derive from `LuaBase` and do not override it. Hotfix
+  bridges read `rawL` in `InvokeSessionStart` (`DelegateBridge.cs:165`), and
+  exist only under `HOTFIX_ENABLE`. Unity calls `Update`, coroutines and
+  `UnitySynchronizationContext` continuations on the main thread, which
+  created the env in the usual setup; an env created elsewhere needs the
+  hand-off [S: the Unity script lifecycle].
+- **Found on the way.** Two suite fixtures used one env from a second thread
+  without `THREAD_SAFE`, one thread at a time (`Coverage.Bridges.Threads`
+  without `THREAD_SAFE`, `DisposedEnvBridges.CheckResurrected`); they now hand the
+  env over and back with `SetOwnerThread`.
+
+**Cost [C].** Where the check runs (debug builds), a thread-static read
+and a compare per read of `L`. The thread's id is cached in a `[ThreadStatic]`
+field: `Environment.CurrentManagedThreadId` costs about 6 ns on Mono 6.14.1
+(it is `Thread.CurrentThread.ManagedThreadId`), the cached read about 2 ns (a
+loop of 50 million calls through a delegate: 7.35 and 3.37 ns, the empty
+delegate call 1.5 ns). `benchmark.py --modes sourcegen,emit --filter cs_lua
+--runs 9`, Lua 5.5.1 Release plugin, `XLUA_GENERAL` (checks on), the base tree
+(`b3adc8e8`) against this one, three interleaved rounds, lowest median in ns
+per call, on macOS 27 arm64 at a load average of 25 to 42 from other test
+runs:
+
+| Case | generated, before → after | emitted (the Editor's path), before → after |
+|---|---|---|
+| `delegate_int` | 77.9 → 78.2 | 81.9 → 85.9 |
+| `interface_method` | 202.2 → 198.8 | 204.5 → 211.2 |
+| `interface_property_get` | 129.3 → 128.0 | 133.1 → 141.1 |
+| `luafunction_call` | 314.5 → 313.1 | 320.1 → 322.1 |
+| `luafunction_func` | 224.5 → 223.8 | 222.0 → 228.3 |
+
+Generated bridges read `L` once per call (`BindingApi.State`), and their
+difference is within the noise; CodeEmit's bridges read it several times
+(the `_L` getter per use), about 4 to 8 ns more per call. The first version
+compared `Environment.CurrentManagedThreadId` directly: generated
+`delegate_int` 77.0 → 83.5, `interface_method` 204.9 → 214.0,
+`luafunction_func` 225.4 → 237.3, which led to the cache. Release players
+compile no check and pay nothing. IL2CPP, where a thread-static read is a
+call into the runtime, was not measured.
+
+**Tests.** `CaseOwnerThreadCheck` (`luaCallCsUpstream.lua`, fixtures
+`Upstream.OwnerThread` in `UpstreamForLuaCallCS.cs`) in both states:
+with the check, a call from another thread through a delegate, a configured
+delegate, an interface bridge, `LuaFunction.Call`, `LuaTable.Get`,
+`DoString`, `NewTable` and `Dispose` throws `InvalidOperationException`
+naming both thread IDs, `SetOwnerThread()`, `THREAD_SAFE` and finalizers,
+and leaves the env usable; the hand-off to another thread and back works and
+refuses the creator in between; xLua's own finalizers queue releases that
+`Tick` frees; a finalizer of the user's that calls Lua gets the exception;
+`CheckThread = false` and the statistics from another thread work. Without
+the check (`THREAD_SAFE`, or `XLUA_NO_BRIDGE_CHECKS`) the same calls must
+succeed. `TestThreadCheck` (`Test/Core/CoreTests.cs`) checks
+`LuaScript.SetOwnerThread`. `crash_repro.py`: `two_threads` and
+`finalizer_thread_call` end in the exception on 5.3.6, 5.5.1 and LuaJIT
+(below).
+
 ### 7. Deep C# ↔ Lua recursion on LuaJIT
 
 **How it fails [C].** `deep_recursion_cs_lua` (a Lua function that calls a
@@ -274,6 +368,61 @@ calls C# when the count passes 200: an increment, a decrement and a compare
 per C# call on LuaJIT, about 1 ns [U]. Proposal (b): owner question, since
 it touches every C# call on LuaJIT and caps a depth that LuaJIT users can
 reach today (200 nested C#↔Lua levels).
+
+**Decided 2026-10-28 (owner) and implemented:** a crash fix, no flag; the
+same error at the same depth as PUC Lua. As implemented [C]:
+
+- **Where.** In the two C# function trampolines (`csharp_function_wrap` and
+  the GCM `csharp_function_wrapper_wrapper`), through `managed_enter` and
+  `managed_leave` (`build/xlua_core.c:530`, `:547`), on LuaJIT only. Every
+  call from Lua into C# passes one of them, whatever the binding mode, so the
+  native side has one place; a C# counter would need every generated
+  wrapper, `StaticLuaCallbacks` and the reflection paths.
+- **The count.** A thread-local `int` (`_Thread_local`; `__declspec(thread)`
+  under MSVC, `thread_local` if compiled as C++). The C stack that
+  overflows is the thread's, and LuaJIT runs coroutines on the caller's C
+  stack, so per thread is the measure that matters. A per-state count would
+  need a field in LuaJIT's `lua_State` or `global_State` (a patch to the
+  vendored tree) or a registry lookup per call. PUC Lua counts per state, so
+  two envs nested on one thread can still go deeper there [U: from
+  `ldo.c`, not tested].
+- **The depth.** `deep_recursion_cs_lua` reached C# function 199 on Lua
+  5.3.6 and 5.5.1 (the 199th's `lua_pcall` fails: the outer `DoString` plus
+  199 nested calls reach `LUAI_MAXCCALLS`, 200). `XLUA_CSHARP_MAX_DEPTH` is
+  199: the trampoline refuses a 200th C# function with
+  `luaL_error(L, "C stack overflow")`, raised in the Lua function that called
+  it, which the 199th function's `pcall` catches. The message and the depth
+  match (the innermost `LuaException` is "C stack overflow" on all three).
+  When C# functions already run on the thread (the managed suite calls its
+  fixtures from Lua), LuaJIT stops that many levels earlier; the test runs
+  on a thread of its own.
+- **Error paths.** The trampoline decrements before it raises a deferred C#
+  error; the refusal raises before the increment. A Lua error that crossed a
+  trampoline without returning through it would leave the count high, but
+  that is undefined behaviour already (item 17).
+
+**Cost [C].** One thread-local address per trampoline call (on macOS one
+`tlv_get_addr` call, whose result stays in a register across the C# call:
+`objdump -d` of `csharp_function_wrap`), a compare, an increment and a
+decrement. A C loop calling a function through such a wrapper in a shared
+library (Apple clang 21, `-O2`, macOS 27 arm64): 1.55 ns without the counter,
+4.04 ns with it, so about 2.5 ns per call. `benchmark.py --modes
+sourcegen,emit --filter lua_cs --runs 9` with the base LuaJIT plugin and this
+one (three rounds, lowest median, a machine loaded by other test runs):
+`static_call` 57.1 → 58.1 ns generated and 67.4 → 67.4 emitted,
+`instance_call` 95.3 → 98.6 and 95.9 → 94.1, `field_get` 97.8 → 100.9 and
+98.0 → 106.7; the other cases moved between −4 and +10 ns in both
+directions, so the cost is below what that benchmark resolves. Not measured:
+Android, where the NDK emulates thread-local storage below API level 29
+(`__emutls_get_address`, a call and a lookup per access) [S], Windows and
+iOS. The counter costs nothing on PUC Lua, where it is not compiled.
+
+**Tests.** `CaseDeepCSharpRecursion` (`Upstream.DeepRecursion`): on a thread
+with a 64 MB stack, the recursion ends in "C stack overflow" with C#
+function 199 the deepest, twice (the count is back after the error), and a
+50-level recursion returns, on Lua 5.3.6, 5.5.1 and LuaJIT. Before the fix
+the LuaJIT run crashes. `crash_repro.py deep_recursion_cs_lua` prints the
+deepest C# call: 199 on all three.
 
 ### 8. `__gc` errors on Lua 5.3
 
@@ -446,7 +595,15 @@ reached `Main`; "error" a Lua error that the case printed.
 | `csharp_stack_overflow` | **SIGSEGV** | **SIGSEGV** | **SIGSEGV** | **SIGSEGV** | **SIGSEGV** |
 
 The thread cases are races: one run can abort and the next end in an
-exception. The Lua 5.3.6 "before" column was not run (the plugin had been
+exception.
+
+After the 2026-10-28 changes (`crash_repro.py` builds with `XLUA_GENERAL`, so
+the owner-thread check is on), on 5.3.6, 5.5.1 and LuaJIT [C]:
+`two_threads` ends in `InvalidOperationException: this LuaEnv belongs to
+thread 1 but is used from thread 3 ...` on the first call of either thread;
+`finalizer_thread_call` ends with no call made from the finalizer (each
+throws, and the case's finalizer catches it); `deep_recursion_cs_lua` ends
+in "C stack overflow" with C# function 199 the deepest, LuaJIT included. The Lua 5.3.6 "before" column was not run (the plugin had been
 rebuilt); its "after" results for items 3, 4 and 2 match 5.5.1.
 
 ## Tests run for these changes

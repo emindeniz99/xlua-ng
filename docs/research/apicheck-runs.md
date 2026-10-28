@@ -12,7 +12,8 @@ Marks: [C] confirmed here, [S] secondary, [U] unconfirmed.
 
 ## Result
 
-- No C API assertion fired on any runtime or preset. Nothing in `xlua.c`,
+- No C API assertion fired on any runtime or preset, nor with MSVC on Windows
+  (2026-10-28, below). Nothing in `xlua.c`,
   `i64lib.c`, `xlua_core*.c` or the C# bridge needed a fix. [C]
 - One configuration failed: the LuaJIT build with `UINT_ESPECIALLY`
   (`luajit-uint`). The cause was three wrong test expectations, not an API
@@ -156,10 +157,46 @@ with a `U` suffix. `ULONG_TOSTRING(signed, unsigned)` adds the suffix itself
   `slotText(ULONG_TOSTRING(...))`. The other builds get the same text as
   before. [C]
 
+## Windows runs (MSVC, 2026-10-28)
+
+`.github/workflows/windows-host.yml` on `windows-2022`, Visual Studio 2022,
+CMake `-A x64 -DXLUA_APICHECK=ON`, Release. Details in
+[windows-host.md](windows-host.md); passing run
+[40645581045](https://github.com/emindeniz99/xlua-ng/actions/runs/40645581045).
+
+- `/UNDEBUG` works: cl reports `D9025: overriding '/DNDEBUG' with
+  '/UNDEBUG'`, and the probe aborts. [C]
+- LuaJIT's `lua51.lib` comes from `msvcbuild_mt.bat [nogc64] mixed` with
+  `CL=/DLUA_USE_APICHECK`; CMake's `nm` check does not run with MSVC, so the
+  workflow looks for `lj_assert_fail` in the library itself. [C]
+- **Gap, fixed:** `xlua.dll` links the C runtime statically, and that copy
+  shows a failed `assert` or `abort` in a message box, which would block an
+  unattended run. `XLUA_APICHECK` builds with MSVC now add
+  `build/xlua_apicheck_msvc.c`, which sends them to stderr. [C]
+- **Probe:** `Test/Native/apicheck_probe.py`, the probe described above as a
+  script. Every build aborted with exit code 3: 5.3.6 and 5.4.9 in
+  `lapi.c:64`, 5.5.1 in `lapi.c:62`, LuaJIT (GC64 and non-GC64) with
+  "LuaJIT ASSERT lj_api.c:825: lua_rawgeti: stack slot -1 is not a table". [C]
+
+| Configuration | Native checks | Managed suite (.NET Framework, Mono 6.12.0) |
+|---|---|---|
+| legacy, Lua 5.3.6 | pass | 2 × 496, pass on each |
+| legacy, Lua 5.4.9 | pass | 2 × 496, pass on each |
+| legacy, Lua 5.5.1 | pass | 2 × 496, pass on each |
+| legacy, LuaJIT (GC64) | pass | 2 × 496, pass on each |
+| legacy, LuaJIT without GC64 | pass | 2 × 496, pass on each, after the `xlua_gl` fix |
+
+The managed runs are the first pass only (reflection and CodeEmit). No check
+fired. With the `luaL_newmetatable` import in ANSI, as before the fix in
+windows-host.md, the 5.5.1 build aborted in `lapi.c:755` ("table expected"):
+the checks catch the API misuse that the bug causes. [C]
+
 ## Not run
 
-- Windows (MSVC `/UNDEBUG`), Android, iOS, WebGL and the other cross targets.
-  The checks are a host test-build option. [U]
+- Android, iOS, WebGL and the other cross targets. The checks are a host
+  test-build option. [U]
+- On Windows: the minimal and core presets, `XLUA_LUASCRIPT`, the source
+  generator passes and Lua's own suites. [U]
 - ASan on macOS. Under Mono it stops with "Interceptors are not working"
   ([bridge-audit.md](bridge-audit.md) item 14). The macOS runs use the
   checks without sanitizers. [S]

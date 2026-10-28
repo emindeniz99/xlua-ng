@@ -18,7 +18,7 @@ namespace XLua
     /// </summary>
     /// <remarks>
     /// Shared by <see cref="LuaEnv"/> and LuaScript (docs/design/core-luascript.md,
-    /// section 2.14). <see cref="CheckThread"/> applies to LuaScript only.
+    /// section 2.14).
     /// </remarks>
     public sealed class LuaOptions
     {
@@ -38,8 +38,10 @@ namespace XLua
         /// Whether a LuaScript checks that it is used from the thread that
         /// created it (default true); its members then throw
         /// <see cref="InvalidOperationException"/> on another thread, except
-        /// Interrupt, IsDisposed and the statistics. <see cref="LuaEnv"/> has
-        /// no thread check.
+        /// Interrupt, IsDisposed and the statistics. <see cref="LuaEnv"/>
+        /// checks the same in the Editor, Development builds and XLUA_GENERAL
+        /// only, and not with THREAD_SAFE or HOTFIX_ENABLE; false turns its
+        /// check off too. SetOwnerThread hands either to another thread.
         /// </summary>
         public bool CheckThread
         {

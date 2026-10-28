@@ -99,13 +99,19 @@ Each item says what is left and where the runs that passed are recorded.
   job of `build.yml` once. `native-build.yml` built the Lua 5.3.6, 5.4.9,
   5.5.1 and LuaJIT plugins on `windows-11-arm` and passed the native checks on
   2026-10-17 (run 39059626940); no Unity process has loaded them yet.
-- **Windows .NET Framework** (an `XLUA_GENERAL` host): run the suite there for
-  [#1081](https://github.com/Tencent/xLua/issues/1081) and
-  [#1179](https://github.com/Tencent/xLua/issues/1179). It marshals `string`
-  P/Invoke parameters with the ANSI code page; the bridge imports in
-  `LuaDLLBridge.cs` pass UTF-8 bytes under `XLUA_GENERAL` since 2026-10-18,
-  and Mono and .NET on macOS marshal UTF-8 either way. `Core/LuaDLL.cs`
-  (`luaL_newmetatable`, ASCII names only) is unchanged.
+- **Windows hosts** (`windows-host.yml`, since 2026-10-28): the managed suite
+  on the .NET Framework and on Mono 6.12.0 for Windows, the MSVC
+  `XLUA_APICHECK` builds of Lua 5.3.6, 5.4.9, 5.5.1 and LuaJIT (GC64 and
+  not) and errors through C# callbacks on LuaJIT Win64 pass (run
+  40645581045; [windows-host.md](docs/research/windows-host.md)). The runs
+  confirmed [#1081](https://github.com/Tencent/xLua/issues/1081) on the .NET
+  Framework and fixed `luaL_newmetatable`'s ANSI import and `xlua_gl` on
+  LuaJIT without GC64. Left: owner questions 1 to 3 in windows-host.md (the
+  `[CSharpCallLua]` scan and dynamic assemblies, the cost of the `xlua_gl`
+  fix, `NATIVE_LUA_PUSHSTRING`); the source generator passes, .NET (Core)
+  and the console code page of #1179 on Windows; and a `gh workflow run` of
+  the workflow from `main` (until the merge it ran from pushes to
+  `ci/windows-host`).
 
 ## Upcoming Unity versions
 
@@ -141,8 +147,9 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
 - Lua's C API checks (`XLUA_APICHECK`) are clean on Lua 5.3.6, 5.4.9, 5.5.1
   and LuaJIT, in the legacy, minimal and core presets and with
   `XLUA_LUASCRIPT=ON`, on macOS and under ASan and UBSan on Linux
-  ([apicheck-runs.md](docs/research/apicheck-runs.md)). Left: a Windows
-  (MSVC) run. Decided 2026-10-18 by the owner: a second CI sanitizer job
+  ([apicheck-runs.md](docs/research/apicheck-runs.md)), and with MSVC on
+  Windows since 2026-10-28 (`windows-host.yml`, legacy preset only).
+  Decided 2026-10-18 by the owner: a second CI sanitizer job
   (`sanitizers-extra`) runs the core, minimal, `XLUA_LUASCRIPT` and
   `luajit-uint` runs, and a `webgl` job compiles the WebGL source with
   Emscripten 4.0.20 (`.github/CI.md`). Both sanitizer jobs failed in their
@@ -164,9 +171,9 @@ The P1 items from the [UPSTREAM.md](UPSTREAM.md) sweep are fixed. Left over:
 - The P2 rows of UPSTREAM.md that are not closed:
   [#741](https://github.com/Tencent/xLua/issues/741) (fixed, needs a WebGL
   player that runs finalizers during an allocation),
-  [#1081](https://github.com/Tencent/xLua/issues/1081) and
-  [#1179](https://github.com/Tencent/xLua/issues/1179) (need the Windows .NET
-  Framework run above), [#1149](https://github.com/Tencent/xLua/issues/1149)
+  [#1179](https://github.com/Tencent/xLua/issues/1179) (its console code page
+  part; the ANSI imports are fixed and checked on the .NET Framework,
+  2026-10-28), [#1149](https://github.com/Tencent/xLua/issues/1149)
   (not reproduced; a likely cause and fix in
   [crash-inventory.md](docs/research/crash-inventory.md#11-the-old-walker-1149)).
   [#999](https://github.com/Tencent/xLua/issues/999) is fixed (2026-10-19).

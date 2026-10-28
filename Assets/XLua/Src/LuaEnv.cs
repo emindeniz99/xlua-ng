@@ -59,7 +59,69 @@ namespace XLua
         // generated code (Binding.BindingApi.State). One comparison; after Dispose
         // every use throws ObjectDisposedException (an InvalidOperationException)
         // instead of handing NULL to the native library (Tencent/xLua#999).
+        // With the bridge checks (the Editor, Development builds, XLUA_GENERAL) it
+        // also compares the thread: two threads in one LuaEnv, or a C# finalizer
+        // that calls Lua, corrupted the Lua heap (docs/research/crash-inventory.md,
+        // items 5 and 6). THREAD_SAFE and HOTFIX_ENABLE take luaEnvLock around
+        // every entry, so any thread may enter there.
         internal RealStatePtr L
+        {
+            get
+            {
+                RealStatePtr state = rawL;
+                if (state == RealStatePtr.Zero)
+                {
+                    ThrowDisposed();
+                }
+#if XLUA_BRIDGE_CHECKS && !THREAD_SAFE && !HOTFIX_ENABLE
+                int thread = currentThreadId;
+                if (thread != ownerThread)
+                {
+                    CheckOwnerThread(thread);
+                }
+#endif
+                return state;
+            }
+        }
+
+        // Out of line, so that the getter above stays small enough to inline.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static void ThrowDisposed()
+        {
+            throw new ObjectDisposedException("LuaEnv", "this lua env had disposed!");
+        }
+
+        // The thread that may use the env: the one that created it, or the last one
+        // that called SetOwnerThread. Compared only with the bridge checks (L above).
+        int ownerThread;
+        bool checkThread = true;
+
+        // Environment.CurrentManagedThreadId of this thread, cached: a thread-static
+        // read costs about 2 ns on Mono, the property about 6 (Thread.CurrentThread,
+        // then its id). It is 0 until the first check on the thread, and 0 differs
+        // from every owner, so CheckOwnerThread fills it in.
+        [ThreadStatic]
+        static int currentThreadId;
+
+        /// <summary>
+        /// Makes the calling thread the owner of this environment. A
+        /// <c>LuaEnv</c> is not thread-safe and belongs to the thread that
+        /// created it: in the Editor, Development builds and <c>XLUA_GENERAL</c>,
+        /// a use from another thread throws <see cref="InvalidOperationException"/>.
+        /// To move an env to another thread (a worker that loaded the scripts
+        /// hands it to the main thread), call this on the new thread once the
+        /// old one is done with it. <c>THREAD_SAFE</c> shares an env between
+        /// threads instead. <c>LuaScript.SetOwnerThread</c> does the same for a
+        /// script. <see cref="Interrupt"/> and the statistics work from any thread.
+        /// </summary>
+        public void SetOwnerThread()
+        {
+            ownerThread = Environment.CurrentManagedThreadId;
+        }
+
+        // The state for the statistics, which any thread may read, as LuaScript's:
+        // only the disposed check.
+        RealStatePtr StatsState
         {
             get
             {
@@ -72,11 +134,25 @@ namespace XLua
             }
         }
 
-        // Out of line, so that the getter above stays small enough to inline.
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        internal static void ThrowDisposed()
+        void CheckOwnerThread(int thread)
         {
-            throw new ObjectDisposedException("LuaEnv", "this lua env had disposed!");
+            if (thread == 0)
+            {
+                thread = currentThreadId = Environment.CurrentManagedThreadId;
+                if (thread == ownerThread)
+                {
+                    return;
+                }
+            }
+            if (checkThread)
+            {
+                throw new InvalidOperationException("this LuaEnv belongs to thread " + ownerThread + " but is used from thread "
+                    + Environment.CurrentManagedThreadId + ", and a LuaEnv is not thread-safe. To move it to this thread, call"
+                    + " env.SetOwnerThread() here once the other thread is done with it; to share it between threads, define"
+                    + " THREAD_SAFE. Do not call Lua from a C# finalizer: it runs on the finalizer thread. The check runs in the"
+                    + " Editor, Development builds and XLUA_GENERAL (LuaOptions.CheckThread = false turns it off for one env).");
+            }
         }
 
         private LuaTable _G;
@@ -137,6 +213,8 @@ namespace XLua
 #if GEN_CODE_MINIMIZE
                 LuaAPI.xlua_set_csharp_wrapper_caller(InternalGlobals.CSharpWrapperCallerPtr);
 #endif
+                ownerThread = Environment.CurrentManagedThreadId;
+                checkThread = options == null || options.CheckThread;
                 // Create State
                 if (options == null)
                 {
@@ -431,7 +509,7 @@ namespace XLua
             get
             {
                 LuaDLL.xlua_core_stats stats;
-                LuaAPI.xlua_core_get_stats(L, out stats);
+                LuaAPI.xlua_core_get_stats(StatsState, out stats);
                 return stats.instruction_limit;
             }
             set
@@ -455,7 +533,7 @@ namespace XLua
             get
             {
                 LuaDLL.xlua_core_stats stats;
-                LuaAPI.xlua_core_get_stats(L, out stats);
+                LuaAPI.xlua_core_get_stats(StatsState, out stats);
                 return TimeSpan.FromTicks(stats.time_limit_ns / 100);
             }
             set
@@ -532,7 +610,7 @@ namespace XLua
             get
             {
                 LuaDLL.xlua_core_stats stats;
-                LuaAPI.xlua_core_get_stats(L, out stats);
+                LuaAPI.xlua_core_get_stats(StatsState, out stats);
                 return stats.memory_limit;
             }
             set
@@ -575,7 +653,7 @@ namespace XLua
                 throw new InvalidOperationException("memory statistics need a LuaEnv created with LuaOptions");
             }
             LuaDLL.xlua_core_stats stats;
-            LuaAPI.xlua_core_get_stats(L, out stats);
+            LuaAPI.xlua_core_get_stats(StatsState, out stats);
             return stats;
         }
 

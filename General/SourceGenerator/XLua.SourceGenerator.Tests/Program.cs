@@ -1393,6 +1393,8 @@ namespace Game
         public static string Classes(Derived d) { return """"; }
         public static string Unrelated(Derived d) { return """"; }
         public static string Unrelated(Other o) { return """"; }
+        public static string Objects(object o) { return """"; }
+        public static string Objects(Base b) { return """"; }
         public string this[int i] { get { return """"; } }
         public string this[double d] { get { return """"; } }
         public static string operator +(Picker a, int b) { return """"; }
@@ -1408,13 +1410,27 @@ namespace Game
             int end = text.IndexOf("\n        }\n", start);
             return text.Substring(start, end - start);
         }
-        foreach (var scored in new[] { "_m_Num_xlua_st_", "_m_Classes_xlua_st_", "__CreateInstance", "__CSIndexer", "__AddMeta" })
+        foreach (var scored in new[] { "_m_Num_xlua_st_", "_m_Classes_xlua_st_", "_m_Objects_xlua_st_", "__CreateInstance", "__CSIndexer", "__AddMeta" })
         {
             Assert.True(Function(scored).Contains("gen_pick = -1"), scored + " scores:\n" + Function(scored));
         }
-        Assert.True(Function("_m_Num_xlua_st_").Contains("NumberScore(L, 1, 5, ref gen_n1)") && Function("_m_Num_xlua_st_").Contains("NumberScore(L, 1, 1, ref gen_n1)"),
-            "double and int kinds:\n" + Function("_m_Num_xlua_st_"));
-        Assert.True(Function("_m_Classes_xlua_st_").Contains("ArgScore(translator, L, 1, 0, typeof(global::Game.Derived))"), "class kind with its type");
+        // The checks of a scored group read what the costs need: a number's
+        // kind once (gen_n1), a C# object's check and cost in one call.
+        string num = Function("_m_Num_xlua_st_");
+        Assert.True(num.Contains("NumberCost(gen_n1, 5)") && num.Contains("NumberCost(gen_n1, 1)"), "double and int kinds:\n" + num);
+        Assert.True(num.Contains("(gen_n1 < 0 ? (gen_n1 = global::XLua.LuaDLL.Bridge.xlua_number_kind(L, 1)) : gen_n1) != 0")
+            && num.Contains("(gen_n1 < 0 ? (gen_n1 = global::XLua.LuaDLL.Bridge.xlua_number_kind(L, 1)) : gen_n1) >= 2")
+            && !num.Contains("xlua_isinteger_number") && !num.Contains("lua_type"), "number checks from the number kind:\n" + num);
+        string classes = Function("_m_Classes_xlua_st_");
+        Assert.True(classes.Contains("(gen_s1 = global::XLua.Binding.BindingApi.CheckedArgScore(translator, L, 1, typeof(global::Game.Derived), ref gen_t1)) >= 0")
+            && !classes.Contains("Assignable"), "class check and cost in one call:\n" + classes);
+        // object too, and both read the argument's lua_type once (gen_t1).
+        string objects = Function("_m_Objects_xlua_st_");
+        Assert.True(objects.Contains("CheckedArgScore(translator, L, 1, typeof(object), ref gen_t1)")
+            && objects.Contains("CheckedArgScore(translator, L, 1, typeof(global::Game.Base), ref gen_t1)") && !objects.Contains("Assignable"),
+            "object and class checks and costs in one call each:\n" + objects);
+        // Outside a scored group the checks stay.
+        Assert.True(Function("_m_Disjoint_xlua_st_").Contains("xlua_isinteger_number(L, 1)"), "plain int check");
         Assert.True(!Function("_m_Num_xlua_st_").Contains("ObjectTranslatorPool"), "numbers are scored without the translator");
         foreach (var plain in new[] { "_m_Disjoint_xlua_st_", "_m_Unrelated_xlua_st_" })
         {

@@ -1462,6 +1462,9 @@ namespace Coverage
                     var errors = new System.Text.StringBuilder();
                     try
                     {
+                        // Without THREAD_SAFE the threads take turns, and each takes the
+                        // env over first (the owner-thread check of the bridge checks).
+                        env.SetOwnerThread();
                         var f = (IntFunc)shared[0];
                         var s = (IBridgeShape)shared[1];
                         Action handler = () => { };
@@ -1507,6 +1510,7 @@ namespace Coverage
                 if (!workers[i].Join(60000)) hung += "thread " + i + " did not finish in 60 s; ";
             }
 #endif
+            env.SetOwnerThread();
             if (hung == "") ((IDisposable)shared[1]).Dispose();
             shared[0] = shared[1] = null;
             return head + string.Join("", results) + hung;
