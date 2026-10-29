@@ -996,6 +996,10 @@ preset, so it keeps the smaller player. `XLUA_NO_GCM` is now documented
 with these numbers in the preset guide
 ([Configure_EN.md](../../Assets/XLua/Doc/Configure_EN.md#presets)) and the
 FAQ ([Faq_EN.md](../../Assets/XLua/Doc/Faq_EN.md#how-do-i-make-an-il2cpp-player-smaller)).
+Since 2026-10-29 (the translator lookup without a memory barrier,
+[descriptor-wrappers.md](../research/descriptor-wrappers.md#per-call-overhead-on-the-phone-2026-10-29))
+GCM costs about +19 ns over the mix (+4%; +10 to +47 ns for single calls),
+and both kinds of wrappers are 10 to 14 ns faster per call.
 
 ### Cheap hardening as implemented
 

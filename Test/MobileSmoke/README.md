@@ -165,6 +165,22 @@ their APKs can be installed side by side and launched in turn
 and the `+vsbench` variants (`VsBench/VsBench.cs`, the cross-library bench of
 `vs_bench.py`) get `org.xluang.vs.plain`, `.gcm` or `.minimal`
 ([benchmark-vs-puerts-zlua.md](../../docs/research/benchmark-vs-puerts-zlua.md)).
+`XLUA_PBENCH_SUFFIX` (letters) appended to a `+pbench` package tells the players of
+two trees apart, such as before and after a change. The `+pbench` APKs are
+profileable from the shell (`PbenchProfileable.cs` adds
+`<profileable android:shell="true"/>`, Android 10 and later), so the
+device's `simpleperf record --app` samples the release player without making
+it debuggable. On Android 11 and later every `simpleperf` run from `adb shell`
+first sets the property `security.perf_harden` to 0 (its `main`,
+`AndroidSecurityCheck`), and `record` may set the `debug.perf_*` properties
+too: a device setting, which the test phone's rules allow only with the
+owner's approval (it happened once on 2026-10-29,
+[descriptor-wrappers.md](../../docs/research/descriptor-wrappers.md#per-call-overhead-on-the-phone-2026-10-29)).
+A launch with the string extra `pbench_profile`
+(`am start -n PKG/com.unity3d.player.UnityPlayerGameActivity --es pbench_profile
+'static_call,instance_call;20'`) runs only the named cases, in turn, for that
+many seconds, between `XLUA_PBENCH_PROFILE_START` and `XLUA_PBENCH_PROFILE_END`
+(each case's calls and ns per call), instead of the timing rounds.
 
 Set `XLUA_SMOKE_OUTPUT_ROOT` to the external build output directory. If unset,
 the harness uses a `builds` directory alongside the prepared project. For

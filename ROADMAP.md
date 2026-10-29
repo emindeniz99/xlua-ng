@@ -259,13 +259,58 @@ every action item from the 2026-10-17 research is in
 
 ## Optional features, after the above is stable
 
-- A descriptor wrapper mode, GCM's opt-in successor: about 445 KB less APK
-  than GCM at game size, 2–17 ns slower per call on the host. Decided
-  2026-10-28 by the owner: once the other open work is done, measure the
-  prototype (branch `spike/descriptor-wrappers`) on the phone and the
-  emulator, then decide; the full version is about 12 working days. The plan
-  is in [backlog.md](docs/design/backlog.md) and the measurements in
-  [descriptor-wrappers.md](docs/research/descriptor-wrappers.md).
+- **A descriptor wrapper mode**, an opt-in size mode next to GCM: about
+  445 KB less APK than GCM at game size (264 types, 4,308 Lua functions),
+  at about +50 ns per call over GCM on the moto g play 2024 (+11% over the
+  hot-path mix; boxed structs and class arguments get faster). **Owner's
+  decision of 2026-10-29 (question 81, option b): decide after the first
+  release.** The 2-day experiment on the per-call overhead before that is
+  done ([descriptor-wrappers.md](docs/research/descriptor-wrappers.md#per-call-overhead-on-the-phone-2026-10-29)):
+  a smaller hot path in the prototype's core took the gap for a static call
+  with two integers from +48 to +35 ns (+60 to +51 ns over the mix); the
+  rest is structural, so the work stopped there, as the owner asked. If the
+  mode is chosen, the full version:
+  1. **Per-call cost first** (about 2 days, then the gate): the second
+     dispatch, the general argument loop and the buffer round trip are
+     what is left. Try argument readers generated per signature shape and
+     shared by the members of that shape, or stubs that read their own
+     arguments; both give back part of the size (about 100 bytes of APK
+     per Lua function against GCM). Measure each candidate in more than one
+     build: code placement moves a call by 10 to 35 ns between builds on
+     the phone.
+  2. **The member kinds still missing** (the prototype leaves them out in
+     every mode): `out`, `ref` and `in` parameters, `params` arrays,
+     events, indexers, operators, generic and extension methods, delegate
+     parameters, `byte[]`, `IntPtr`, `decimal`, `Nullable`,
+     `LuaTable`/`LuaFunction` parameters and results, more than 8
+     arguments and more than 10 results, and enum wrappers (GCM's for now).
+     About 3 to 4 days.
+  3. **The runtime core** (about 2 days): a buffer per translator with its
+     references cleared after a call; the rules for nested calls,
+     coroutines and an exception in the middle of a call, written down and
+     tested; GCM's error texts; the struct `self` paths.
+  4. **Mode selection** (about 3 days): an opt-in define or generator
+     option, a per-type way back to GCM for the types a game calls every
+     frame, diagnostics (an XLSG013-style mismatch check), the generator's
+     cache key and manifest, MIGRATING.md, and the preset question.
+  5. **Tests** (about 3 to 4 days): generator unit tests, a descriptor pass
+     in `run_managed.py` (the Lua suite and the surface, bridge, hotfix and
+     struct diffs), `hotfix_check.py`, the Unity editor suite, IL2CPP
+     players on the emulator and the phone, and the size run again. Docs:
+     about 1 day.
+
+  Effort: about 15 working days, plus the design work of step 1 if the
+  cost must come down further. Open risks: step 1 may not reach about 20
+  ns per call; small gains are hard to prove when builds alone move a call
+  by 10 to 35 ns; a fourth binding mode costs test and CI time in every
+  suite; the shared buffer's re-entrancy (nested calls, coroutines,
+  `THREAD_SAFE` envs); the prototype's pointer stores into the argument
+  buffer rely on IL2CPP keeping the declared field order (Mono and CoreCLR
+  may reorder a struct that holds references); the size gain is measured on
+  Android with Minimal and High stripping only, not on iOS or WebGL. The
+  prototype is on the branch `spike/descriptor-wrappers` (not for merging);
+  the experiment's copies of its core are in `overhead-2026-10-29/` on the
+  build disk, and the backlog row is in [backlog.md](docs/design/backlog.md).
 
 - A JSON module: decided 2026-10-18 by the owner, no native module (yyjson
   would cost 38 to 104 KB, our own parser risks bugs). The FAQ recommends

@@ -163,8 +163,9 @@ namespace XLua
         {
             try
             {
-                ObjectTranslator translator = ObjectTranslatorPool.Instance.Find(L);
-                return translator.CallCSharpWrapper(L, funcidx, top);
+                // The pool and the wrapper table directly: IL2CPP calls property getters and small
+                // methods of another file out of line, and this runs on every GCM call.
+                return InternalGlobals.objectTranslatorPool.Find(L).csharpWrapper[funcidx](L, top);
             }
             catch (Exception e)
             {
