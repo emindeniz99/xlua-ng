@@ -4256,6 +4256,14 @@ the bench's (`VsBench/VsBenchXLua.cs`) and the probe's `SizeProbeApi`. Before
 2026-10-29 the legacy ones also got `SizeSgConfig.cs`, whose `GameObject`,
 `Transform` and `Debug` bindings added 134,364 bytes to the APK and 74,496 to `libunity.so`
 ([SIZE.md](../build/SIZE.md#what-legacy-adds-to-libunityso-2026-10-29)).
+Since 2026-10-29 it also builds a MoonSharp-ng player (`build --libs moonsharp
+--moonsharp <package>`, the owner's MoonSharp fork staged by its
+`tools/upm/stage-local-package.sh`; adapter `VsBench/VsBenchMoonSharp.cs`),
+and every player runs the 18 pure Lua workloads of `Test/Native/flag_bench.c`
+after the bridge cases, then an allocation pass with both collectors stopped
+([benchmark-vs-moonsharp-ng.md](../docs/research/benchmark-vs-moonsharp-ng.md)).
+`device` takes `--serial` for the phone and `--launch-timeout`, and leaves
+the adb server running unless `--kill-adb-server` is given.
 
 `alloc_probe.py` measures managed allocations and time of `new LuaEnv()` and
 of the first and later access to C# types in reflection mode
