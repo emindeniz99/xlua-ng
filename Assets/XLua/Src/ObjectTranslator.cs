@@ -1055,7 +1055,7 @@ namespace XLua
                 {
                     int obj_index;
                     //Lua GC removes the weak-table entry before calling __gc. In between, the same object may be pushed again with a new index.
-                    bool is_enum = o.GetType().IsEnum();
+                    bool is_enum = o is Enum; // Type.IsEnum of its class, without reflection (Push)
                     if ((is_enum ? enumMap.TryGetValue(o, out obj_index) : reverseMap.TryGetValue(o, out obj_index))
                         && obj_index == obj_index_to_collect)
                     {
@@ -1785,14 +1785,15 @@ namespace XLua
             }
 
             int index = -1;
-            Type type = o.GetType();
-#if !UNITY_WSA || UNITY_EDITOR
-            bool is_enum = type.IsEnum;
-            bool is_valuetype = type.IsValueType;
-#else
-            bool is_enum = type.GetTypeInfo().IsEnum;
-            bool is_valuetype = type.GetTypeInfo().IsValueType;
-#endif
+            // The type tests of the object itself, not of its Type: for the class of
+            // an object they give what Type.IsEnum and Type.IsValueType give, but
+            // IL2CPP compiles them to a check of the class hierarchy, while
+            // GetType(), Type.IsEnum and Type.IsValueType go through reflection:
+            // each Type object they reach is looked up under a lock
+            // (il2cpp::vm::Reflection::GetTypeObject), about seven times per push.
+            // The Type is needed only when the object has no userdata yet.
+            bool is_enum = o is Enum;
+            bool is_valuetype = o is ValueType;
             bool needcache = !is_valuetype || is_enum;
             if (needcache && (is_enum ? enumMap.TryGetValue(o, out index) : reverseMap.TryGetValue(o, out index)))
             {
@@ -1804,6 +1805,7 @@ namespace XLua
                 //collectObject(index);
             }
 
+            Type type = o.GetType();
             bool is_first;
             int type_id = getTypeId(L, type, out is_first);
 
