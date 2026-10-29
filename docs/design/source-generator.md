@@ -4023,8 +4023,10 @@ High and Medium stripping sizes, iOS, WebGL, a phone, obfuz itself.
 
 Two gaps that the [Q75 change](#luacallcsharp-types-kept-whole-where-reflection-reaches-them-2026-10-29)
 left. The first is closed by the coordinator's decision under the owner's
-"do what is best", 2026-10-29. The second is measured and waits for the
-owner, because it costs more than 30 KB at game size.
+"do what is best", 2026-10-29. The second was measured and left to the
+owner, because it costs more than 30 KB at game size; the owner kept
+link.xml narrow and had `xlua.get_generic_method` raise instead (Q84,
+2026-10-29, below).
 
 **1. The obfuz rules keep the names of the types link.xml keeps whole.**
 
@@ -4102,8 +4104,8 @@ owner, because it costs more than 30 KB at game size.
     never run in a Unity build. The host renamer applies the rules as obfuz
     4.0.0's `ConfigurableRenamePolicy` does.
 
-**2. Public generic methods through `xlua.get_generic_method` (question for
-the owner).**
+**2. Public generic methods through `xlua.get_generic_method` (decided by
+the owner, Q84 of 2026-10-29).**
 
 - **The gap.** `xlua.get_generic_method` stays in every preset (owner
   decision Q30). It finds a method by name through
@@ -4187,6 +4189,57 @@ the owner).**
   these engine methods through their own C# calls. Signature entries that
   name only the generic overload would save little: the wrappers already
   call the non-generic overloads.
+- **Owner decision (Q84, 2026-10-29).** link.xml stays narrow in strict
+  minimal: it does not keep the public generic methods of bound types, so
+  the +87,816 bytes are not spent, and `fix2-generic-methods.patch` is not
+  applied. A project that calls such a method through
+  `xlua.get_generic_method` keeps it with `[ReflectionUse]` on the type
+  (`preserve="all"`) or its own link.xml. Instead of the silent `nil`,
+  `xlua.get_generic_method` now raises when the type has no public generic
+  method of the name:
+  - **The text:** `xlua.get_generic_method: T has no public generic method
+    'M'.`; in an IL2CPP player (`ENABLE_IL2CPP && !UNITY_EDITOR`) it goes
+    on: `In an IL2CPP player, stripping may have removed it: add
+    [ReflectionUse] to T (or [assembly: XLua.ReflectionUse(typeof(T))]), or
+    keep it in a link.xml.` The Editor, Mono players and the host get the
+    first sentence only, since nothing strips there.
+  - **Where:** `StaticLuaCallbacks.GetGenericMethod` and
+    `GenericMethodNotFound`. The lookup is unchanged
+    (`Type.GetMethods`, the name, `IsGenericMethodDefinition`, the index),
+    and so is every case that finds a method.
+  - **Only with `XLUA_RESTRICT_PRIVATE_ACCESS`**, which the minimal preset
+    implies. Without it (legacy, the default) the function still returns
+    `nil`, as upstream did. Upstream code can depend on that
+    (`if xlua.get_generic_method(T, 'M') then`), and the runtime cannot
+    tell a typo from a stripped method, so raising in legacy, in the Editor
+    as in players, is a compatibility question for the owner. The define
+    already narrows the same function to public methods, as it makes
+    `xlua.tofunction` raise for a non-public one.
+  - **Tests:** `CaseGetGenericMethodMissing` (the wrong name `Echoo` and the
+    non-generic `NotGeneric`: the exact text with the define, `nil`
+    without) and `CaseRestrictPrivateAccess` (the non-public `Hidden`
+    raises with the define, works without). `SgSmoke.cs` checks
+    `SgGeneric` (`[LuaCallCSharp, ReflectionUse]`, must work in every
+    preset) and `SgGenericBare` (`[LuaCallCSharp]` only: must work, or,
+    where stripping removed `NameOf`, raise the text above with the IL2CPP
+    hint).
+  - **The player proof** **[C]**: the strict minimal smoke player of the
+    "before" run above (`prepare.py --android-plugin ...
+    --android-minimal-plugin ... --source-gen`, Unity 6000.3.21f1, Android
+    ARM64 IL2CPP release, High stripping, `XLUA_PRESET_MINIMAL` applied in
+    a launch of its own, plugins of Lua 5.5.1 built from this tree, NDK
+    r30), on the `xlua16k` AVD (Android 16, 16 KB pages). The stripped
+    `Assembly-CSharp.dll` (monodis) has `SgGeneric.NameOf<T>` and only the
+    constructor of `SgGenericBare`. The player logs
+    `XLUA_NG_SMOKE_INFO: SgGenericBare.NameOf was stripped; error:
+    xlua.get_generic_method: SgGenericBare has no public generic method
+    'NameOf'. In an IL2CPP player, stripping may have removed it: add
+    [ReflectionUse] to SgGenericBare (or [assembly:
+    XLua.ReflectionUse(typeof(SgGenericBare))]), or keep it in a link.xml.`
+    and passes: `XLUA_NG_SMOKE_PASS: ... source generator (no reflection
+    fallback, get_generic_method (stripped one raised), GCM, ...)`.
+    Before the change the same check on a type without `[ReflectionUse]`
+    read `nil`.
 
 **Found on the way: defines set in the build launch.** The generator's
 link.xml comes from the Editor's assemblies (`SourceGenChecks.MergedLinkXml`).

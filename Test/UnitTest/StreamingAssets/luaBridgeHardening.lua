@@ -376,7 +376,8 @@ end
 -- Items 10 and 11, XLUA_RESTRICT_PRIVATE_ACCESS: without HOTFIX_ENABLE there is
 -- no xlua.access, xlua.private_accessible or xlua.hotfix; with it xlua.access
 -- reaches only the injected __Hotfix fields (Test/Native/hotfix_check.py).
--- xlua.tofunction and xlua.get_generic_method take public methods only.
+-- xlua.tofunction and xlua.get_generic_method take public methods only, and
+-- raise for a non-public one.
 function CMyTestCaseBridgeHardening.CaseRestrictPrivateAccess(self)
     local restricted = Defines.RestrictPrivateAccess()
     local P = CS.BridgeHardening.Probe
@@ -397,7 +398,13 @@ function CMyTestCaseBridgeHardening.CaseRestrictPrivateAccess(self)
         ASSERT_EQ(secret(), 42)
     end
     ASSERT_VALUE_TYPE_GENERIC(7, xlua.get_generic_method(P, "Echo")(CS.System.Int32), 7)
-    ASSERT_EQ(xlua.get_generic_method(P, "Hidden") == nil, restricted)
+    local okHidden, hidden = pcall(xlua.get_generic_method, P, "Hidden")
+    if restricted then
+        ASSERT_EQ(okHidden, false)
+        ASSERT_TRUE(string.find(tostring(hidden), "has no public generic method 'Hidden'", 1, true) ~= nil)
+    else
+        ASSERT_EQ(type(hidden), "function")
+    end
     -- Limit (bridge-audit.md item 12): reflection still reaches private members
     -- in both states, through typeof or any object's GetType, until a type
     -- allowlist closes System.Type's members.

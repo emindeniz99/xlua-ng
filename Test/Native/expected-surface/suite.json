@@ -1035,6 +1035,146 @@
    "lazy": []
   },
   {
+   "type": "Coverage.ObjectPath",
+   "kind": "class",
+   "constructors": [],
+   "methods": [
+    {
+     "name": "BoxedBool",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::BoxedBool()"
+     ]
+    },
+    {
+     "name": "BoxedByte",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::BoxedByte()"
+     ]
+    },
+    {
+     "name": "BoxedChar",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::BoxedChar()"
+     ]
+    },
+    {
+     "name": "BoxedDouble",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::BoxedDouble()"
+     ]
+    },
+    {
+     "name": "BoxedEnum",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::BoxedEnum()"
+     ]
+    },
+    {
+     "name": "BoxedFloat",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::BoxedFloat()"
+     ]
+    },
+    {
+     "name": "BoxedInt",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::BoxedInt()"
+     ]
+    },
+    {
+     "name": "BoxedLong",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::BoxedLong()"
+     ]
+    },
+    {
+     "name": "BoxedPoint",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::BoxedPoint()"
+     ]
+    },
+    {
+     "name": "BoxedString",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::BoxedString()"
+     ]
+    },
+    {
+     "name": "Echo",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::Echo(System.Object)"
+     ]
+    },
+    {
+     "name": "GetAsObject",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::GetAsObject()"
+     ]
+    },
+    {
+     "name": "Get",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::Get()"
+     ]
+    },
+    {
+     "name": "IsOne",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::IsOne(System.Object)"
+     ]
+    },
+    {
+     "name": "KindOf",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::KindOf(System.Object)"
+     ]
+    },
+    {
+     "name": "Make",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::Make(System.String)"
+     ]
+    },
+    {
+     "name": "NameOf",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::NameOf(Coverage.ObjectPathItem)"
+     ]
+    },
+    {
+     "name": "Same",
+     "static": true,
+     "overloads": [
+      "Coverage.ObjectPath::Same(Coverage.ObjectPathItem)"
+     ]
+    }
+   ],
+   "getters": [],
+   "setters": [],
+   "operators": [],
+   "indexers": [],
+   "newindexers": [],
+   "events": [],
+   "lazy": []
+  },
+  {
    "type": "Coverage.ObsoleteOperator",
    "kind": "class",
    "constructors": [

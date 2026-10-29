@@ -61,8 +61,15 @@ namespace XLua
 
     sealed class LuaIndexes
     {
-        // LuaEnv sets it from xlua_get_registry_index (it differs between Lua versions).
-        static volatile int registryIndex = -10000;
+        // LuaEnv sets it from xlua_get_registry_index (it differs between Lua versions):
+        // in its constructor (under the env's lock with THREAD_SAFE), before the env's
+        // state exists, and always to the same value, since a process has one native
+        // library. A thread reaches a Lua state only through an env it was handed after
+        // that, so it reads the value as any other field of the env. Not volatile: IL2CPP
+        // compiles every read of a volatile field to the load and a full memory barrier
+        // (il2cpp_codegen_memory_barrier, a dmb ish on ARM64), and the bridge reads this
+        // whenever it pushes a Lua reference (lua_getref) or makes one (luaL_ref).
+        static int registryIndex = -10000;
 
         public static int LUA_REGISTRYINDEX
         {

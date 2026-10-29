@@ -538,7 +538,7 @@ namespace XLua.Binding { public static class BindingApi { public const int Versi
             .Result.GeneratedSources.Single(s => s.HintName.StartsWith("W_Lib_Shop_")).SourceText.ToString();
         Wrappers.ClearCache();
         string fresh = withDep();
-        Assert.True(!fresh.Contains("translator.GetObject(L, 2"), "Dep.Coin is read as a struct, not with GetObject:\n" + fresh);
+        Assert.True(!fresh.Contains("BindingApi.GetObject<"), "Dep.Coin is read as a struct, not with GetObject:\n" + fresh);
         Wrappers.ClearCache();
         Harness.Generate(Harness.Compile("Game", new[] { game }, new[] { Harness.Runtime, libRef })); // without Dep first
         Assert.Equal(fresh, withDep(), "the wrapper of Lib.Shop after a compilation without Dep");
@@ -2076,10 +2076,11 @@ namespace Game
         Assert.Diagnostics(run);
         Assert.Compiles(run);
         string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
-        int refusing = all.Split(new[] { ".GetUnityObjectArg(L, " }, StringSplitOptions.None).Length - 1;
+        int refusing = all.Split(new[] { "BindingApi.GetUnityObjectArg<" }, StringSplitOptions.None).Length - 1;
         Assert.Equal(2, refusing, "GetUnityObjectArg for Place(go) and the Last setter:\n" + all);
-        Assert.True(all.Contains("GetObject(L, 1, typeof(global::Game.Spawner))") || all.Contains("GetObject(L, 1, typeof(Game.Spawner))"),
-            "Plain(Spawner) keeps GetObject");
+        Assert.True(all.Contains("BindingApi.GetObject<global::Game.Spawner>(translator, L, 1)"), "Plain(Spawner) keeps GetObject");
+        Assert.True(all.Contains("BindingApi.GetObject<global::UnityEngine.GameObject>(translator, L, errFunc + 1)"),
+            "the MakeGameObject result keeps GetObject:\n" + all);
         Assert.True(all.Contains("StructTableSetNoField(typeof("), "the HitInfo table reader checks the fields it set");
         Assert.True(all.Contains("__xlua_set++;"), "the HitInfo table reader counts the fields it set");
     }
@@ -2146,7 +2147,7 @@ namespace Game
         string all = string.Join("\n", run.Result.GeneratedSources.Select(s => s.SourceText.ToString()));
         int nullable = all.Split(new[] { "BindingApi.GetNullableStructArg(translator, L, " }, StringSplitOptions.None).Length - 1;
         Assert.Equal(3, nullable, "GetNullableStructArg for Maybe(p), MaybeHit(h) and the Field setter:\n" + all);
-        Assert.True(!all.Contains(")translator.GetObject(L, 1, typeof("), "no Nullable<S> argument is read with GetObject:\n" + all);
+        Assert.True(!all.Contains("BindingApi.GetObject<"), "no Nullable<S> argument is read with GetObject:\n" + all);
         int get = all.Split(new[] { "translator.Get(L, " }, StringSplitOptions.None).Length - 1;
         Assert.Equal(2, get, "translator.Get for Count(n) and the MakeMaybe result:\n" + all);
     }
