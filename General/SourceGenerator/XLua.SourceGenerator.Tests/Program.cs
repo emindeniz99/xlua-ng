@@ -1300,6 +1300,59 @@ namespace Game
         }
     }
 
+    // The obfuz rule fragment as "type|obName|element:name=obName,..." lines
+    // (assembly Game), or an empty array.
+    static string[] ObfuzRulesTypes(Run run)
+    {
+        var source = run.Source(Emitter.ObfuzRulesFile);
+        if (source == null) return new string[0];
+        int start = source.IndexOf("@\"", StringComparison.Ordinal) + 2;
+        var xml = XDocument.Parse(source.Substring(start, source.IndexOf("\";", start, StringComparison.Ordinal) - start).Replace("\"\"", "\""));
+        return xml.Root.Elements("assembly").Where(a => (string)a.Attribute("name") == "Game").SelectMany(a => a.Elements("type"))
+            .Select(t => (string)t.Attribute("name") + "|" + ((string)t.Attribute("obName") ?? "") + "|"
+                + string.Join(",", t.Elements().Select(m => m.Name.LocalName + ":" + (string)m.Attribute("name") + "=" + (string)m.Attribute("obName"))))
+            .OrderBy(x => x, StringComparer.Ordinal).ToArray();
+    }
+
+    // obfuz renames the assemblies before UnityLinker reads link.xml, and the
+    // generated link.xml (written at link time) names types and members by
+    // their original names. So in every preset the obfuz rules keep the name of
+    // every type of the assembly that link.xml names, and of every member it
+    // names; in particular the [LuaCallCSharp] types that legacy and minimal
+    // with HOTFIX_ENABLE keep whole (owner decision Q75), which the rules let
+    // obfuz rename until 2026-10-29.
+    public static void ObfuzRulesKeepEveryNameLinkXmlUses()
+    {
+        foreach (var defines in new[]
+        {
+            new string[0], new[] { "XLUA_PRESET_MINIMAL" }, new[] { "XLUA_PRESET_MINIMAL", "XLUA_REFLECTION" },
+            new[] { "XLUA_PRESET_MINIMAL", "HOTFIX_ENABLE" },
+        })
+        {
+            string what = defines.Length == 0 ? "legacy" : string.Join(";", defines);
+            var runtime = defines.Length == 0 ? Harness.Runtime : Harness.RuntimeWith(defines);
+            foreach (var source in new[] { BoundTypesSource, FallbackSource })
+            {
+                var run = Harness.Generate(Harness.Compile("Game", new[] { source }, new[] { runtime }, Harness.ParseWith(defines)));
+                Assert.Compiles(run);
+                var rules = ObfuzRulesTypes(run).Select(l => l.Split('|')).ToDictionary(p => p[0], p => p);
+                int names = 0;
+                foreach (var t in LinkXmlTypes(LinkXmlOf(run)).Select(l => l.Split('|')).Where(p => p[0] == "Game"))
+                {
+                    string[] rule;
+                    names++;
+                    Assert.True(rules.TryGetValue(t[1], out rule) && rule[1] == "0", what + ": link.xml names " + t[1] + ", which the obfuz rules let obfuz rename");
+                    if (rule == null || t[2] == "all") continue;
+                    foreach (var m in t[3].Split(','))
+                    {
+                        Assert.True(rule[2].Split(',').Contains(m + "=0"), what + ": link.xml names " + t[1] + " " + m + ", which the obfuz rules let obfuz rename");
+                    }
+                }
+                Assert.True(names > 0, what + ": no link.xml type of Game to check");
+            }
+        }
+    }
+
     const string FallbackSource = Usings + @"
 [assembly: DoNotGen(typeof(Game.Outer.Inner), ""Slow"", ""count"")]
 [assembly: ReflectionUse(typeof(Game.Reflected))]
@@ -1429,10 +1482,14 @@ namespace Game
 
     // Milestone M8: the obfuz rule fragment keeps the names Lua reaches by
     // reflection, and Register, which hosts find by name, carries
-    // [Obfuscation(Exclude = true)].
+    // [Obfuscation(Exclude = true)]. Strict minimal, where link.xml does not
+    // keep the [LuaCallCSharp] types whole; the legacy preset also keeps the
+    // names of those types (ObfuzRulesKeepEveryNameLinkXmlUses).
     public static void ObfuzRulesAndObfuscationExclude()
     {
-        var run = Harness.Generate("Game", ObfuzSource);
+        Func<string, Run> strict = source => Harness.Generate(Harness.Compile("Game", new[] { source },
+            new[] { Harness.RuntimeWith("XLUA_PRESET_MINIMAL") }, Harness.ParseWith("XLUA_PRESET_MINIMAL")));
+        var run = strict(ObfuzSource);
         Assert.Compiles(run);
         var bindings = run.Source(Emitter.BindingsFile);
         Assert.True(bindings.Contains("[global::System.Reflection.Obfuscation(Exclude = true)]\n        internal static void Register()"),
@@ -1457,10 +1514,22 @@ namespace Game
         var xml = System.Xml.Linq.XDocument.Parse(rules.Substring(start, rules.IndexOf("\";", start) - start).Replace("\"\"", "\""));
         Assert.Equal("obfuz", xml.Root.Name.LocalName, "root element");
 
-        var plain = Harness.Generate("Game", FallbackSource.Replace("[assembly: ReflectionUse(typeof(Game.Reflected))]", "")
-            .Replace("[assembly: DoNotGen(typeof(Game.Outer.Inner), \"Slow\", \"count\")]", "").Replace("{ get; init; }", "{ get; set; }"));
+        var plainSource = FallbackSource.Replace("[assembly: ReflectionUse(typeof(Game.Reflected))]", "")
+            .Replace("[assembly: DoNotGen(typeof(Game.Outer.Inner), \"Slow\", \"count\")]", "").Replace("{ get; init; }", "{ get; set; }");
+        var plain = strict(plainSource);
         Assert.Compiles(plain);
         Assert.True(plain.Source(Emitter.ObfuzRulesFile) == null, "rules without anything reached by reflection");
+
+        // Legacy keeps every [LuaCallCSharp] type whole in link.xml, so their
+        // names stay too; their members do not need to (preserve="all").
+        var legacy = Harness.Generate("Game", ObfuzSource);
+        Assert.Compiles(legacy);
+        Same(new[] { "Game.Big|0|field:*=0", "Game.Outer/Inner|0|field:count=0,method:Slow=0", "Game.Reflected|0|", "Game.Settings|0|property:Level=0",
+            "Game.Small|0|" }, ObfuzRulesTypes(legacy), "legacy obfuz rules");
+        var legacyPlain = Harness.Generate("Game", plainSource);
+        Assert.Compiles(legacyPlain);
+        Same(new[] { "Game.Outer/Inner|0|", "Game.Settings|0|" }, ObfuzRulesTypes(legacyPlain), "legacy obfuz rules without reflection members");
+        Assert.True(!legacyPlain.Source(Emitter.ObfuzRulesFile).Contains("applyToMembers"), "a type kept whole keeps only its name");
     }
 
     // A generator that references a newer compiler than the host's does not load
