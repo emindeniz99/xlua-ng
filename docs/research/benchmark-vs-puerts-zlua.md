@@ -31,7 +31,10 @@ Marks: **[C]** confirmed here by a build, a run or the binary;
 - **Size over an empty project** (APK, the bench included):
   - xlua-ng strict minimal adds 0.57 MB, the smallest;
   - PuerTS adds 0.97 MB, 0.44 MB without its WebSocket addon;
-  - xlua-ng legacy adds 1.68 to 1.72 MB;
+  - xlua-ng legacy adds 1.68 to 1.72 MB. Without the three engine types
+    that the harness bound by mistake (fixed 2026-10-29, see "Sizes"),
+    it adds 1.59 to 1.61 MB, and the StreamingAssets searcher is 0.57 MB
+    of that;
   - zlua adds 2.62 MB.
   zlua's call stubs cover every method of every assembly in the player,
   not only the bench. **[C]**
@@ -394,12 +397,22 @@ Notes:
   PuerTS's WebSocket client for scripts ([puerts.md](puerts.md)), which
   the Core package enables for Android; the bench does not use it.
 - **What xlua-ng legacy adds to `libunity.so`:** legacy xlua-ng makes
-  `libunity.so` 1.17 MB bigger (574 KB compressed): engine modules that
-  legacy code references, kept by engine code stripping. Strict minimal
-  and PuerTS add 16 KB there, zlua 0.5 MB. That is about a third of what
-  legacy xlua-ng adds to the APK. Which module is kept was not traced
-  here; `size_report.py` notes xLua's use of `UnityEngine.WWW` in
-  StaticLuaCallbacks as one such reference. **[U]**
+  `libunity.so` 1.17 MB bigger (574 KB compressed). Strict minimal and
+  PuerTS add 16 KB there, zlua 0.5 MB. That is about a third of what
+  legacy xlua-ng adds to the APK. Traced on 2026-10-29
+  ([SIZE.md](../../build/SIZE.md#what-legacy-adds-to-libunityso-2026-10-29)):
+  **[C]**
+  - **1.09 MB is the UnityWebRequest and TLS engine modules.** The
+    StreamingAssets searcher keeps them: on Android it reads through
+    `UnityEngine.WWW`. Legacy has the searcher; the minimal preset
+    leaves it out.
+  - **75 KB came from the harness.** It gave the legacy players three
+    engine types to bind (`GameObject`, `Transform`, `Debug`) that the
+    bench does not use. That cost 134 KB of APK in all, and is now fixed.
+    Rebuilt at `81066592` without it, the legacy plain player adds
+    1,605,366 bytes (1,739,730 with it), the GCM player 1,586,978 and
+    strict minimal 567,762. The speed cases do not use those types and
+    were not run again.
 - **zlua's `libil2cpp.so`:**
   - **What it holds:** zlua's runtime, Lua 5.5.0 and the generated stubs.
     `MethodBridgeStub.cpp` is 3.6 MB of C++ and `DelegateBridgeStub.cpp`
