@@ -130,6 +130,7 @@ here = Path(__file__).resolve().parent
 repo = here.parents[1]
 sys.path.insert(0, str(repo / "Test/Native"))
 import benchmark  # noqa: E402  (size_entry and player_entry)
+import check_apk_16k  # noqa: E402  (next to this file)
 
 # Variant flags for the C# feature defines (docs/MIGRATING.md, "Opt-in defines").
 CS_FEATURE_FLAGS = {"nosig": "XLUA_NO_SIGNATURE_LOADER", "notemplate": "XLUA_NO_TEMPLATE",
@@ -816,6 +817,11 @@ def measure_player(player_dir):
     entry.update(info)
     if zipfile.is_zipfile(path) if path.is_file() else False:
         entry["components"] = zip_components(path)
+        # What would put the player in Android 16's page size compat mode (check_apk_16k.py).
+        _, problems, notes = check_apk_16k.check(path, unity_libs_ok=True)
+        entry["page_16k"] = {"problems": problems, "notes": notes}
+        for line in problems:
+            print("XLUA_APK_16K_FAIL: %s: %s" % (path, line))
         with zipfile.ZipFile(path) as z:
             # Which xlua library the build packed: the minimal preset's has no io library and no LuaSocket.
             for n in z.namelist():

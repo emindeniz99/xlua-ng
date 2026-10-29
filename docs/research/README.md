@@ -30,6 +30,7 @@ build docs; decisions live in [design](../design/).
 | [binding-mode-parity.md](binding-mode-parity.md) | The four binding modes (reflection, CodeEmit, source generator plain and GCM) compared call by call: the differences found and fixed, a reflection event crash, owner questions |
 | [codeql-extended.md](codeql-extended.md) | CodeQL `security-extended` and Trail of Bits' C/C++ queries (owner decision Q67): the pack, vendored results dropped before upload, triage of every result, the Lua 5.4 `lua_gc` argument fix |
 | [benchmark-vs-puerts-zlua.md](benchmark-vs-puerts-zlua.md) | xlua-ng (plain, GCM, strict minimal) against PuerTS's Lua backend and zlua with zlua's case list, in IL2CPP players on the moto g play 2024 and the emulator: call costs by case and group, APK sizes, 16 KB alignment |
+| [android-16kb-dialog.md](android-16kb-dialog.md) | Why Android 16 showed "isn't 16 KB compatible" for aligned 6000.x players (flags kept from an earlier 2021.3 install of the package), how Android decides, empty projects against xLua players per Unity version, what users must do |
 | [il2cpp-suite.md](il2cpp-suite.md) | The 522-case suite in Android IL2CPP players (plain, GCM, strict minimal): every difference from Mono and its cause (host-only fixtures, stripping, generic methods in IL2CPP reflection wrappers, players' [BlackList] rules, the reduced debug library, IL2CPP's empty environment variables) |
 
 Measurements:

@@ -215,6 +215,23 @@ non-streamed one (copy the APK, then install) did not. No script here runs
 `adb install`; whoever installs by hand or in a wrapper should pass the flag
 (or retry once with it).
 
+Android 16 shows "This app isn't 16 KB compatible" when a library of the APK
+has 4 KB aligned `PT_LOAD` segments (Unity 2021.3.45f2's own `libunity.so`,
+`libmain.so` and `libil2cpp.so`) or a stored library is not 16 KB aligned in the zip.
+`python3 check_apk_16k.py APK` runs the same check without a device and
+names the file. The device also **remembers** the result: it ORs the flags
+of every install of a package, so after a 2021.3 player of
+`org.xluang.smoke` (or of the suite's `org.xluang.suite`) was installed,
+`install -r` of an aligned 6000.x player still shows the dialog ("ELF
+alignment check failed") and runs in compatibility mode. `adb shell dumpsys
+package org.xluang.smoke | grep pageSizeCompat` shows it (4 for ELF, 2 for
+APK alignment, 0 for none); only an uninstall clears it. That is why the
+dialog came up for 6000.3.21f1 and 6000.6.4f1 players on 2026-10-29; their
+libraries were all aligned
+([android-16kb-dialog.md](../../docs/research/android-16kb-dialog.md)).
+`il2cpp_suite.py run` checks each APK with `check_apk_16k.py` and reinstalls
+after an uninstall when it finds such a stale flag.
+
 ## iOS Simulator
 
 The simulator needs a simulator build of the plugin: `XLUA_IOS_SDK=simulator
@@ -282,6 +299,29 @@ rebuilt sources. An Android ARM64 IL2CPP APK (Unity 6000.3.21f1, plugin
 built with NDK r30) ran on an Android 16 (API 36) emulator with 16 KB pages.
 A Unity 6000.6.4f1 WebGL player ran in headless Chrome 155. Unity compiled
 `xlua_webgl.cpp` with its Emscripten 4.0.20.
+
+### 2026-10-29: 16 KB pages, empty projects against xLua players
+
+Android 16's "This app isn't 16 KB compatible" dialog, traced in
+[android-16kb-dialog.md](../../docs/research/android-16kb-dialog.md).
+`size_report.py run --configs default --variants baseline,ng-5.5` with each
+editor (release ARM64 IL2CPP, Minimal stripping, package `org.xluang.smoke`,
+the Lua 5.5.1 plugin of 2026-10-28, sha256 `cb2109d0...`), then
+`check_apk_16k.py`, `zipalign -c -P 16 4` and an install after an uninstall
+on the `xlua16k` AVD:
+
+| Unity | Empty project | With xLua | Libraries below 16 KB | `pageSizeCompat`, dialog |
+| --- | ---: | ---: | --- | --- |
+| 2021.3.45f2 | 7,872,684 | 9,163,082 | `libil2cpp.so`, `libmain.so`, `libunity.so` (0x1000) in both | 4, "ELF alignment check failed" in both |
+| 2022.3.62f3 | 8,095,491 | 9,422,733 | none | 0, none |
+| 6000.3.21f1 | 12,279,060 | 13,748,214 | none | 0, none |
+| 6000.6.4f1 | 12,497,340 | 13,917,706 | none | 0, none |
+
+Every APK compresses its libraries (`extractNativeLibs=true`), and
+`zipalign` passed. `libxlua.so` was 0x4000 aligned in every APK. Installing
+the 6000.3.21f1 xLua APK and then the 6000.6.4f1 empty APK with `install
+-r` over the 2021.3.45f2 xLua APK kept `pageSizeCompat=4` and the dialog;
+an uninstall cleared both.
 
 ### 2026-10-29: `xlua.private_accessible` under High stripping (owner decision Q75)
 
