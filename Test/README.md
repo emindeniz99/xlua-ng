@@ -4110,7 +4110,11 @@ outside the repository, `device phone|emu` runs all five in rotating order
 and `report` writes the tables
 ([benchmark-vs-puerts-zlua.md](../docs/research/benchmark-vs-puerts-zlua.md)).
 The workload is `VsBench/VsBench.cs`, a subset of zlua-benchmark's case list,
-with one adapter per library.
+with one adapter per library. The three xlua-ng players bind the same types:
+the bench's (`VsBench/VsBenchXLua.cs`) and the probe's `SizeProbeApi`. Before
+2026-10-29 the legacy ones also got `SizeSgConfig.cs`, whose `GameObject`,
+`Transform` and `Debug` bindings added 134,364 bytes to the APK and 74,496 to `libunity.so`
+([SIZE.md](../build/SIZE.md#what-legacy-adds-to-libunityso-2026-10-29)).
 
 `alloc_probe.py` measures managed allocations and time of `new LuaEnv()` and
 of the first and later access to C# types in reflection mode

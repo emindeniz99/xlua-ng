@@ -1856,6 +1856,114 @@ size"). Compressed in the APK / uncompressed:
 
 Not measured: High and Medium stripping, iOS, WebGL.
 
+## What legacy adds to `libunity.so` (2026-10-29)
+
+The [cross-library benchmark](../docs/research/benchmark-vs-puerts-zlua.md#sizes-c)
+found that its legacy players make `libunity.so` 1.17 MB bigger than the
+empty project, and its strict minimal player 16 KB. That difference is now
+traced.
+
+**How it was measured.** `size_report.py run --platforms android --configs
+vsbench`, with the variants named in the tables. Unity 6000.3.21f1, release
+ARM64 IL2CPP APKs, Minimal stripping, engine code stripping on. The C# is
+at `81066592`. The plugins are those of the benchmark: `libxlua.so` 165,593 /
+388,136, and the minimal variant 137,270 / 312,176. Each build's engine code
+stripping was read from the project's `Library/Bee/artifacts/Android`:
+
+- `ManagedStripped/UnityLinkerToEditorData.json`: the engine modules kept,
+  and what keeps each one;
+- `ManagedStripped/icallsummary.txt`: the engine internal calls that the
+  stripped C# uses;
+- `il2cppOutput/UnityClassRegistration.cpp`: the native classes kept;
+- the unstripped `libunity.so`: its symbols, read with the NDK's `llvm-nm`.
+
+The two sets of builds below differ in the harness only:
+
+- **as the benchmark built them:** each `+sg` player also gets
+  `SizeSgConfig.cs`;
+- **harness fixed:** the `+vsbench` players get the bench's bindings and
+  `SizeProbeApi`, nothing else.
+
+Deltas over the empty project (12,279,056 bytes), compressed in the APK /
+uncompressed:
+
+| variant | harness | APK delta | `libunity.so` | `libil2cpp.so` | `global-metadata.dat` |
+| --- | --- | ---: | ---: | ---: | ---: |
+| legacy (`ng-5.5+pkg+sg+vsbench`) | as the benchmark built it | +1,739,730 | +578,778 / +1,181,856 | +825,125 / +2,825,936 | +168,212 / +499,784 |
+| legacy without the StreamingAssets searcher (`+nosa`) | as the benchmark built it | +1,171,806 | +40,435 / +91,168 | +801,955 / +2,742,208 | +161,787 / +463,360 |
+| legacy | fixed | **+1,605,366** | +546,201 / +1,107,360 | +738,246 / +2,480,360 | +153,295 / +445,640 |
+| legacy GCM (`+gcm`) | fixed | +1,586,978 | +546,201 / +1,107,360 | +718,791 / +2,417,880 | +154,257 / +448,908 |
+| legacy without the StreamingAssets searcher (`+nosa`) | fixed | +1,032,202 | +6,371 / +16,592 | +712,837 / +2,397,112 | +145,365 / +409,200 |
+| strict minimal (`ng-5.5+minimal+strict+vsbench`) | either (it never had `SizeSgConfig.cs`) | +567,762 | +6,366 / +16,592 | +358,257 / +1,253,488 | +63,804 / +198,736 |
+
+**What each candidate adds to legacy's `libunity.so`.** The total is
++1,181,856 bytes, as the benchmark built it:
+
+| candidate | `libunity.so`, uncompressed | evidence |
+| --- | ---: | --- |
+| StreamingAssets searcher: `UnityEngine.WWW` in `StaticLuaCallbacks.LoadFromStreamingAssetsPath` (Android players only) | **1,090,688** (538,343 compressed) | Legacy keeps two engine modules that the empty project does not: **UnityWebRequest**, and **TLS**, which the linker data lists as "Required by UnityWebRequest Module". No other module and no native class differs. With `+nosa`, both modules and the stripped `UnityEngine.UnityWebRequestModule.dll` and `UnityWebRequestWWWModule.dll` are gone. The symbols are mbedtls 199,557, libcurl 157,834, nghttp2 35,304 (with its 18 KB Huffman tables), the UnityWebRequest engine side 17,500 and zlib 10,956 |
+| `SizeSgConfig.cs` in the legacy bench players: a harness leak (below), binding `GameObject`, `Transform` and `Debug` | 74,576 (74,496 with the searcher) | 123 internal calls that strict minimal lacks: 57 of `Transform`, 45 of `GameObject`, 13 of `Debug`, 6 of `Quaternion`, `TagHandle` and `DiagnosticSwitch`; with the harness fixed, legacy without the searcher has the same `libunity.so` as strict minimal, byte for byte, and the same internal calls |
+| shared with strict minimal: the bench, the `Vector3` binding, the Resources searcher | 16,592 | 13 internal calls: `Vector3`'s `Slerp`, `RotateTowards` and `OrthoNormalize`, `ResourcesAPIInternal.Load`, and the bench's own (`SystemInfo`, `Screen.sleepTimeout`, `Application.persistentDataPath` and `unityVersion`, `Time.deltaTime`) |
+| `GenAttributes.cs` defaults (`[GCOptimize]` for `Vector2` to `Ray2D`) | 0 | in both presets; with the harness fixed the two players' `libunity.so` is the same |
+| examples and tutorial | 0 | not compiled into players: the package has them in `Samples~`, and `size_report.py` does not copy them |
+| `xlua.util`, `perf.profiler` | 0 | Lua source in C# strings; no engine calls |
+| `preserve="all"` for `[LuaCallCSharp]` types (Q75, [above](#legacy-keeps-luacallcsharp-types-whole-2026-10-29)) | 0 here | With the harness fixed, the only engine type it keeps whole is `Vector3`, and `libunity.so` is the same as strict minimal's. The 2026-10-28 build of the leaky player (before Q75, `fd4a43ce`) had 12,192 bytes less `libunity.so`. That is most likely Q75 keeping `GameObject`, `Transform` and `Debug` whole, but it was not built separately |
+
+- **The cause is the StreamingAssets searcher.** It is 92% of what legacy
+  adds to `libunity.so`, and the [Engine code](#engine-code) section
+  above found the same in 2026-10-16's probe. With the harness fixed,
+  the searcher costs legacy **573,164 bytes of APK**:
+  - `libunity.so`: 539,830 compressed / 1,090,768 uncompressed;
+  - `libil2cpp.so`: 25,409 / 83,248;
+  - metadata: 7,930 / 36,440.
+
+  A project that uses `UnityWebRequest` itself keeps the module anyway.
+  For such a project the searcher costs only the C# part, about 33 KB.
+- **The rest of the 1.17 MB came from the bench's harness.** `size_report.py`
+  copied `SizeSgConfig.cs` into every `+sg` project. That file binds
+  `GameObject`, `Transform`, `Debug`, `Vector3`, `SizeProbeApi` and two
+  delegates for the small size probe. The legacy bench players got it, but
+  the strict minimal one, which binds only `SizeProbeApi`, did not. So
+  legacy bound three engine types that the bench does not use.
+  - **Its cost:** 134,364 bytes of APK. Of that, `libunity.so` is 32,577
+    compressed / 74,496, `libil2cpp.so` 86,879 / 345,576 and metadata
+    14,917 / 54,144.
+  - **Fixed** (2026-10-29): `+vsbench` players no longer get
+    `SizeSgConfig.cs`, and `SizeProbe.cs` binds `SizeProbeApi` for them as
+    it does for strict minimal. The three xlua-ng bench players now bind
+    the same types.
+  - **The speed results** of the benchmark do not depend on it: no case
+    uses those types. They were not measured again.
+- **Legacy against strict minimal, with the harness fixed:** 1,037,604
+  bytes of APK. The parts:
+  - the searcher's 573,164;
+  - 464,440 of C#, its metadata and the larger native library;
+  - nothing else in `libunity.so`.
+
+**Owner question: the StreamingAssets searcher in legacy.** Upstream
+behaviour, which users may rely on, so it is unchanged:
+
+- legacy has the searcher;
+- the minimal preset leaves it out (`XLUA_NO_STREAMING_ASSETS_LOADER`, in
+  [presets.md](../docs/design/presets.md));
+- the define is the documented opt-out for legacy
+  ([MIGRATING.md](../docs/MIGRATING.md)).
+
+Upstream marks the searcher obsolete and logs a warning for every file it
+loads. On Android it waits for the `WWW` request in a busy loop, then
+sleeps 50 ms on the calling thread for each file. The options:
+
+| option | Android APK saving | cost and risk |
+| --- | ---: | --- |
+| (a) keep it (now) | 0 | Every legacy Android player that does not use `UnityWebRequest` itself pays 573 KB. |
+| (b) leave the searcher out of legacy too, with an opt-in define instead of `XLUA_NO_STREAMING_ASSETS_LOADER` | 573,164 measured (`+nosa`); about 33 KB in a project that uses `UnityWebRequest` | A breaking change, which needs a MIGRATING.md row. `require` of a module that is only in StreamingAssets fails, on every platform, until the project adds the define or a `CustomLoader` ([Lua_Loaders.md](../Assets/XLua/Doc/Lua_Loaders.md) has one). |
+| (c) keep the searcher, but read Android's StreamingAssets through Android's `AssetManager` over `AndroidJNI` instead of `WWW` | about 540 KB *estimate*: the `libunity.so` part, less the new code. `UnityEngine.AndroidJNIModule` is in every Android player already (94,208 bytes stripped in the empty project). Not built | <ul><li>Same behaviour for files in the APK, the AAB's base module and install-time asset packs. **[U]**: needs a device test.</li><li>StreamingAssets in an OBB file (APK builds with "Split Application Binary") are not in the `AssetManager`, while `WWW` reads them through the `jar:file://...obb!/assets` path. Such a project would need a second path, or would lose the searcher. **[U]**</li><li>It also removes the busy wait and the 50 ms sleep.</li></ul> |
+| (d) replace `WWW` with `UnityWebRequest` | nothing: the native cost is the UnityWebRequest and TLS modules, which `WWW` also uses | It only drops an obsolete API. |
+
+Not measured: iOS (its web request code stays in `libiPhone-lib.a` either
+way, [above](#engine-code)), WebGL, Medium and High stripping, option (c),
+and the rebuilt players on a device.
+
 ## Hotfix (`HOTFIX_ENABLE`, 2026-10-28)
 
 `Test/MobileSmoke/size_report.py run --platforms android --configs hotfix`,
