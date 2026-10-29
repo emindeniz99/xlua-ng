@@ -998,7 +998,8 @@ call libil2cpp directly.
   values of eight types as `object` results and Lua values through `object`
   parameters, and objects pushed again after Lua collected their userdata.
   They passed on the unchanged runtime first (Lua 5.5.1, legacy, all four
-  suite passes) **[C]**. `EXPECTED_TESTS` is 527.
+  suite passes) **[C]**. `EXPECTED_TESTS` is 527 (528 with main's case of
+  the same day).
 - `Test/Native/run_managed.py --source-gen --source-gen-minimize
   --source-gen-fallback` on macOS arm64 (Mono 6.14.1), plugins built from
   this tree: Lua 5.5.1 and LuaJIT 2.1, each legacy and minimal
@@ -1011,8 +1012,9 @@ call libil2cpp directly.
   per-case difference from the host for plain and gcm, and for strict the
   8 per mode of [il2cpp-suite.md](il2cpp-suite.md) (cases that run on one
   side only) **[C]**.
-- After merging main of the same day (`4a7f341e`, the editor's defines
-  check): the four host suites again (527 tests in each mode and pass) and
+- After merging main of the same day twice (`4a7f341e`, the editor's
+  defines check, then `0076ac88`, which adds a 528th case): the four host
+  suites again each time (527, then 528 tests in each mode and pass) and
   the generator's 53 tests **[C]**.
 - Every phone player of both rounds ran all its cases, and the vs-bench
   players printed the same check line (with `class=True` for the players
