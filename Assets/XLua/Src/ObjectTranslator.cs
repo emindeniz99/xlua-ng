@@ -1696,6 +1696,36 @@ namespace XLua
                 return;
             }
 
+            // The commonest boxed values first, by the object's own type test: what
+            // pushPrimitive and the string branch below push for them, without
+            // o.GetType(), which IL2CPP looks up under a lock (Push).
+            if (o is int)
+            {
+                LuaAPI.xlua_pushinteger(L, (int)o);
+                return;
+            }
+            if (o is double)
+            {
+                LuaAPI.lua_pushnumber(L, (double)o);
+                return;
+            }
+            if (o is long)
+            {
+                LuaAPI.lua_pushint64(L, (long)o);
+                return;
+            }
+            if (o is bool)
+            {
+                LuaAPI.lua_pushboolean(L, (bool)o);
+                return;
+            }
+            string s = o as string;
+            if (s != null)
+            {
+                LuaAPI.lua_pushstring(L, s);
+                return;
+            }
+
             Type type = o.GetType();
             if (type.IsPrimitive())
             {
