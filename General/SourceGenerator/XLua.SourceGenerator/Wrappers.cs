@@ -980,8 +980,9 @@ namespace XLua.SourceGenerator
                 return statement + "translator.GetDelegate<" + Cs(t, c) + ">(L, " + i + ")";
             if (FixCaster.TryGetValue(name, out caster))
                 return statement + caster + "(L, " + i + ")";
+            // BindingApi.GetObject<object>: GetObject without the typeof lookup (below).
             if (name == "System.Object")
-                return statement + "translator.GetObject(L, " + i + ", typeof(object))";
+                return statement + "global::XLua.Binding.BindingApi.GetObject<object>(translator, L, " + i + ")";
             if (isStruct && !luaResult && IsStrictArg(Effective(t, c)) && StructsOf(c).GetterOf(Effective(t, c)) == null)
                 return statement + "global::XLua.Binding.BindingApi.GetStructArg(translator, L, " + i + ", out " + variable + ")";
             // A Nullable<S> argument of a strict struct S: BindingApi.GetNullableStructArg,
