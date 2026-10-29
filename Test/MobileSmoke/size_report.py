@@ -72,7 +72,10 @@ Variants:
   NAME+vsbench  VsBench/VsBench.cs and VsBench/VsBenchXLua.cs in Assembly-CSharp, run by the probe
                (XLUA_SIZE_VS_BENCH): the cross-library bench of vs_bench.py, a subset of zlua-benchmark's case list,
                XLUA_VSBENCH lines in the log; one package per mode (org.xluang.vs.plain, .gcm, .minimal); needs +sg
-               or +minimal+strict (docs/research/benchmark-vs-puerts-zlua.md)
+               or +minimal+strict (docs/research/benchmark-vs-puerts-zlua.md). With +sg it gets no SizeSgConfig.cs:
+               every xlua-ng bench player binds the bench's types and SizeProbeApi only, as the strict minimal one
+               does (until 2026-10-29 the legacy players also bound GameObject, Transform and Debug: 134 KB of APK and
+               74 KB of libunity.so, for types the bench does not use; build/SIZE.md)
   NAME+uwr     the probe also calls UnityWebRequest.Get once, like a project that uses it anyway;
                its deltas are against baseline+uwr
   NAME+at-REF  Assets/XLua/{Src,Resources,Editor} from commit REF instead of this checkout
@@ -428,7 +431,9 @@ def prepare(a, work, platform, variant, project):
         sys.exit("one of +%s, with xLua: %s" % (", +".join(LINK_FLAGS), variant))
     if sg or link:
         config = "SizeGameSgConfig.cs" if game else "SizeSgConfig.cs"
-        if sg:
+        if sg and "vsbench" in flags:
+            pass  # the bench binds its own types (VsBenchXLua.cs) and SizeProbeApi (SizeProbe.cs), nothing else
+        elif sg:
             shutil.copy2(here / config, assets / config)
         else:
             # Without the generator its [LuaCallCSharp] types as [ReflectionUse] (link.xml only), and none of
