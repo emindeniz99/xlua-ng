@@ -1976,13 +1976,10 @@ namespace XLua
         }
 
 #if GEN_CODE_MINIMIZE
-        CSharpWrapper[] csharpWrapper = new CSharpWrapper[0];
+        // The GCM wrappers by the id in their trampoline's upvalue; StaticLuaCallbacks.CSharpWrapperCallerImpl
+        // indexes it directly.
+        internal CSharpWrapper[] csharpWrapper = new CSharpWrapper[0];
         int csharpWrapperSize = 0;
-
-        internal int CallCSharpWrapper(RealStatePtr L, int funcidx, int top)
-        {
-            return csharpWrapper[funcidx](L, top);
-        }
 
         void ensureCSharpWrapperCapacity(int min)
         {
