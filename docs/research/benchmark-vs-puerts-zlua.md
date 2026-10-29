@@ -1015,7 +1015,14 @@ call libil2cpp directly.
 - After merging main of the same day twice (`4a7f341e`, the editor's
   defines check, then `0076ac88`, which adds a 528th case): the four host
   suites again each time (527, then 528 tests in each mode and pass) and
-  the generator's 53 tests **[C]**.
+  the generator's 53 tests **[C]**. Then `il2cpp_suite.py all` again, with
+  P5 and both merges: plain and gcm 528/528 in both modes; strict 527/528,
+  the one failure being main's new `CaseGetGenericMethodMissing`, whose
+  expected text lacks the stripping hint that an IL2CPP player adds to the
+  error ("In an IL2CPP player, stripping may have removed it: ...")
+  **[C]**. Both the text and the test come from main's
+  `xlua.get_generic_method` change, which the object path does not touch,
+  so main alone should fail the same way (not run) **[U]**.
 - Every phone player of both rounds ran all its cases, and the vs-bench
   players printed the same check line (with `class=True` for the players
   built with the fixed `VsBench.cs`) **[C]**.
