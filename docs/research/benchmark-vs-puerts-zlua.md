@@ -22,9 +22,13 @@ Marks: **[C]** confirmed here by a build, a run or the binary;
   It is about 3 times faster than both others (221 against 614 to 698 ns),
   and 1.5 times faster with strings. Its plain static call (75 ns) is also
   the fastest Lua → C# call measured. **[C]**
-- **xlua-ng is the slowest with C# objects.** Passing or returning a class
-  instance costs it 2.4 µs (Lua → C#, three arguments and a result) and
-  3.8 µs (C# → Lua), against 0.3 to 1.4 µs for the others. **[C]**
+- **xlua-ng was the slowest with C# objects.** Passing or returning a class
+  instance cost it 2.4 µs (Lua → C#, three arguments and a result) and
+  3.8 µs (C# → Lua), against 0.3 to 1.4 µs for the others. **[C]** Most of
+  it was IL2CPP's Type-object lookups in the bridge, which five changes of
+  2026-10-29 removed: the same operations now cost 0.89 and 0.72 µs, and
+  C# → Lua with objects is the fastest of the three
+  ([Object path on the phone](#object-path-on-the-phone-2026-10-29)). **[C]**
 - **PuerTS's Lua backend** matches xlua-ng on instance members. It is slower
   on static calls (265 against 75 ns) and much slower on Vector3 and structs
   (1.5 to 5.8 µs, 1.8 to 3.4 times xlua-ng). It is faster with objects. **[C]**
@@ -150,7 +154,10 @@ The C# side differs in how a Lua function becomes a delegate:
 - **Return values:** the C# targets that return a string, object or class
   return their first argument instead of `null`, and `Prop_String` and
   `Prop_Class` start with a value. This way those results are marshalled
-  rather than being `nil`.
+  rather than being `nil`. `Prop_Class` did not on 2026-10-28: `Instance`
+  was declared before `SampleClass`, so its initializer read null, and
+  `lua2cs.instance.prop.get.class` pushed nil in every library. Fixed on
+  2026-10-29 ([Object path on the phone](#object-path-on-the-phone-2026-10-29)).
 - **Vector3 literals:** Vector3 is built from `1.0, 2.0, 3.0`. PuerTS's Lua
   backend rejects Lua integers for float parameters (`is_double`,
   `Puerts_il2cpp.cpp.txt:1833`).
@@ -232,7 +239,7 @@ loop iteration; C# → Lua rows give the Lua function and the C# call.
 | `lua2cs.instance.field.get.Vector3` | 262 | `local _ = o.Field_Vector3` | `Vector3 Field_Vector3` |
 | `lua2cs.instance.prop.get.enum` | 272 | `local _ = o.Prop_Enum` | `TestEnum Prop_Enum { get; set; }` |
 | `lua2cs.instance.method.class.3arg.ret` | 277 | same with v = `TC(1, 2, 3)` | `TestClass MethodRet_Class3(...)` returns `a` |
-| `lua2cs.instance.prop.get.class` | 278 | `local _ = o.Prop_Class` | `TestClass Prop_Class { get; set; }` (not null) |
+| `lua2cs.instance.prop.get.class` | 278 | `local _ = o.Prop_Class` | `TestClass Prop_Class { get; set; }` (null in the runs of 2026-10-28, see "Return values") |
 | `lua2cs.instance.method.struct.3arg.ret` | 283 | same with v = `TS(1, 2, 3)` | `TestStruct MethodRet_Struct3(...)` (three ints) |
 | `cs2lua.int.arity0.void` | 1 | `function() end`; `f()` | delegate `Void0` |
 | `cs2lua.int.3arg.void` | 27 | `function(a, b, c) end`; `f(1, 2, 3)` | `VoidInt3` |
@@ -475,9 +482,11 @@ Notes:
     1 µs per object result, consistent with `class_object_arg` and
     `object_return_cached` in the descriptor measurement.
   - **The others:** PuerTS takes 1.0 and 1.4 µs, zlua 0.3 and 0.9 µs.
-  - **Where the time goes** **[U]**: the translator's object pool and its
-    reverse map in C#, plus the userdata cache in Lua. Each costs several
-    P/Invoke round trips.
+  - **Where the time went** **[C]**: not the pool, the reverse map or the
+    userdata cache, as guessed here first, but IL2CPP's Type-object lookups
+    under a lock, about seven per push and one per argument;
+    [Object path on the phone](#object-path-on-the-phone-2026-10-29)
+    measures them and the changes that removed them.
 - **Configurations:** strict minimal is as fast as GCM, or slightly
   faster. GCM costs 2 to 8% over plain for instance members and 45% for
   the static cases.
@@ -600,3 +609,485 @@ frame on this phone cost:
 The raw logs of this run are in `bench-vs-2026-10-28/` on the build disk:
 `phone/`, `emu/`, the trial runs `emu-trial*`, and an emulator run stopped
 when another job's Unity editor started (`emu-part1-stopped`).
+
+## Object path on the phone (2026-10-29)
+
+The tables above show xlua-ng slowest with C# objects: about 1.5 µs per
+Lua → C# operation with objects (PuerTS 0.93, zlua 0.67) and 2.4 µs per
+C# → Lua call with objects (PuerTS 1.2, zlua 0.9). This section finds where
+that time went, step by step, and measures five changes on main that take
+most of it off. Behaviour does not change: the same values, errors, object
+identity, caches and GC behaviour (tests below).
+
+- **Where it went** **[C]**: IL2CPP's Type-object lookups, each a hash map
+  read under a mutex. `ObjectTranslator.Push` made about seven per object
+  (`GetType`, `Type.IsEnum`, `Type.IsValueType`) before it even asked its
+  cache, and generated code made one per class argument (`typeof(T)`).
+  The pool, the reverse map and the userdata cache cost little.
+- **After the changes** (phone, GCM; plain and strict minimal alike)
+  **[C]**: returning a cached object costs 456 instead of 1428 ns per call,
+  a new object 1218 instead of 2317, an object argument 306 instead of 501.
+  In the vs-bench, three class arguments and a class result take 0.89
+  instead of 2.41 µs, and a C# → Lua call with three class arguments 0.72
+  instead of 3.89 µs. The objects groups fall to about half (Lua → C#) and
+  under a third (C# → Lua); C# → Lua with objects is now the fastest of the
+  three libraries.
+- **Calls without objects** do not change beyond the scatter of a build.
+
+### Method
+
+- **Players** **[C]**: the player bench (`Test/MobileSmoke/PlayerBench.cs`,
+  `size_report.py +pbench`; one case added, `object_new`, a new object per
+  call) and this note's vs-bench (`+vsbench`), built as in
+  [descriptor-wrappers.md](descriptor-wrappers.md#per-call-overhead-on-the-phone-2026-10-29):
+  Unity 6000.3.21f1, release ARM64 IL2CPP, Minimal stripping, the Lua 5.5.1
+  plugin built from the same tree with NDK r30. The base is main at
+  `98e3487e` (the two harness commits below on top of `6642c3ca`); each
+  candidate tree adds one change to the one before. `XLUA_PBENCH_SUFFIX`
+  gives every tree's players their own packages, the vs-bench's now too.
+- **Timing** **[C]**: 8 launches per APK in rotating order, 15 s apart,
+  Thermal Status 0 before and after every launch, in four sessions: the
+  player bench and the vs-bench for P1 to P4 (pb1, vs1: 56 and 72
+  launches), then both again with P5 (pb2, vs2: 40 and 56). Every launch
+  gave its result; one in vs1 needed a second try after a system dialog
+  ("Storage space running out") took the focus. The tables give the median
+  of the per-launch medians in ns per operation, the Lua or C# loop
+  included.
+- **Profiler** **[C]**: `simpleperf record --app` on the `xlua16k` emulator
+  only, never on the phone (see "Profiler: not used" in
+  descriptor-wrappers.md): cpu-clock at 4000 Hz with frame-pointer call
+  graphs for the player bench's profile mode (one case at a time, 8 s
+  each), and at 500 to 1000 Hz with DWARF call graphs, which reach through
+  IL2CPP code compiled without frame records, for a whole vs-bench run and
+  for `object_new`. Symbols: the players' `libil2cpp.sym.so`, the plugin's
+  unstripped `libxlua.so` and the editor's `libunity.sym.so`. The emulator
+  does not predict the phone's costs; it shows where the time goes.
+- **Reading** **[C]**: `llvm-objdump` of the players' `libil2cpp.so` with
+  their symbols, their IL2CPP C++, and libil2cpp's source in the editor
+  (`Unity.app/Contents/Resources/Scripting/il2cpp/libil2cpp`).
+- **A harness bug, fixed first** **[C]**: `TestTargets.Instance` was
+  declared before `SampleClass`, so its `Prop_Class` initializer read null,
+  and `lua2cs.instance.prop.get.class` pushed nil in every library on
+  2026-10-28 (which is why it cost xlua-ng no more than an int property).
+  `98e3487e` declares `SampleClass` first and adds `class=True` to the
+  check line. With the fix the case pushes an object, so the objects group
+  of this section is not comparable with the 2026-10-28 table.
+
+### Where the time went
+
+**Type objects under a lock.** In an IL2CPP player every `obj.GetType()`
+and every `typeof(T)` returns the `Type` object of a class from
+`il2cpp::vm::Reflection::GetTypeObject` (`libil2cpp/vm/Reflection.cpp:280-292`;
+`typeof` through `Type.GetTypeFromHandle`, `vm/Type.cpp:1147-1153`), which
+looks it up in an `AppendOnlyGCHashMap` (a Google sparse hash map with
+`Il2CppTypeHash`) while holding its lock (`gc/AppendOnlyGCHashMap.h:92-104`),
+on Android a `pthread_mutex` (`os/Posix/FastReaderReaderWriterLockImpl.h:36-38`;
+`IL2CPP_USE_BASELIB_FAST_READER_RWL` is 0). The bridge hit it on every
+object it moved **[C]**:
+
+- **Pushing an object** (`ObjectTranslator.Push`): `o.GetType()`, then
+  `Type.IsEnum` (`RuntimeType.GetBaseType`, whose
+  `RuntimeTypeHandle.GetBaseType` icall gives another Type object) and
+  `Type.IsValueType` (`RuntimeType.IsValueTypeImpl`: `typeof(ValueType)`
+  twice and `typeof(Enum)`, then `IsSubclassOf`), all before the userdata
+  cache was even asked: about seven lookups per push, cached or not.
+- **Reading a class argument**: generated code passed `typeof(T)` to
+  `GetObject`, `GetUnityObjectArg` and the overload checks' `Assignable<T>`,
+  one lookup per argument, although a C# object needs no Type.
+- **`object`-typed values**: `GetObject(L, i, typeof(object))` per argument,
+  and `PushAny`'s `o.GetType()` per result.
+
+How much of a case's time the lookups took on the emulator (leaf samples in
+the lookup, its hash map, its mutex and the `RuntimeType` helpers), with the
+player bench's profile mode **[C]**:
+
+| case (emulator) | ns per call, before | share of the lookups | ns per call, after (P1 to P4) | share after |
+| --- | ---: | ---: | ---: | ---: |
+| `instance_call` (no object; control) | 128.2 | 1.2% | 128.3 | 1.0% |
+| `object_return_cached` (`o:Self()`) | 335.0 | 60.3% | 152.6 | 1.2% |
+| `class_object_arg` | 142.2 | 28.0% | 106.9 | 0.0% |
+| `unity_object_arg` | 156.6 | 28.1% | 114.5 | 0.0% |
+| `object_new` | 999.9 | 21.0% | – | 18.8% |
+
+The profile-mode run of `object_new` after the changes gave no timing on
+the emulator: it creates objects faster than Lua frees them (What is left),
+and the emulator ran short of memory before the run ended.
+
+In the whole vs-bench run with DWARF call graphs, `cs2lua.class.3arg.ret`
+spent 87.8% of its samples in `Push` (57.4% in `GetTypeObject`, 43.3% under
+`IsValueTypeImpl`, 17.9% under `get_IsEnum`), and the `object` cases 26 to
+31% in `GetTypeObject` and 15 to 21% boxing. After the changes `Push` is
+40% of the class case's samples (the reverse-map lookup and the userdata
+cache's P/Invoke) and no lookup is left. `object_new` after P1 to P4 still
+spends 18.8% in the same helpers, but from another source: `getTypeId`'s
+`Dictionary<Type, int>`, whose default comparer calls `RuntimeType`'s
+virtual `GetHashCode` (`UnderlyingSystemType`, two `Type` comparisons) and
+`Equals`; that is what P5 removes.
+
+**Not the cost** **[C]**:
+
+- **The reverse map:** it already compares by reference
+  (`ReferenceEqualsComparer`, `RuntimeHelpers.GetHashCode`, which IL2CPP
+  compiles to `Object::GetHash`, five instructions); its `FindEntry` is
+  about 2% of a cached push.
+- **The userdata cache:** one P/Invoke (`xlua_tryget_cachedud`, two
+  `lua_rawgeti`).
+- **`as RawObject`:** the test of every C# object read is an interface
+  check (`Class::IsAssignableFrom`), 3 to 5% of a call.
+- **`LuaIndexes.registryIndex`:** the memory barriers on the vs-bench's
+  main thread (0.6% of its samples, `Thread::MemoryBarrier`) came from
+  `Encoding.UTF8`, read for every string pushed or read
+  (`LuaDLLBridge.cs`: `lua_pushstring`, `DecodeLuaString`), and from
+  `EqualityComparer<T>.Default`, not from the registry index, which the
+  bench reads only in `cs.table.get`.
+
+### The changes
+
+| | commit | what |
+| --- | --- | --- |
+| P1 | `perf(runtime): push objects without reflection type tests` | `Push` tests `o is Enum` and `o is ValueType` (a class hierarchy check), and reads `GetType()` only when the object has no userdata yet; `collectObject` the same |
+| P2 | `perf(runtime): read class arguments without a Type lookup`, `perf(generator): class arguments through BindingApi.GetObject<T>` | `BindingApi.GetObject<T>` and `GetUnityObjectArg<T>` return a C# object without a Type; nil, tables and numbers take `GetObject`'s own path with `TypeOf<T>.Value`, a static field read once per T, which `Assignable<T>` uses too. A value type that reaches this branch of the generator (`UIntPtr`) keeps `GetObject` |
+| P3 | `perf(runtime): no memory barrier on the registry index` | `LuaIndexes.registryIndex` is no longer `volatile` (below) |
+| P4 | `perf(runtime): push common boxed values without GetType`, `perf(generator): object values through BindingApi.GetObject<object>` | `PushAny` pushes a boxed int, double, long or bool and a string by the object's own type test; `object` arguments and results go through `GetObject<object>` |
+| P5 | `perf(runtime): remember the last type id` | `getTypeId` returns the id of the last type it found in `typeIdMap` (whose entries are never replaced) when the same `Type` object comes again |
+
+**P3 and thread safety.** Removing the barrier is safe: `LuaEnv` writes the
+value in its constructor, under the env's lock with `THREAD_SAFE`, before
+the env's state exists, and always the same value, since a process loads
+one native library. A thread reaches a Lua state only through an env it
+was handed after that, so it reads the field as it reads the env's other
+fields (`rawL` among them); under `THREAD_SAFE` it takes the same lock
+first. P5's two fields live in the translator, which `THREAD_SAFE` already
+serializes for its dictionaries. P1, P2 and P4 add no shared state
+(`TypeOf<T>` is initialized by the runtime's type initializer).
+
+### Player bench on the phone **[C]**
+
+GCM with each change added in turn, and plain before and after P1 to P4,
+8 launches each (ns per call; the last six columns are differences):
+
+| case | GCM | +P1 | +P2 | +P3 | +P4 | plain | plain +P1-P4 | Δ P1 | Δ P2 | Δ P3 | Δ P4 | Δ GCM | Δ plain |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `lua_loop` | 11.2 | 11.2 | 11.2 | 11.2 | 11.2 | 11.2 | 11.2 | -0.0 | +0.0 | +0.0 | +0.0 | +0.0 | +0.0 |
+| `static_call` | 189.7 | 190.9 | 189.6 | 190.0 | 188.0 | 144.6 | 146.3 | +1.2 | -1.3 | +0.4 | -2.0 | -1.7 | +1.7 |
+| `instance_call` | 345.1 | 348.2 | 347.7 | 344.5 | 343.6 | 335.7 | 330.2 | +3.1 | -0.5 | -3.2 | -0.9 | -1.5 | -5.4 |
+| `property_get` | 413.3 | 410.9 | 413.1 | 418.3 | 406.2 | 385.2 | 379.5 | -2.4 | +2.2 | +5.2 | -12.1 | -7.1 | -5.7 |
+| `property_set` | 355.1 | 355.6 | 357.1 | 352.7 | 350.7 | 322.6 | 322.2 | +0.5 | +1.5 | -4.5 | -2.0 | -4.4 | -0.5 |
+| `field_get` | 415.0 | 412.1 | 415.6 | 417.9 | 410.1 | 398.2 | 382.4 | -2.9 | +3.6 | +2.2 | -7.7 | -4.8 | -15.8 |
+| `field_set` | 356.0 | 356.6 | 359.4 | 352.9 | 353.5 | 329.9 | 324.8 | +0.6 | +2.8 | -6.5 | +0.6 | -2.5 | -5.1 |
+| `string_arg` | 429.0 | 432.1 | 429.0 | 422.6 | 427.6 | 370.1 | 368.7 | +3.1 | -3.1 | -6.4 | +5.0 | -1.4 | -1.4 |
+| `string_return` | 351.6 | 355.4 | 337.0 | 350.0 | 348.8 | 293.6 | 296.3 | +3.8 | -18.4 | +13.0 | -1.2 | -2.8 | +2.6 |
+| `struct_gcopt_pass` | 736.1 | 735.7 | 737.6 | 749.2 | 735.4 | 721.4 | 730.5 | -0.4 | +1.9 | +11.6 | -13.8 | -0.8 | +9.2 |
+| `struct_boxed_pass` | 2907.7 | 1876.0 | 1887.7 | 1905.3 | 1864.4 | 2889.9 | 1841.3 | -1031.7 | +11.7 | +17.7 | -40.9 | -1043.3 | -1048.6 |
+| `struct_gcopt_new` | 753.5 | 745.9 | 748.7 | 761.6 | 748.0 | 741.0 | 736.0 | -7.5 | +2.8 | +12.9 | -13.6 | -5.4 | -5.0 |
+| `struct_gcopt_field_get` | 441.3 | 441.7 | 442.5 | 446.9 | 442.2 | 427.4 | 430.8 | +0.4 | +0.8 | +4.4 | -4.7 | +0.9 | +3.4 |
+| `struct_boxed_field_get` | 1004.4 | 1013.3 | 1041.7 | 1036.1 | 1053.2 | 1031.8 | 1003.4 | +8.8 | +28.4 | -5.6 | +17.1 | +48.8 | -28.4 |
+| `object_return_cached` | 1420.2 | 455.9 | 461.5 | 454.4 | 457.5 | 1381.0 | 435.4 | -964.3 | +5.7 | -7.2 | +3.2 | -962.7 | -945.5 |
+| `object_new` | 2324.9 | 1296.3 | 1281.8 | 1292.4 | 1292.8 | 2340.2 | 1299.1 | -1028.6 | -14.5 | +10.7 | +0.3 | -1032.2 | -1041.1 |
+| `unity_object_arg` | 524.8 | 519.1 | 320.8 | 322.4 | 322.4 | 490.8 | 309.0 | -5.7 | -198.3 | +1.6 | -0.0 | -202.4 | -181.8 |
+| `class_object_arg` | 499.9 | 499.0 | 302.9 | 305.2 | 303.4 | 475.0 | 291.1 | -0.9 | -196.1 | +2.2 | -1.8 | -196.5 | -183.9 |
+| `overload_disjoint` | 193.0 | 193.6 | 194.9 | 193.5 | 193.1 | 165.4 | 166.9 | +0.6 | +1.3 | -1.4 | -0.4 | +0.1 | +1.5 |
+| `overload_num_integer` | 221.6 | 219.5 | 220.8 | 220.2 | 221.9 | 193.2 | 194.3 | -2.1 | +1.3 | -0.5 | +1.6 | +0.3 | +1.1 |
+| `overload_num_float` | 226.8 | 224.4 | 225.1 | 226.4 | 225.1 | 199.6 | 201.6 | -2.4 | +0.7 | +1.4 | -1.3 | -1.6 | +2.1 |
+| `overload_obj_class` | 1425.0 | 1423.5 | 1258.0 | 1234.7 | 1247.0 | 1413.7 | 1239.0 | -1.5 | -165.6 | -23.3 | +12.3 | -178.0 | -174.8 |
+| `overload_obj_derived` | 1515.7 | 1523.7 | 1353.2 | 1312.3 | 1320.2 | 1492.0 | 1287.0 | +8.0 | -170.5 | -40.9 | +8.0 | -195.5 | -205.1 |
+| `unity_vector3_new` | 647.4 | 644.7 | 646.3 | 657.7 | 643.4 | 642.0 | 634.6 | -2.7 | +1.6 | +11.4 | -14.3 | -4.0 | -7.4 |
+| `unity_position_get` | 830.4 | 825.0 | 830.3 | 835.6 | 823.7 | 820.2 | 816.2 | -5.4 | +5.3 | +5.3 | -11.9 | -6.7 | -4.0 |
+| `unity_position_set` | 564.4 | 566.5 | 563.9 | 563.0 | 556.0 | 543.9 | 539.1 | +2.1 | -2.6 | -0.9 | -7.0 | -8.4 | -4.9 |
+| `unity_vector3_field_get` | 501.2 | 508.0 | 511.7 | 501.5 | 503.1 | 489.7 | 497.2 | +6.8 | +3.7 | -10.2 | +1.6 | +2.0 | +7.5 |
+| `unity_mathf_max_int` | 298.3 | 295.3 | 295.2 | 294.7 | 299.7 | 288.4 | 291.8 | -3.0 | -0.1 | -0.5 | +5.0 | +1.4 | +3.4 |
+| `unity_mathf_max_float` | 521.2 | 517.5 | 517.7 | 529.0 | 518.8 | 515.2 | 521.5 | -3.7 | +0.2 | +11.3 | -10.2 | -2.4 | +6.3 |
+| `unity_instance_method` | 4339.1 | 4413.5 | 4211.1 | 4077.0 | 3940.9 | 4202.9 | 3951.8 | +74.4 | -202.4 | -134.1 | -136.1 | -398.2 | -251.0 |
+| hot-path mix (18 cases) | **463.1** | **462.6** | **452.0** | **455.0** | **449.4** | **441.3** | **430.0** | **-0.5** | **-10.6** | **+2.9** | **-5.5** | **-13.7** | **-11.4** |
+
+- **P1** takes 964 ns off returning a cached object (−68%), 1029 ns off
+  creating one (−44%) and 1032 ns off passing a boxed struct (−36%, which
+  pushes a value type through the same `Push`); a cached object result now
+  costs about 110 ns more than an int result (`instance_call`), against
+  about 1075 ns before.
+- **P2** takes 196 to 198 ns off a class or `UnityEngine.Object` argument
+  (−38 to −39%) and 166 to 171 ns off the two object overload sets, whose
+  `Assignable<T>` checks no longer look a Type up.
+- **P3 and P4** are within the scatter of a build here (±10 ns on most
+  single cases; the boxed struct and reflection cases move by up to 50 and
+  300 ns between builds, as on 2026-10-29). P4's −136 ns on
+  `unity_instance_method` is the reflection wrapper's int result, which
+  goes through `PushAny`.
+- **Over the hot-path mix** GCM is 13.7 ns faster (−2.9%) and plain
+  11.4 ns (−2.6%); the mix has one object case (`class_object_arg`).
+  Cases without objects do not move beyond the scatter.
+
+**Round 2: P5, and the whole change again** (pb2: the base, P1 to P4 and
+P1 to P5 in GCM, the base and P1 to P5 in plain; 8 launches each, a new
+session with new players for the base and P5):
+
+| case | GCM | +P1-P4 | +P5 | plain | plain +P1-P5 | Δ P5 | Δ GCM P1-P4 | Δ GCM all | Δ plain all |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `lua_loop` | 11.2 | 11.2 | 11.2 | 11.2 | 11.2 | +0.0 | +0.0 | +0.0 | +0.0 |
+| `static_call` | 190.5 | 190.1 | 192.6 | 147.2 | 144.6 | +2.5 | -0.4 | +2.1 | -2.6 |
+| `instance_call` | 346.6 | 343.5 | 346.8 | 336.1 | 332.0 | +3.3 | -3.1 | +0.2 | -4.1 |
+| `property_get` | 418.9 | 406.7 | 415.9 | 388.5 | 389.6 | +9.3 | -12.3 | -3.0 | +1.1 |
+| `property_set` | 355.3 | 352.6 | 355.7 | 323.5 | 324.7 | +3.2 | -2.7 | +0.4 | +1.2 |
+| `field_get` | 419.8 | 406.2 | 417.8 | 409.9 | 392.6 | +11.5 | -13.6 | -2.0 | -17.4 |
+| `field_set` | 355.4 | 353.3 | 357.7 | 328.1 | 324.6 | +4.4 | -2.1 | +2.3 | -3.5 |
+| `string_arg` | 429.3 | 426.4 | 425.0 | 371.3 | 370.3 | -1.5 | -2.9 | -4.4 | -1.0 |
+| `string_return` | 353.4 | 349.3 | 350.4 | 293.2 | 293.0 | +1.1 | -4.0 | -2.9 | -0.2 |
+| `struct_gcopt_pass` | 737.6 | 735.4 | 738.1 | 719.2 | 722.5 | +2.7 | -2.2 | +0.5 | +3.3 |
+| `struct_boxed_pass` | 2915.1 | 1875.2 | 1775.9 | 2964.0 | 1752.9 | -99.3 | -1039.9 | -1139.2 | -1211.0 |
+| `struct_gcopt_new` | 751.6 | 747.3 | 751.0 | 739.8 | 732.4 | +3.7 | -4.3 | -0.6 | -7.4 |
+| `struct_gcopt_field_get` | 442.9 | 441.7 | 444.5 | 427.7 | 428.8 | +2.8 | -1.2 | +1.6 | +1.1 |
+| `struct_boxed_field_get` | 1010.7 | 1053.1 | 1028.7 | 1051.2 | 1014.6 | -24.4 | +42.5 | +18.0 | -36.6 |
+| `object_return_cached` | 1428.1 | 457.8 | 456.3 | 1391.0 | 442.9 | -1.4 | -970.3 | -971.8 | -948.1 |
+| `object_new` | 2317.2 | 1293.2 | 1218.2 | 2372.1 | 1224.3 | -75.0 | -1024.0 | -1099.0 | -1147.8 |
+| `unity_object_arg` | 523.8 | 320.6 | 324.1 | 488.7 | 308.4 | +3.4 | -203.1 | -199.7 | -180.2 |
+| `class_object_arg` | 500.6 | 303.6 | 306.2 | 475.2 | 290.2 | +2.6 | -197.0 | -194.4 | -185.1 |
+| `overload_disjoint` | 194.7 | 193.3 | 196.3 | 164.4 | 163.3 | +3.0 | -1.4 | +1.6 | -1.1 |
+| `overload_num_integer` | 221.4 | 221.8 | 222.2 | 193.7 | 197.1 | +0.4 | +0.3 | +0.8 | +3.4 |
+| `overload_num_float` | 226.8 | 224.8 | 226.8 | 199.3 | 200.8 | +2.0 | -1.9 | +0.0 | +1.5 |
+| `overload_obj_class` | 1424.9 | 1246.1 | 1274.9 | 1413.7 | 1241.8 | +28.8 | -178.9 | -150.0 | -171.9 |
+| `overload_obj_derived` | 1525.9 | 1320.4 | 1389.8 | 1492.7 | 1309.0 | +69.4 | -205.5 | -136.1 | -183.7 |
+| `unity_vector3_new` | 646.6 | 642.0 | 646.5 | 638.1 | 632.1 | +4.5 | -4.6 | -0.1 | -6.0 |
+| `unity_position_get` | 834.6 | 818.4 | 836.0 | 823.7 | 822.5 | +17.6 | -16.2 | +1.4 | -1.2 |
+| `unity_position_set` | 563.8 | 556.9 | 551.2 | 545.2 | 544.0 | -5.7 | -6.9 | -12.7 | -1.2 |
+| `unity_vector3_field_get` | 511.7 | 507.6 | 501.3 | 490.6 | 496.0 | -6.3 | -4.1 | -10.4 | +5.4 |
+| `unity_mathf_max_int` | 298.2 | 299.8 | 299.4 | 288.6 | 292.9 | -0.3 | +1.6 | +1.2 | +4.4 |
+| `unity_mathf_max_float` | 521.2 | 520.4 | 519.5 | 514.1 | 520.0 | -0.9 | -0.7 | -1.6 | +5.9 |
+| `unity_instance_method` | 4373.6 | 3979.2 | 3943.6 | 4148.2 | 3843.3 | -35.5 | -394.4 | -430.0 | -304.9 |
+| hot-path mix (18 cases) | **464.8** | **449.4** | **452.8** | **442.1** | **430.6** | **+3.3** | **-15.4** | **-12.0** | **-11.6** |
+
+- **P5** takes 75 ns off a new object (−5.8%) and 99 ns off a boxed struct,
+  the two cases that push objects without userdata; the rest moves within
+  the scatter (the two object overload sets by +29 and +69 ns, the case
+  pair that scattered most between builds on 2026-10-29 as well).
+- **P1 to P4 again:** −970, −1024, −197 and −203 ns on the cached object,
+  the new object and the two argument cases, within 10 ns of round 1.
+- **All five changes** take 972 ns (−68%) off returning a cached object,
+  1099 ns (−47%) off creating one, 194 to 200 ns (−39%) off an object
+  argument and 1139 ns (−39%) off passing a boxed struct, in GCM; plain
+  gains the same. The hot-path mix is 12.0 ns (−2.6%) faster in GCM and
+  11.6 ns (−2.6%) in plain.
+
+### vs-bench on the phone **[C]**
+
+**Round 1: the changes in turn** (vs1; GCM with each change added, plain and
+strict minimal before and after P1 to P4; 8 launches each). The base
+players of this round still had the old `VsBench.cs` (`size_report.py`
+reuses a project directory as it finds it, so their projects kept the
+version of `015c1be9`): their `lua2cs.instance.prop.get.class` pushes nil,
+and its +145 ns under P1 is the price of pushing an object at all. Every
+other case runs the same code in both versions. The object cases and
+`cs.table.get`:
+
+| case | GCM | +P1 | +P2 | +P3 | +P4 | plain | plain +P1-P4 | minimal | minimal +P1-P4 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `lua2cs.ctor.class.3int` | 2765.2 | 1674.2 | 1681.0 | 1753.8 | 1671.3 | 2734.3 | 1716.5 | 2709.1 | 1660.9 |
+| `lua2cs.instance.method.object.3arg.ret` | 2179.1 | 2187.4 | 2100.6 | 2140.6 | 1497.4 | 2200.7 | 1492.3 | 2222.0 | 1463.5 |
+| `lua2cs.instance.method.class.3arg.ret` | 2383.4 | 1421.1 | 884.5 | 882.5 | 890.1 | 2309.9 | 895.3 | 2375.7 | 905.2 |
+| `lua2cs.instance.prop.get.class` | 399.1 | 544.1 | 538.8 | 538.1 | 534.2 | 381.9 | 524.0 | 394.6 | 532.3 |
+| `cs2lua.object.3arg.ret` | 1477.9 | 1496.6 | 1495.3 | 1505.5 | 706.9 | 1481.5 | 702.6 | 1615.1 | 702.8 |
+| `cs2lua.class.3arg.ret` | 3897.0 | 918.3 | 706.1 | 718.3 | 708.2 | 3695.6 | 727.8 | 3718.7 | 693.1 |
+| `cs.table.get` | 1242.5 | 1246.0 | 1241.9 | 1256.5 | 1215.3 | 1248.7 | 1229.3 | 1312.5 | 1307.9 |
+
+The groups (geometric mean of the cases' medians; the base's objects group
+includes the nil push):
+
+| group | GCM | +P1 | +P2 | +P3 | +P4 | plain | plain +P1-P4 | minimal | minimal +P1-P4 | Δ P1 | Δ P2 | Δ P3 | Δ P4 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Lua → C#: static calls, property and field (int) | 183 | 181 | 182 | 183 | 182 | 137 | 135 | 179 | 178 | 0.99x | 1.01x | 1.00x | 1.00x |
+| Lua → C#: instance calls (int, long, double) | 376 | 376 | 376 | 376 | 375 | 368 | 363 | 375 | 379 | 1.00x | 1.00x | 1.00x | 1.00x |
+| Lua → C#: instance properties and fields (int, enum) | 393 | 394 | 395 | 393 | 391 | 369 | 362 | 385 | 389 | 1.00x | 1.00x | 0.99x | 1.00x |
+| Lua → C#: strings | 767 | 767 | 757 | 763 | 759 | 756 | 766 | 751 | 772 | 1.00x | 0.99x | 1.01x | 0.99x |
+| Lua → C#: Vector3 and struct | 832 | 833 | 837 | 836 | 829 | 817 | 818 | 823 | 835 | 1.00x | 1.00x | 1.00x | 0.99x |
+| Lua → C#: objects (new class, object and class arguments) | 1547 | 1297 | 1139 | 1155 | 1044 | 1518 | 1047 | 1541 | 1040 | 0.84x | 0.88x | 1.01x | 0.90x |
+| C# → Lua: int, long, double | 218 | 221 | 218 | 220 | 221 | 218 | 224 | 217 | 217 | 1.01x | 0.99x | 1.01x | 1.01x |
+| C# → Lua: string | 988 | 1006 | 968 | 992 | 1002 | 975 | 1007 | 982 | 979 | 1.02x | 0.96x | 1.03x | 1.01x |
+| C# → Lua: Vector3 and struct | 1678 | 1674 | 1659 | 1682 | 1665 | 1690 | 1674 | 1643 | 1647 | 1.00x | 0.99x | 1.01x | 0.99x |
+| C# → Lua: object and class | 2400 | 1172 | 1028 | 1040 | 708 | 2340 | 715 | 2451 | 698 | 0.49x | 0.88x | 1.01x | 0.68x |
+| Lua alone (loop, table) | 16 | 16 | 16 | 16 | 16 | 16 | 16 | 16 | 16 | 1.00x | 1.00x | 1.00x | 1.00x |
+
+- **P1** takes 1091 ns off a new class instance (`lua2cs.ctor.class.3int`,
+  −39%), 962 ns off three class arguments and a class result (−40%) and
+  2979 ns off a C# → Lua call with three class arguments (−76%).
+- **P2** takes another 537 ns off the Lua → C# class case and 212 ns off the
+  C# → Lua one, where the result comes back through `GetObject<T>`.
+- **P4** takes 643 ns off three `object` arguments and an `object` result
+  (−30%) and 799 ns off the C# → Lua `object` case (−53%).
+- **P3** is within the scatter; `cs.table.get`, the only case that reads the
+  registry index, moves by +15 and then −41 ns.
+- The other cases move by up to ±4% between the players of one change,
+  with one larger step (`cs2lua.int.arity0.void`, +13 ns, +7%, under P4,
+  which does not touch it); the groups without objects stay within ±1%.
+
+**Round 2: before and after, every mode** (vs2; the base players built
+again with the fixed `VsBench.cs`, P1 to P4 and P1 to P5 in GCM, plain and
+strict minimal after P1 to P5; 8 launches each). The object cases and
+`cs.table.get` (the last four columns are differences):
+
+| case | plain | plain after | GCM | GCM P1-P4 | GCM after | minimal | minimal after | Δ GCM P5 | Δ plain | Δ GCM | Δ minimal |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `lua2cs.ctor.class.3int` | 2822.1 | 1591.5 | 2803.4 | 1664.1 | 1604.3 | 2697.2 | 1568.4 | -59.8 (-4%) | -1230.6 (-44%) | -1199.1 (-43%) | -1128.8 (-42%) |
+| `lua2cs.instance.method.object.3arg.ret` | 2204.6 | 1487.2 | 2185.2 | 1508.8 | 1469.2 | 2125.0 | 1477.4 | -39.5 (-3%) | -717.4 (-33%) | -716.0 (-33%) | -647.5 (-30%) |
+| `lua2cs.instance.method.class.3arg.ret` | 2414.4 | 906.4 | 2414.6 | 889.9 | 893.1 | 2400.5 | 918.0 | +3.2 (+0%) | -1508.0 (-62%) | -1521.6 (-63%) | -1482.4 (-62%) |
+| `lua2cs.instance.prop.get.class` | 1548.7 | 522.6 | 1557.9 | 538.4 | 532.9 | 1468.3 | 543.7 | -5.6 (-1%) | -1026.1 (-66%) | -1025.0 (-66%) | -924.6 (-63%) |
+| `cs2lua.object.3arg.ret` | 1468.5 | 703.3 | 1500.0 | 707.5 | 705.5 | 1596.6 | 709.5 | -2.0 (-0%) | -765.2 (-52%) | -794.4 (-53%) | -887.1 (-56%) |
+| `cs2lua.class.3arg.ret` | 3873.2 | 731.4 | 3888.7 | 711.5 | 717.3 | 3765.4 | 687.5 | +5.7 (+1%) | -3141.8 (-81%) | -3171.4 (-82%) | -3078.0 (-82%) |
+| `cs.table.get` | 1283.7 | 1261.3 | 1245.5 | 1218.6 | 1226.7 | 1324.5 | 1276.8 | +8.1 (+1%) | -22.4 (-2%) | -18.8 (-2%) | -47.7 (-4%) |
+
+The groups:
+
+| group | plain | plain after | GCM | GCM P1-P4 | GCM after | minimal | minimal after | Δ GCM P5 | Δ plain | Δ GCM | Δ minimal |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Lua → C#: static calls, property and field (int) | 136 | 136 | 182 | 182 | 182 | 178 | 179 | 1.00x | 1.00x | 1.00x | 1.01x |
+| Lua → C#: instance calls (int, long, double) | 361 | 359 | 376 | 373 | 374 | 370 | 380 | 1.00x | 0.99x | 0.99x | 1.03x |
+| Lua → C#: instance properties and fields (int, enum) | 366 | 365 | 393 | 391 | 391 | 381 | 390 | 1.00x | 1.00x | 0.99x | 1.02x |
+| Lua → C#: strings | 748 | 748 | 764 | 761 | 764 | 753 | 764 | 1.00x | 1.00x | 1.00x | 1.01x |
+| Lua → C#: Vector3 and struct | 826 | 816 | 832 | 826 | 830 | 818 | 845 | 1.00x | 0.99x | 1.00x | 1.03x |
+| Lua → C#: objects (new class, object and class arguments) | 2196 | 1029 | 2191 | 1047 | 1029 | 2120 | 1037 | 0.98x | 0.47x | 0.47x | 0.49x |
+| C# → Lua: int, long, double | 221 | 224 | 223 | 220 | 223 | 218 | 216 | 1.01x | 1.01x | 1.00x | 0.99x |
+| C# → Lua: string | 995 | 998 | 992 | 1002 | 986 | 975 | 986 | 0.98x | 1.00x | 0.99x | 1.01x |
+| C# → Lua: Vector3 and struct | 1684 | 1681 | 1679 | 1662 | 1665 | 1663 | 1660 | 1.00x | 1.00x | 0.99x | 1.00x |
+| C# → Lua: object and class | 2385 | 717 | 2415 | 710 | 711 | 2452 | 698 | 1.00x | 0.30x | 0.29x | 0.28x |
+| Lua alone (loop, table) | 16 | 16 | 16 | 16 | 16 | 16 | 16 | 1.00x | 1.00x | 1.00x | 1.00x |
+
+- **With objects** every case loses 30 to 82%: a new class instance
+  −1129 to −1231 ns, three `object` arguments and a result −648 to −717 ns,
+  three class arguments and a result −1482 to −1522 ns, a class property
+  −925 to −1026 ns (a real object push now; it pushed nil on 2026-10-28),
+  and the C# → Lua `object` and class calls −765 to −887 and −3078 to
+  −3171 ns. The objects groups fall to 0.47x to 0.49x (Lua → C#) and 0.28x
+  to 0.30x (C# → Lua) in all three modes.
+- **P5** takes 60 ns off a new class instance (−4%) and moves nothing else.
+- **Without objects** plain and GCM stay within ±2% per case (one
+  6% outlier, `cs2lua.int.3arg.void` in plain, +13 ns) and ±1% per group.
+  Strict minimal reads +1 to +6% on some non-object cases (up to +69 ns on
+  `lua2cs.instance.method.Vector3.3arg.ret`), 1.01x to 1.03x per group.
+  Those wrappers compile to the same instructions in both minimal players
+  (the Vector3 one compared instruction by instruction), so this is code
+  placement between two builds, the effect descriptor-wrappers.md measured
+  at 10 to 35 ns per call.
+
+**Against PuerTS and zlua** (their 2026-10-28 numbers, from the same
+`VsBench.cs` before the `Prop_Class` fix, so the property case is left
+out; xlua-ng after P1 to P5) **[C]**:
+
+| case | xlua-ng plain | xlua-ng GCM | xlua-ng strict minimal | PuerTS Lua (2026-10-28) | zlua (2026-10-28) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `lua2cs.ctor.class.3int` | 1591.5 | 1604.3 | 1568.4 | 1655.3 | 2153.9 |
+| `lua2cs.instance.method.object.3arg.ret` | 1487.2 | 1469.2 | 1477.4 | 1091.6 | 2902.3 |
+| `lua2cs.instance.method.class.3arg.ret` | 906.4 | 893.1 | 918.0 | 1003.6 | 315.4 |
+| `cs2lua.object.3arg.ret` | 703.3 | 705.5 | 709.5 | 1087.1 | 899.8 |
+| `cs2lua.class.3arg.ret` | 731.4 | 717.3 | 687.5 | 1363.6 | 889.1 |
+| Lua → C#, the three object cases (geometric mean) | 1290 | 1282 | 1286 | 1219 | 1254 |
+| C# → Lua, object and class (geometric mean) | 717 | 711 | 698 | 1218 | 894 |
+
+xlua-ng is now the fastest of the three for the C# → Lua `object` and class
+calls. For a new class instance it matches PuerTS, and for three `object`
+arguments it sits between PuerTS and zlua. For three class arguments and a
+class result it beats PuerTS but takes 2.8 times zlua's time; zlua's stubs
+call libil2cpp directly.
+
+### Tests
+
+- **New cases** (`test(runtime): the object path in every binding mode`):
+  `CaseObjectPathIdentity`, `CaseObjectPathClassArguments`,
+  `CaseObjectPathBoxedValues` and `CaseObjectPathCollected` in
+  `luaCallCsCoverage.lua`, with `Coverage.ObjectPath` and two types without
+  bindings: an object pushed again by any route is the same userdata, an
+  enum without bindings goes through `Push`'s enum cache, a boxed struct is
+  a new userdata each time, nil and wrong objects as class arguments, boxed
+  values of eight types as `object` results and Lua values through `object`
+  parameters, and objects pushed again after Lua collected their userdata.
+  They passed on the unchanged runtime first (Lua 5.5.1, legacy, all four
+  suite passes) **[C]**. `EXPECTED_TESTS` is 527.
+- `Test/Native/run_managed.py --source-gen --source-gen-minimize
+  --source-gen-fallback` on macOS arm64 (Mono 6.14.1), plugins built from
+  this tree: Lua 5.5.1 and LuaJIT 2.1, each legacy and minimal
+  (`--define XLUA_PRESET_MINIMAL`): 527 tests in each of two modes, in
+  every pass, on all four; and the same four with `--define THREAD_SAFE`.
+  Both after P1 to P4 and again after P5 **[C]**.
+- `Tools/build_source_generator.py --test`: 53 tests **[C]**.
+- `Test/UnityMatrix/il2cpp_suite.py all` on `xlua16k` (Unity 6000.3.21f1,
+  arm64), P1 to P4: plain, gcm and strict 527/527 in both modes; no
+  per-case difference from the host for plain and gcm, and for strict the
+  8 per mode of [il2cpp-suite.md](il2cpp-suite.md) (cases that run on one
+  side only) **[C]**.
+- After merging main of the same day (`4a7f341e`, the editor's defines
+  check): the four host suites again (527 tests in each mode and pass) and
+  the generator's 53 tests **[C]**.
+- Every phone player of both rounds ran all its cases, and the vs-bench
+  players printed the same check line (with `class=True` for the players
+  built with the fixed `VsBench.cs`) **[C]**.
+- Not run: `sanitize.sh`, `native_regression.py` and `check_exports.py` (no
+  native code changed), Lua 5.4.9 and 5.3.6, the Unity editor suite, iOS,
+  WebGL.
+
+### What is left
+
+What an object still costs after the changes is the bridge's own
+structure, which the profiles of the after players show **[C]**:
+
+- **Pushing a cached object:** the reverse map's lookup (a generic
+  `Dictionary<object, int>` that calls its comparer through an interface)
+  and one P/Invoke into the userdata cache, a registry table read with two
+  `lua_rawgeti`. Returning a cached object costs about 110 ns more than
+  returning an int on the phone.
+- **Reading an object argument:** `xlua_tocsobj_safe` (the metatable's tag
+  lookup), the pool read, and the `as RawObject` interface check that every
+  object goes through.
+- **A new object:** a Lua userdata with a `__gc` finalizer, whose call into
+  C# (`LuaGC`, a reverse P/Invoke) returns the pool slot later; the pool and
+  both reverse-map operations; and the IL2CPP collector, which marks the pool
+  (27% of a new object's time on the emulator before the changes, about a
+  quarter after).
+- **The P/Invoke transitions themselves.** PuerTS and zlua avoid them with
+  generated C++ against libil2cpp internals, which [AGENTS.md](../../AGENTS.md)
+  rules out for xlua-ng.
+
+Not tried here **[U]**:
+
+- a reverse map of its own (open addressing on `RuntimeHelpers.GetHashCode`,
+  no interface calls), perhaps 10 to 30 ns per cached push;
+- a cheaper `as RawObject`: IL2CPP walks the object's interfaces on every
+  read, and an answer kept per class would skip that, 3 to 5% of an object
+  argument;
+- the same lock-free treatment for strings: `Encoding.UTF8` is a volatile
+  read with a memory barrier in every `lua_pushstring` and `DecodeLuaString`
+  (above);
+- **creating objects from Lua as fast as it can:** in the player bench's
+  profile mode, which runs `object_new` 100,000 times a frame for 14 s
+  without a collection between batches, the emulator player grew to about
+  2 GB of PSS both before (2.07 GB) and after the changes (2.51 GB, more
+  objects in the same time): Lua's incremental collector does not run the
+  userdata finalizers as fast as they are created, so neither the pool nor
+  the C# objects are freed. The timed rounds, with a full collection before
+  each, do not show it. Not looked into further.
+
+### Not run
+
+- A CPU profile on the phone (simpleperf is not run there; see Method).
+- The changes on Lua 5.4.9, 5.3.6 and LuaJIT in a player; the host suites
+  ran them on Lua 5.5.1 and LuaJIT (above).
+- iOS, WebGL, other Android devices, Development builds and High
+  stripping.
+- PuerTS and zlua again: their numbers in the comparison are those of
+  2026-10-28, whose `lua2cs.instance.prop.get.class` pushed nil.
+- The Unity editor suite (`Test/UnityMatrix/editor_tests.py`).
+
+### Reproducing
+
+Scripts, raw logs and the kept binaries are in `objpath-2026-10-29/` on the
+build disk: `scripts/` (`build_players.sh` with `mktree.py` for the
+candidate trees, `bench_run.py` with `phone_session.py` and `devlib.py` for
+the interleaved launches, `aggregate.py`, `mdtable.py` and `vsreport.py` for
+the tables, `emu_prof.py`, `slice_prof.py`, `reflshare.py` and `callers.py`
+for the emulator profiles, `emu_mem.py` for the memory check, `sym.py` for
+disassembly with symbols, `host_tests.sh` and `il2cpp_suite.sh` for the
+tests); `pb1/`, `vs1/`, `pb2/` and `vs2/` (launches and results);
+`prof-base/`, `prof-c4/`, `prof-new/` (simpleperf records) with the
+`symfs-*` directories; `base/`, `c1/` to `c5/` (`il2cpp/` keeps each
+player's `libil2cpp.so`, its symbols and the bridge's IL2CPP C++);
+`phone/` (the device command logs and snapshots). The candidate trees were
+copies of `98e3487e` with each change's files; they match the commits:
+P1 `ea2a0fb0`, P2 `0a7ca103`, P3 `e707526a`, P4 `c5b7bade` and P5
+`be08f492` (the P2 to P3 players had P2's generator without the `UIntPtr`
+guard, which came later; the bench binds no such parameter).
