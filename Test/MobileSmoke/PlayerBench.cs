@@ -4,6 +4,7 @@
 // every case once, so drift spreads evenly over the cases; between cases the coroutine yields a frame.
 // Output: XLUA_PBENCH_META, one XLUA_PBENCH line per case (ns per call of each round, the Lua loop
 // included), XLUA_PBENCH_DONE; the same lines go to pbench-result.txt in persistentDataPath.
+// A launch with the extra pbench_profile runs chosen cases for a sampling profiler instead (Profile below).
 // XLUA_SPIKE_DESC is the descriptor prototype's define (branch spike/descriptor-wrappers, not on main); the
 // 2026-10-28 measurement in docs/research/descriptor-wrappers.md built this file there in all three modes.
 using System;
@@ -135,6 +136,67 @@ namespace XLuaBench
             return string.Join(",", parts.ToArray());
         }
 
+        // The profile request of the launch: the string extra pbench_profile, "CASE[,CASE...][;SECONDS]", as in
+        // am start -n PKG/ACTIVITY --es pbench_profile "static_call,instance_call;12". Null without one.
+        static string ProfileRequest()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+                using (var intent = activity.Call<AndroidJavaObject>("getIntent"))
+                {
+                    return intent.Call<string>("getStringExtra", "pbench_profile");
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.Log("XLUA_PBENCH_PROFILE_ERROR " + e.Message);
+            }
+#endif
+            return null;
+        }
+
+        // Profile mode, for a sampling profiler such as simpleperf: no timing rounds; the named cases run in
+        // turn, N calls at a time, for SECONDS (default 12), between XLUA_PBENCH_PROFILE_START and
+        // XLUA_PBENCH_PROFILE_END. The end line gives each case's calls and ns per call during the window.
+        static IEnumerator Profile(string request, string[] names, RunN[] runs, Action<string> log)
+        {
+            var parts = request.Split(';');
+            double seconds = parts.Length > 1 ? double.Parse(parts[1], CultureInfo.InvariantCulture) : 12;
+            var picked = new List<int>();
+            foreach (var name in parts[0].Split(','))
+            {
+                int c = Array.IndexOf(names, name.Trim());
+                if (c < 0)
+                {
+                    log("XLUA_PBENCH_PROFILE_ERROR unknown case " + name);
+                    yield break;
+                }
+                picked.Add(c);
+            }
+            var calls = new long[picked.Count];
+            var ticks = new long[picked.Count];
+            log("XLUA_PBENCH_PROFILE_START " + parts[0] + " " + Num(seconds));
+            long end = Stopwatch.GetTimestamp() + (long)(seconds * Stopwatch.Frequency);
+            while (Stopwatch.GetTimestamp() < end)
+            {
+                for (int i = 0; i < picked.Count; i++)
+                {
+                    long start = Stopwatch.GetTimestamp();
+                    runs[picked[i]](N);
+                    ticks[i] += Stopwatch.GetTimestamp() - start;
+                    calls[i] += N;
+                }
+                yield return null;
+            }
+            var summary = new List<string>();
+            for (int i = 0; i < picked.Count; i++)
+                summary.Add(names[picked[i]] + "=" + calls[i] + ":" + Num(Math.Round(ticks[i] * (1e9 / Stopwatch.Frequency) / calls[i], 2)));
+            log("XLUA_PBENCH_PROFILE_END " + string.Join(" ", summary.ToArray()));
+        }
+
         public static IEnumerator Run()
         {
             Screen.sleepTimeout = SleepTimeout.NeverSleep;  // keeps the screen on while this app is in front
@@ -160,8 +222,15 @@ namespace XLuaBench
                 + "\", \"cores\": " + SystemInfo.processorCount + ", \"mhz\": " + SystemInfo.processorFrequency
                 + ", \"rounds\": " + Rounds + ", \"iterations\": " + N + ", \"wrapper\": \"" + WrapperInfo()
                 + "\", \"stopwatch_hz\": " + Stopwatch.Frequency + "}");
+            var request = ProfileRequest();
+            if (request != null)
+            {
+                var names = new string[count];
+                for (int c = 0; c < count; c++) names[c] = Cases[c, 0];
+                yield return Profile(request, names, runs, log);
+            }
             var ns = new double[count, Rounds];
-            for (int r = 0; r < Rounds; r++)
+            for (int r = 0; r < (request == null ? Rounds : 0); r++)
             {
                 for (int c = 0; c < count; c++)
                 {
@@ -175,7 +244,7 @@ namespace XLuaBench
                     yield return null;
                 }
             }
-            for (int c = 0; c < count; c++)
+            for (int c = 0; c < (request == null ? count : 0); c++)
             {
                 var row = new double[Rounds];
                 var parts = new string[Rounds];

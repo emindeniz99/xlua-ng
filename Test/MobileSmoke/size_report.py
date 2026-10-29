@@ -67,8 +67,11 @@ Variants:
                of the env's lock, and with +hotfix of a patched method; needs +sg
   NAME+pbench  PlayerBench.cs in Assembly-CSharp, run by the probe (XLUA_SIZE_PLAYER_BENCH): the Lua -> C# cases of
                Test/Native/Benchmark.cs and a few UnityEngine calls, XLUA_PBENCH lines in the log (ns per call of
-               seven rounds); each player gets its own package (org.xluang.pbench.plain or .gcm) so both can
-               be installed side by side; needs +sg (docs/research/descriptor-wrappers.md, 2026-10-28)
+               seven rounds); each player gets its own package (org.xluang.pbench.plain or .gcm, plus
+               $XLUA_PBENCH_SUFFIX) so they can be installed side by side; needs +sg (docs/research/descriptor-wrappers.md, 2026-10-28). The
+               APK is profileable from the shell (PbenchProfileable.cs), and a launch with the string extra
+               pbench_profile "CASE[,CASE...][;SECONDS]" runs only those cases, for simpleperf (2026-10-29;
+               the project gets com.unity.modules.androidjni to read the extra)
   NAME+uwr     the probe also calls UnityWebRequest.Get once, like a project that uses it anyway;
                its deltas are against baseline+uwr
   NAME+at-REF  Assets/XLua/{Src,Resources,Editor} from commit REF instead of this checkout
@@ -393,6 +396,8 @@ def prepare(a, work, platform, variant, project):
     deps = {"com.unity.modules.unitywebrequestwww": "1.0.0"}
     if game:
         deps["com.unity.ugui"] = "2.0.0"  # UnityEngine.UI, which the game configuration binds
+    if "pbench" in flags:
+        deps["com.unity.modules.androidjni"] = "1.0.0"  # PlayerBench reads the launch's intent extras
     (project / "Packages/manifest.json").write_text(json.dumps({"dependencies": deps}) + "\n")
     unity = a.unity_webgl if platform == "webgl" else a.unity_mobile
     version = re.search(r"/(\d+\.\d+\.\d+[abfp]\d+)/", str(unity))
@@ -438,6 +443,7 @@ def prepare(a, work, platform, variant, project):
         if not sg:
             sys.exit("+pbench needs +sg: " + variant)
         shutil.copy2(here / "PlayerBench.cs", assets / "PlayerBench.cs")
+        shutil.copy2(here / "PbenchProfileable.cs", assets / "Editor/PbenchProfileable.cs")
     if "hfbench" in flags:
         shutil.copy2(repo / "Test/Native/HotfixBench.cs", assets / "HotfixBench.cs")
         if platform == "android":
@@ -675,8 +681,10 @@ def run(a):
                     benv["XLUA_SMOKE_DEFINES"] = ";".join([d for d in benv.get("XLUA_SMOKE_DEFINES", "").split(";") if d]
                                                           + [define])
                 if "pbench" in flags:
-                    # One package per mode, so the players can be installed side by side and run interleaved.
-                    benv["XLUA_SMOKE_APP_ID"] = "org.xluang.pbench." + ("gcm" if "gcm" in flags else "plain")
+                    # One package per mode, so the players can be installed side by side and run interleaved;
+                    # XLUA_PBENCH_SUFFIX (letters) tells the players of two trees apart, such as before and after a change.
+                    benv["XLUA_SMOKE_APP_ID"] = "org.xluang.pbench." + ("gcm" if "gcm" in flags else "plain") \
+                        + os.environ.get("XLUA_PBENCH_SUFFIX", "")
                 if "gsize" in flags:
                     benv["XLUA_SMOKE_IL2CPP_CODEGEN"] = "OptimizeSize"
                 if "sim" in flags:

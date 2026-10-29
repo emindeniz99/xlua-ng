@@ -156,7 +156,23 @@ above are unchanged (see "Player size" in `Test/README.md`).
 `+pbench` size variants (`PlayerBench.cs`, Lua -> C# call cost in the
 player, `XLUA_PBENCH` lines in the log) get one package per binding mode, so
 their APKs can be installed side by side and launched in turn
-([descriptor-wrappers.md](../../docs/research/descriptor-wrappers.md#call-cost-on-the-phone-and-the-emulator-2026-10-28)).
+([descriptor-wrappers.md](../../docs/research/descriptor-wrappers.md#call-cost-on-the-phone-and-the-emulator-2026-10-28));
+`XLUA_PBENCH_SUFFIX` (letters) appended to the package tells the players of
+two trees apart, such as before and after a change. The `+pbench` APKs are
+profileable from the shell (`PbenchProfileable.cs` adds
+`<profileable android:shell="true"/>`, Android 10 and later), so the
+device's `simpleperf record --app` samples the release player without making
+it debuggable. On Android 11 and later every `simpleperf` run from `adb shell`
+first sets the property `security.perf_harden` to 0 (its `main`,
+`AndroidSecurityCheck`), and `record` may set the `debug.perf_*` properties
+too: a device setting, which the test phone's rules allow only with the
+owner's approval (it happened once on 2026-10-29,
+[descriptor-wrappers.md](../../docs/research/descriptor-wrappers.md#per-call-overhead-on-the-phone-2026-10-29)).
+A launch with the string extra `pbench_profile`
+(`am start -n PKG/com.unity3d.player.UnityPlayerGameActivity --es pbench_profile
+'static_call,instance_call;20'`) runs only the named cases, in turn, for that
+many seconds, between `XLUA_PBENCH_PROFILE_START` and `XLUA_PBENCH_PROFILE_END`
+(each case's calls and ns per call), instead of the timing rounds.
 
 Set `XLUA_SMOKE_OUTPUT_ROOT` to the external build output directory. If unset,
 the harness uses a `builds` directory alongside the prepared project. For
