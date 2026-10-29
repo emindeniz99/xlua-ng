@@ -242,7 +242,11 @@ link.xml for 6000.6 and later, without which the 6000.6.4f1 player crashed
 at start (SIGSEGV in `libil2cpp.so` called from `libunity.so`, before the
 scene), as the WebGL smoke player did. The dialog also came up for the
 6000.3 and 6000.6 APKs, whose libraries all have 16 KB `LOAD` alignment
-(`llvm-readelf`); its cause there was not traced [U].
+(`llvm-readelf`). Its cause there (traced the same day, [C]): Android 16
+keeps the page size compat flag of the earlier 2021.3 install of
+`org.xluang.suite` through every `install -r`
+([android-16kb-dialog.md](android-16kb-dialog.md)); `run` now reinstalls
+after an uninstall when it finds such a stale flag.
 
 Not run: the gcm and strict configurations on these versions, 6000.0,
 6000.6.6f1, a phone, iOS, High stripping, Development players, other Lua
