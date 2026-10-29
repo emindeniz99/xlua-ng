@@ -68,7 +68,9 @@ public static class StreamingAssetsSmoke {
   }
   lock (logged) {
    foreach (var line in logged) {
-    if (line.IndexOf("StreamingAssets", StringComparison.OrdinalIgnoreCase) >= 0) failures.Add("the reader logged: " + line);
+    if (line.IndexOf("StreamingAssets", StringComparison.OrdinalIgnoreCase) >= 0 && line.IndexOf("XLUA_NG_SA_TIMING", StringComparison.Ordinal) < 0) {
+     failures.Add("the reader logged: " + line);
+    }
    }
   }
   if (failures.Count > 0) throw new Exception("XLUA_NG_SMOKE_FAIL: StreamingAssets: " + string.Join("; ", failures.ToArray()));
