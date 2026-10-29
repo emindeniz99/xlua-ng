@@ -218,3 +218,15 @@ r30, Xcode 27.1, on a Mac):
   `Tools/make_upm_package.py`: the variants the plugin selector takes on the
   platforms whose build scripts build variants (Android, iOS). Desktop
   minimal projects use the default plugin, which runs the minimal C# too.
+- **Plugin `.meta` files stay on PluginImporter `serializedVersion: 2`**
+  (coordinator's decision under the owner's "do what is best", 2026-10-29).
+  Version 2 is the only format that Unity 2021.3, the oldest supported
+  editor, and Unity 6000.6 both read the same way and without a warning.
+  Version 1 makes 6000.6 warn. Version 3, which 6000.6 writes when it
+  re-saves a plugin `.meta`, makes 2021.3 read wrong settings without a
+  warning. The files are 2021.3's re-save. Two `Linux64` CPU values that
+  2021.3 rewrote (`x86_64` to `AnyCPU`) were put back, so the files keep the
+  values they had. `Tools/check_meta.py` requires version 2, and
+  `make_upm_package.py` copies the files unchanged. Evidence:
+  [Test/README.md](../../Test/README.md#unity-meta-files), "PluginImporter
+  version 2".

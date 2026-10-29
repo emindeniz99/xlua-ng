@@ -2224,8 +2224,9 @@ assembles from a placeholder for every plugin:
   and not committed;
 - `fileFormatVersion: 2` and one well-formed GUID per `.meta`, no GUID twice;
 - every plugin under `Assets/Plugins` (and in the package, the variants
-  included) has the platforms, CPU and Editor OS that the script's `PLUGINS`
-  table lists, nothing else enabled, and every plugin of
+  included) has `PluginImporter` `serializedVersion: 2` (below), the
+  platforms, CPU and Editor OS that the script's `PLUGINS` table lists,
+  nothing else enabled, and every plugin of
   `make_upm_package.py`'s `RELEASE_PLUGINS` has a `.meta`. A new plugin needs
   a row there. An enabled Editor must name a CPU of the Editor's enum
   (`AnyCPU`, `x86_64`, `ARM64`), and the 32-bit `x86` desktop plugins must
@@ -2301,6 +2302,75 @@ simulator, other Unity versions. Unity 6000.6.4f1 also warns that
 `HotfixFlags.cpp.meta` (like 12 of the other 17 plugin `.meta` files here)
 has `PluginImporter` `serializedVersion: 1`, "below the supported minimum
 (2). Open and re-save the file to upgrade."; it still reads the platforms.
+
+**PluginImporter version 2 (2026-10-29).** The 13 plugin `.meta` files on
+`serializedVersion: 1` are now on version 2, with the same GUIDs and
+settings. The 5 that were already on version 2 are unchanged.
+
+- **The formats** **[C]**:
+  - **Version 1** maps platforms by name (`Android: / enabled: 1`).
+  - **Version 2** lists `- first: {<group>: <platform>} / second: {enabled,
+    settings}`, as Unity 2021.3.45f2 writes it. Platforms the editor no
+    longer has keep an empty group (`: LinuxUniversal`, `: WP8`). It adds
+    `externalObjects`, `defineConstraints: []`, `isOverridable: 0`,
+    `isExplicitlyReferenced: 0` and `validateReferences: 1`, all defaults,
+    and drops `timeCreated` and `licenseType`.
+  - **Version 3** is what Unity 6000.6.4f1 writes when it re-saves a `.meta`
+    (`AssetDatabase.ForceReserializeAssets`). It maps platforms by name again,
+    like version 1, and adds `Is16KbAligned: false` to the Android settings.
+- **How the files were made.** Unity 2021.3.45f2 re-saved them
+  (`ForceReserializeAssets` with `ReserializeMetadata`, in a project with the
+  repository's `Assets/Plugins` and a placeholder for each binary). One value
+  was put back by hand: `Linux64` `CPU: x86_64` in `x86_64/libxlua.so.meta`
+  and `xlua.bundle.meta`, which 2021.3 wrote as `AnyCPU`. 2021.3 reads
+  `x86_64` there as `AnyCPU` in both versions, and 6000.6 reads it as
+  `x86_64`, so the hand edit changes nothing for either editor.
+- **The evidence.** An Editor script dumped what `PluginImporter` returns
+  for every plugin:
+  - `isNativePlugin`, `isPreloaded`, `DefineConstraints`;
+  - the Any, Editor and exclude flags;
+  - for 9 build targets and 16 platform names: compatibility, `CPU`, `OS`,
+    `CompileFlags`, `FrameworkDependencies`, `SDK`, `DontProcess`,
+    `PlaceholderPath` and `AddToEmbeddedBinaries`;
+  - the GUID.
+
+  That is 4,482 lines for the 18 plugins. The dumps compare as follows:
+  - **Version 1 and version 2 in the same editor:** identical, in 2021.3.45f2
+    and in 6000.6.4f1.
+  - **2021.3 and 6000.6:** the same 10 lines differ for both versions. These
+    are the editors' own readings: `GetCompatibleWithPlatform("Editor")`, and
+    `Linux64` `CPU` as above.
+  - **The package:** `make_upm_package.py`'s package (through
+    `check_meta.py --work`, placeholders for every plugin and variant), as a
+    `file:` package in each editor, dumps its 18 default plugins exactly as
+    the `Assets` projects do. Its variants have the Editor off.
+  - **Warnings:** with version 2 neither editor logged a `PluginImporter`
+    warning, in either layout. With version 1, 6000.6.4f1 logged "contains a
+    PluginImporter object at version 1, below the supported minimum (2)"
+    for each of the 13 files.
+- **Version 3 in 2021.3.45f2** imports without a warning but reads wrong
+  values:
+  - the Editor is off for `arm64/libxlua.dylib`;
+  - the WSA ARM64 CPU is empty;
+  - the Android CPUs are lower case (`x86`).
+
+  So version 3, what 6000.6 writes, cannot be committed while 2021.3 is
+  supported.
+- **The check.** `check_meta.py` now requires version 2 and reads platforms
+  without a group. Before, it skipped them, so after the migration it
+  reported "no settings for Linux" for `x86/libxlua.so`. With one file put
+  back to version 1 it fails ("PluginImporter serializedVersion 1, expected
+  2"). `make_upm_package.py` copies the `.meta` files byte for byte. Its
+  variant `.meta` (Editor off) now handles version 2 only.
+- **The editor suite** (`prepare.py --editor-tools --fast-enter-play-mode
+  --source-gen`, `editor_tests.py run`) passed 46 of 46 with the new files on
+  2021.3.45f2, 6000.3.21f1 and 6000.6.4f1. It loads `arm64/libxlua.dylib` in
+  the Editor, and none of its logs has the version warning.
+  `defines_guard.py` built macOS Mono players with them on 2021.3.45f2 and
+  6000.3.21f1.
+- **Not run:** an IL2CPP or mobile player build with the new files, a Universal Windows
+  Platform module (not installed; the WSA values compare equal through the
+  API without it), Unity 2022.3 and 6000.0.
 
 ## Unity players and upstream examples
 

@@ -662,6 +662,19 @@ alike:
   copied these `.meta` files into a fork for a 32-bit editor build has no
   such editor to run them in. `Tools/check_meta.py` fails for an enabled
   Editor with a CPU outside its enum. Not checked in a Unity editor.
+- **Plugin `.meta` files on PluginImporter version 2 (2026-10-29):** 13 of
+  the 18 plugin `.meta` files under `Assets/Plugins` (and in the UPM
+  package) were on `serializedVersion: 1`. Unity 6000.6 warned at import
+  that this is "below the supported minimum (2)". They are now on version 2,
+  as Unity 2021.3 writes it, with the same GUIDs and the same import
+  settings. Unity 2021.3.45f2 and 6000.6.4f1 read the same settings from both
+  versions, and neither warns about version 2. A project that edited these
+  `.meta` files keeps its settings when it takes the new ones only if it
+  makes the same edits again. Do not commit the version 3 that Unity 6000.6
+  writes when it re-saves a plugin `.meta`: Unity 2021.3 reads it without a
+  warning but with the wrong settings (the Editor off for the macOS
+  library). `Tools/check_meta.py` requires version 2 (Test/README.md, "Unity
+  .meta files").
 - **Reproducible native builds (2026-10-28):** `build/CMakeLists.txt` maps
   the checkout's `build/` folder to `build` and the build directory to `.`
   in debug information and `__FILE__` (`-ffile-prefix-map`; MSVC `/pathmap`
