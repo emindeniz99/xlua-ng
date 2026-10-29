@@ -150,6 +150,39 @@ namespace XLua.Binding
             return translator.FastGetCSObj(L, index);
         }
 
+        // (T)translator.GetObject(L, index, typeof(T)) for a class, interface or
+        // array type T, as generated code reads arguments and the results of
+        // delegate and interface bridges. A C# object comes back without a Type:
+        // IL2CPP looks every Type object that typeof or GetType gives up under a
+        // lock (il2cpp::vm::Reflection::GetTypeObject), which made each object
+        // argument cost one lookup. Other values (nil, tables, numbers) take
+        // GetObject's own path, with the Type from TypeOf<T>.
+        public static T GetObject<T>(ObjectTranslator translator, RealStatePtr L, int index) where T : class
+        {
+            int udata = LuaAPI.xlua_tocsobj_safe(L, index);
+            if (udata != -1)
+            {
+                object obj = translator.objects.Get(udata);
+                RawObject rawObject = obj as RawObject;
+                return (T)(rawObject == null ? obj : rawObject.Target);
+            }
+            return (T)translator.NonCSObject(L, index, TypeOf<T>.Value, false);
+        }
+
+        // (T)translator.GetUnityObjectArg(L, index, typeof(T)), the same way:
+        // a parameter, field or property of a UnityEngine.Object type that Lua sets.
+        public static T GetUnityObjectArg<T>(ObjectTranslator translator, RealStatePtr L, int index) where T : class
+        {
+            int udata = LuaAPI.xlua_tocsobj_safe(L, index);
+            if (udata != -1)
+            {
+                object obj = translator.objects.Get(udata);
+                RawObject rawObject = obj as RawObject;
+                return (T)(rawObject == null ? obj : rawObject.Target);
+            }
+            return (T)translator.objectCasters.GetArgCaster(TypeOf<T>.Value)(L, index, null);
+        }
+
         static readonly Dictionary<string, string> operatorSymbols = new Dictionary<string, string>
         {
             { "op_Addition", "+" }, { "op_Subtraction", "-" }, { "op_Multiply", "*" }, { "op_Division", "/" }, { "op_Equality", "==" },

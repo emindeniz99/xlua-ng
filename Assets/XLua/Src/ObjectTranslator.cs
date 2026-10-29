@@ -74,6 +74,14 @@ namespace XLua
         }
     }
 
+    // typeof(T), read once per T. In an IL2CPP player every typeof and GetType()
+    // looks its Type object up in a table under a lock
+    // (il2cpp::vm::Reflection::GetTypeObject); a static field of the type is a load.
+    static class TypeOf<T>
+    {
+        public static readonly Type Value = typeof(T);
+    }
+
     // MonoPInvokeCallbackAttribute, LuaTypes, LuaGCOptions, LuaThreadStatus and LuaIndexes
     // are in the XLua.Core assembly (Assets/XLua/Core/LuaTypes.cs).
 
@@ -1121,9 +1129,10 @@ namespace XLua
             return GetTypeOf(L, index);
         }
 
+        // The generated overload checks: TypeOf<T>, not a typeof lookup per call.
         public bool Assignable<T>(RealStatePtr L, int index)
 		{
-            return Assignable(L, index, typeof(T));
+            return Assignable(L, index, TypeOf<T>.Value);
         }
 
         public bool Assignable(RealStatePtr L, int index, Type type)
@@ -1187,26 +1196,30 @@ namespace XLua
                 }
                 return obj;
             }
-            else
+            return NonCSObject(L, index, type, argument);
+        }
+
+        // getObject for a value that is no C# object (xlua_tocsobj_safe gave -1;
+        // BindingApi.GetObject<T> calls it after its own check).
+        internal object NonCSObject(RealStatePtr L, int index, Type type, bool argument)
+        {
+            if (LuaAPI.lua_type(L, index) == LuaTypes.LUA_TUSERDATA)
             {
-                if (LuaAPI.lua_type(L, index) == LuaTypes.LUA_TUSERDATA)
+                GetCSObject get;
+                int type_id = LuaAPI.xlua_gettypeid(L, index);
+                if (type_id != -1 && type_id == decimal_type_id)
                 {
-                    GetCSObject get;
-                    int type_id = LuaAPI.xlua_gettypeid(L, index);
-                    if (type_id != -1 && type_id == decimal_type_id)
-                    {
-                        decimal d;
-                        Get(L, index, out d);
-                        return d;
-                    }
-                    Type type_of_struct;
-                    if (type_id != -1 && typeMap.TryGetValue(type_id, out type_of_struct) && type.IsAssignableFrom(type_of_struct) && custom_get_funcs.TryGetValue(type, out get))
-                    {
-                        return get(L, index);
-                    }
+                    decimal d;
+                    Get(L, index, out d);
+                    return d;
                 }
-                return ((argument ? objectCasters.GetArgCaster(type) : objectCasters.GetCaster(type))(L, index, null));
+                Type type_of_struct;
+                if (type_id != -1 && typeMap.TryGetValue(type_id, out type_of_struct) && type.IsAssignableFrom(type_of_struct) && custom_get_funcs.TryGetValue(type, out get))
+                {
+                    return get(L, index);
+                }
             }
+            return ((argument ? objectCasters.GetArgCaster(type) : objectCasters.GetCaster(type))(L, index, null));
         }
 
         // A value Lua passes to a C# parameter or assigns to a field or
