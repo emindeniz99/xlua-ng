@@ -262,7 +262,12 @@ function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethodMissing(self)
         if CS.BridgeHardening.Defines.RestrictPrivateAccess() then
             local ok, err = pcall(xlua.get_generic_method, G, name)
             ASSERT_EQ(ok, false)
-            ASSERT_EQ(tostring(err), "xlua.get_generic_method: Coverage.Generics has no public generic method '" .. name .. "'.")
+            -- IL2CPP players append the stripping hint, so compare the start.
+            local expected = "xlua.get_generic_method: Coverage.Generics has no public generic method '" .. name .. "'."
+            local text = tostring(err)
+            ASSERT_EQ(string.sub(text, 1, #expected), expected)
+            local rest = string.sub(text, #expected + 1)
+            ASSERT_TRUE(rest == "" or string.find(rest, "^ In an IL2CPP player, stripping may have removed it") ~= nil)
         else
             ASSERT_EQ(xlua.get_generic_method(G, name), nil)
         end
