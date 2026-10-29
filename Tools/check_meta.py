@@ -20,7 +20,9 @@ Assets folder (Test/README.md); Unity gives those top-level folders their
    below lists for its path: the player platforms it is enabled for, with
    their CPU, and the Editor's CPU and OS (or the Editor off: the 32-bit x86
    desktop plugins, since the Editor is 64-bit only). An enabled Editor must
-   name a CPU of EDITOR_CPUS. No other
+   name a CPU of EDITOR_CPUS. The PluginImporter must be serializedVersion
+   2, the one every supported editor reads: 6000.6 warns about version 1
+   and writes version 3, which 2021.3 does not read. No other
    platform may be enabled, "Any" never; a platform Unity 2021.3 no longer
    has (OSXIntel, LinuxUniversal ...) may stay enabled only when it is of the
    plugin's own OS. A plugin that PLUGINS does not list, and a plugin of
@@ -169,8 +171,9 @@ def platforms(meta):
     if entries:
         for entry in entries:
             (group, name), = (entry.get("first") or {}).items()
-            if not group:
+            if not group and name == "Any":
                 continue  # ": Any", the exclude settings of the Any platform
+            # Other names without a group are platforms the editor no longer has (": LinuxUniversal").
             second = entry.get("second") or {}
             result[name or group] = (str(second.get("enabled")) == "1", second.get("settings") or {})
     else:
@@ -182,6 +185,11 @@ def platforms(meta):
 
 def check_plugin(meta, expected, problems, label):
     players, editor = expected
+    version = str((meta.get("PluginImporter") or {}).get("serializedVersion"))
+    if version != "2":
+        problems.append("%s: PluginImporter serializedVersion %s, expected 2 (Unity 6000.6 warns below 2, and Unity 2021.3 "
+                        "cannot read the version 3 that 6000.6 writes; see Test/README.md, \"Unity .meta files\")"
+                        % (label, version))
     found = platforms(meta)
     if not found:
         problems.append("%s: no platform settings in its PluginImporter" % label)

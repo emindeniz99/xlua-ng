@@ -662,6 +662,19 @@ alike:
   copied these `.meta` files into a fork for a 32-bit editor build has no
   such editor to run them in. `Tools/check_meta.py` fails for an enabled
   Editor with a CPU outside its enum. Not checked in a Unity editor.
+- **Plugin `.meta` files on PluginImporter version 2 (2026-10-29):** 13 of
+  the 18 plugin `.meta` files under `Assets/Plugins` (and in the UPM
+  package) were on `serializedVersion: 1`. Unity 6000.6 warned at import
+  that this is "below the supported minimum (2)". They are now on version 2,
+  as Unity 2021.3 writes it, with the same GUIDs and the same import
+  settings. Unity 2021.3.45f2 and 6000.6.4f1 read the same settings from both
+  versions, and neither warns about version 2. A project that edited these
+  `.meta` files keeps its settings when it takes the new ones only if it
+  makes the same edits again. Do not commit the version 3 that Unity 6000.6
+  writes when it re-saves a plugin `.meta`: Unity 2021.3 reads it without a
+  warning but with the wrong settings (the Editor off for the macOS
+  library). `Tools/check_meta.py` requires version 2 (Test/README.md, "Unity
+  .meta files").
 - **Reproducible native builds (2026-10-28):** `build/CMakeLists.txt` maps
   the checkout's `build/` folder to `build` and the build directory to `.`
   in debug information and `__FILE__` (`-ffile-prefix-map`; MSVC `/pathmap`
@@ -1573,6 +1586,26 @@ and [obfuscators.md](research/obfuscators.md).
   `HOTFIX_ENABLE`, the `__Hotfix` fields. With `HOTFIX_ENABLE` a build also
   warns when obfuz runs before the injector (keep obfuz's default order,
   10000).
+- **Defines changed in the build launch fail the build (2026-10-29):** a
+  player build whose scripting defines differ from the ones the Editor's
+  scripts were compiled with, in `XLUA_PRESET_MINIMAL`, `HOTFIX_ENABLE`,
+  `XLUA_REFLECTION`, `XLUA_NO_REFLECTION`, `GEN_CODE_MINIMIZE` or
+  `XLUA_NO_GCM`, fails with `xLua: this player build's scripting defines
+  differ from the ones the Editor's scripts were compiled with: ...`. This
+  happens when a build script calls `PlayerSettings.SetScriptingDefineSymbols`
+  and `BuildPipeline.BuildPlayer` in the same launch, builds for a target
+  whose Player Settings differ from the active target's, or passes one of
+  these defines in `BuildPlayerOptions.extraScriptingDefines`. Before, such a
+  build took link.xml, the obfuz rules, the bindings check and the hotfix
+  injection from the Editor's scripts, compiled for the old defines: a
+  legacy player built right after switching from minimal lost the private
+  members Lua reaches, which then read as `nil` on the device. Set the
+  defines in one Editor launch and build in the next (with `-buildTarget`
+  for another platform), or in the Editor build after the recompilation.
+  Put these defines in the Player Settings, not in `extraScriptingDefines`.
+  Other defines, `csc.rsp` and asmdef version defines are not compared
+  (`BuildDefinesCheck.cs`; docs/design/source-generator.md, "Defines set in
+  the build launch").
 - **obfuz and the types link.xml keeps whole (2026-10-29):** the rule file
   also keeps the names of the `[LuaCallCSharp]` types that the generated
   link.xml keeps whole (legacy, and minimal with `HOTFIX_ENABLE`), but not

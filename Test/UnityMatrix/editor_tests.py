@@ -80,6 +80,7 @@ REQUIRED = [
     "XluaEditorToolsTests.ValidateSetupReportsOldModulesInResources",
     "XluaEditorToolsTests.MigrationMenuLeavesTypeAttributesWhereTheGeneratorRuns",
     "XluaEditorToolsTests.HotfixToolsAreCheckedAgainstTheManifest",
+    "XluaEditorToolsTests.BuildDefinesCheckComparesTheDefinesBuildStepsRead",
     "XluaGeneratedCodeTests.GeneratedCodeMatchesMode",
     "XluaGeneratedCodeTests.GeneratedWrappersFollowGenCodeMinimize",
     "XluaGeneratedCodeTests.CodeEmitIsCompiledIntoTheEditor",
