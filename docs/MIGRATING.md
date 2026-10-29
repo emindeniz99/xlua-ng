@@ -1573,6 +1573,26 @@ and [obfuscators.md](research/obfuscators.md).
   `HOTFIX_ENABLE`, the `__Hotfix` fields. With `HOTFIX_ENABLE` a build also
   warns when obfuz runs before the injector (keep obfuz's default order,
   10000).
+- **Defines changed in the build launch fail the build (2026-10-29):** a
+  player build whose scripting defines differ from the ones the Editor's
+  scripts were compiled with, in `XLUA_PRESET_MINIMAL`, `HOTFIX_ENABLE`,
+  `XLUA_REFLECTION`, `XLUA_NO_REFLECTION`, `GEN_CODE_MINIMIZE` or
+  `XLUA_NO_GCM`, fails with `xLua: this player build's scripting defines
+  differ from the ones the Editor's scripts were compiled with: ...`. This
+  happens when a build script calls `PlayerSettings.SetScriptingDefineSymbols`
+  and `BuildPipeline.BuildPlayer` in the same launch, builds for a target
+  whose Player Settings differ from the active target's, or passes one of
+  these defines in `BuildPlayerOptions.extraScriptingDefines`. Before, such a
+  build took link.xml, the obfuz rules, the bindings check and the hotfix
+  injection from the Editor's scripts, compiled for the old defines: a
+  legacy player built right after switching from minimal lost the private
+  members Lua reaches, which then read as `nil` on the device. Set the
+  defines in one Editor launch and build in the next (with `-buildTarget`
+  for another platform), or in the Editor build after the recompilation.
+  Put these defines in the Player Settings, not in `extraScriptingDefines`.
+  Other defines, `csc.rsp` and asmdef version defines are not compared
+  (`BuildDefinesCheck.cs`; docs/design/source-generator.md, "Defines set in
+  the build launch").
 - **obfuz and the types link.xml keeps whole (2026-10-29):** the rule file
   also keeps the names of the `[LuaCallCSharp]` types that the generated
   link.xml keeps whole (legacy, and minimal with `HOTFIX_ENABLE`), but not

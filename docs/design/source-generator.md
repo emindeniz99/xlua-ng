@@ -4201,9 +4201,104 @@ variants. A project that switches from minimal to legacy that way gets the
 narrow link.xml in a legacy player, which is the Q75 bug again. This is M5
 question 2 ("link.xml from the Editor assemblies"). Reading the
 player-compiled assemblies would close it; it needs Cecil in `XLua.Editor`.
+*Since 2026-10-29 such a build fails with a message that says what changed
+([below](#defines-set-in-the-build-launch-2026-10-29)).*
 
 **Not run:** obfuz in Unity, High and Medium stripping sizes, iOS, WebGL, a
 phone, players of minimal with `HOTFIX_ENABLE`.
+
+### Defines set in the build launch (2026-10-29)
+
+**The gap** ("Found on the way" above). xLua's build steps read the
+assemblies loaded in the Editor:
+
+- the generator's link.xml (`SourceGenLinkXml`) and obfuz rules
+  (`ObfuzAdapter`);
+- the bindings check (`SourceGenBuildCheck`);
+- the hotfix injector, which exists only when the Editor was compiled with
+  `HOTFIX_ENABLE`.
+
+A build script that sets the scripting defines and calls `BuildPlayer` in
+the same Editor launch runs before Unity recompiles, so all of these follow
+the old defines. Going from minimal to legacy that way gives a legacy player
+the narrow link.xml of minimal (the Q75 bug: private members stripped, `nil`
+on the device), and nothing reported it.
+
+**Decision (coordinator's decision under the owner's "do what is best",
+2026-10-29): the build fails.** It does not fall back to reading the
+player's assemblies, which needs Cecil in `XLua.Editor` (M5 question 2,
+still open). `BuildDefinesCheck.cs`:
+
+- **The Editor's defines.** After each domain reload, which follows each
+  compilation, it records the Player Settings defines of the active build
+  target (`NamedBuildTarget.Server` for a dedicated server). From Unity
+  6000.3 it adds the active build profile's `scriptingDefines`.
+- **The build's defines.** A `BuildPlayerProcessor` (public since 2021.2)
+  reads them in `PrepareForBuild`, before Unity compiles the player's
+  scripts: the Player Settings defines of the build's target and
+  `BuildPlayerOptions.extraScriptingDefines`, which the Editor never compiles
+  with.
+- **What is compared.** Only the defines the build steps read:
+  `XLUA_PRESET_MINIMAL`, `HOTFIX_ENABLE`, `XLUA_REFLECTION`,
+  `XLUA_NO_REFLECTION`, `GEN_CODE_MINIMIZE` and `XLUA_NO_GCM`. These are what
+  `LinkXml.PreserveBoundTypes`, `GcmDefined`, `NoReflectionDefined` and the
+  hotfix code read. Any `XLUA_*` define was the other choice; it would fail
+  builds that change only, say, `XLUA_NO_UTIL`, where nothing is stale.
+  Defines from `csc.rsp` and asmdef version defines reach both compilations
+  alike, so they are not compared, and an edit of `csc.rsp` in the build
+  launch is not caught.
+- **On a difference** it throws `BuildFailedException`. The message names
+  each define added or removed and the targets. It says why the build fails
+  and what to do instead: set the defines and build in separate launches
+  (`-buildTarget` for another platform), or in the Editor build after the
+  compilation finishes. When the define came from `extraScriptingDefines`,
+  it also says to put it in the Player Settings.
+- **The cost** is nothing in the player, and only in the Editor's build
+  path.
+- **Builds that now fail:**
+  - a script that switches the preset, `HOTFIX_ENABLE` or GCM and builds in
+    one launch;
+  - a build for a platform whose Player Settings differ in those defines
+    from the active one, without `-buildTarget`;
+  - `extraScriptingDefines` with one of them.
+
+  Each of these built a player with the other defines' link.xml, rules or
+  injection. The repository's own build scripts (`SmokeBuild`,
+  `XluaSuiteBuild`, `size_report.py`) already apply the defines in a launch
+  of their own.
+
+**Tests** (macOS arm64, Lua 5.5.1 plugin built from this tree, the generator
+built by `prepare.py --source-gen`):
+
+- `Test/UnityMatrix/defines_guard.py` on Unity 6000.3.21f1 and 2021.3.45f2
+  (macOS Mono players). It passed in both with these steps:
+  1. setting `XLUA_PRESET_MINIMAL;XLUA_REFLECTION` and building in one
+     launch fails ("XLUA_PRESET_MINIMAL added, XLUA_REFLECTION added");
+  2. the next launch builds, with 0 types kept whole in link.xml;
+  3. clearing the defines and building in one launch fails ("... removed");
+  4. the next launch builds, with 17 types kept whole (legacy);
+  5. `extraScriptingDefines` `HOTFIX_ENABLE` fails, with the advice to put
+     it in the Player Settings;
+  6. setting `XLUA_GUARD_UNRELATED` and building in one launch succeeds.
+
+  **Before the change** (the same project without `BuildDefinesCheck.cs`),
+  step 1 built a minimal player with the 17 legacy `preserve="all"`
+  entries. That is the bug, in the other direction.
+- `XluaEditorToolsTests.BuildDefinesCheckComparesTheDefinesBuildStepsRead`
+  checks the comparison and the message. The editor suite
+  (`prepare.py --editor-tools --fast-enter-play-mode --source-gen`,
+  `editor_tests.py run`) passed 46 of 46 in mode `sourcegen` on 2021.3.45f2,
+  6000.3.21f1 and 6000.6.4f1.
+- `editor_compile_check.py`: 7 editors x 85 configurations, 588 ok and 7
+  skipped. Two player configurations crashed Mono's `csc` on the first run
+  (2021.3.45f2 `player-android-il2cpp-xlua-lock-metatables`, 6000.0.85f1
+  `player-android-il2cpp-memory-diagnostics`) and passed when rerun.
+
+**Not covered:** builds through Unity 6's `BuildPlayerWithProfileOptions`
+with a profile that is not the active one (the check sees the active
+profile), Unity 6000.0's build profile defines (not public there), and edits
+of `csc.rsp` in the build launch. Not run: an IL2CPP player, other build
+targets, `defines_guard.py` on Unity 2022.3, 6000.0 and 6000.6.
 
 ## 10. Open questions for the owner
 
