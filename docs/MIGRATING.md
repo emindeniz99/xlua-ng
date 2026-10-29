@@ -117,7 +117,7 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | `XLUA_NO_BRIDGE_CHECKS` | Leaves the bridge checks out of the Editor, Development Builds and `XLUA_GENERAL` builds too, as in release players: for profiling the call costs of a Development player, and for programs that ship on `XLUA_GENERAL`. `XLUA_BRIDGE_CHECKS` wins when both are defined | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_bridge_checks) |
 | `XLUA_RESTRICT_GETMETATABLE` | `xlua.getmetatable` returns a copy without `__gc` and the tag; editing it changes the type only after `xlua.setmetatable` | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_restrict_getmetatable) |
 | `XLUA_LOCK_XLUA_TABLE` | `xlua` is a read-only proxy (`xlua.f = v` raises; code that adds functions must use `rawset`), `pairs(xlua)` lists nothing on LuaJIT, and xLua's helpers keep the functions they started with | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_lock_xlua_table) |
-| `XLUA_RESTRICT_PRIVATE_ACCESS` | Without `HOTFIX_ENABLE`: no `xlua.access`, `xlua.private_accessible` or `xlua.hotfix`. With it: `xlua.access` reaches only `__Hotfix` fields. Always: `xlua.tofunction` and `xlua.get_generic_method` take public methods only | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_restrict_private_access) |
+| `XLUA_RESTRICT_PRIVATE_ACCESS` | Without `HOTFIX_ENABLE`: no `xlua.access`, `xlua.private_accessible` or `xlua.hotfix`. With it: `xlua.access` reaches only `__Hotfix` fields. Always: `xlua.tofunction` and `xlua.get_generic_method` take public methods only. Since 2026-10-29 `xlua.get_generic_method` raises `xlua.get_generic_method: T has no public generic method 'M'.` when the type has none of that name, instead of returning `nil` for a later "attempt to call a nil value"; in an IL2CPP player the error adds that stripping may have removed it and how to keep it (`[ReflectionUse]` or a link.xml). Code that tested the result for `nil` must use `pcall`. Legacy without the define still returns `nil` | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_restrict_private_access) |
 | `XLUA_NO_LOAD_ASSEMBLY` | No `xlua.load_assembly` | [XLua_API_EN.md](../Assets/XLua/Doc/XLua_API_EN.md#xlua_no_load_assembly) |
 | `XLUA_STRICT_INT_RANGE` | An integral Lua number outside the range of an `sbyte`, `byte`, `short`, `ushort`, `char`, `int` or `uint` slot raises `value out of range` (`bad argument #1 to 'Foo' (value out of range)` for an argument) instead of wrapping: `Byte(300)`, `UInt(-1)`, `arr[2^32]`. `long` and `ulong` keep their bit patterns. Not part of any preset yet | [bridge-audit.md](research/bridge-audit.md#c4-part-2-the-other-integer-slots-changed) |
 | `XLUA_NO_SIGNATURE_LOADER` | `SignatureLoader` is not compiled, and with it the RSA/SHA-256 code it pulls in (−239 KB on an Android APK at Minimal stripping; nothing at Medium, which already strips it) | [signature.md](../Assets/XLua/Doc/signature.md) |
@@ -1422,6 +1422,16 @@ pushers (M4):
   of a bound type there, add `[ReflectionUse]` for it too
   (`[assembly: ReflectionUse(typeof(T))]`), which writes `preserve="all"` for
   that type in every preset.
+  The narrow entries keep no public generic method that only
+  `xlua.get_generic_method` reaches (one whose type parameters no parameter
+  uses, which no wrapper calls), so IL2CPP strips it unless your C# calls
+  it: engine types with Minimal stripping, your own with Medium or High.
+  Add `[ReflectionUse]` for the type, or keep the method in your own
+  link.xml. Keeping such methods in the generated link.xml cost 87,816 bytes
+  of APK at game size, so it stays narrow (owner decision of 2026-10-29).
+  Since then `xlua.get_generic_method` raises
+  `xlua.get_generic_method: T has no public generic method 'M'.` with that
+  advice in an IL2CPP player, instead of returning `nil`.
 - **When the generator did not run** (for example warning CS9057, a compiler
   older than it needs): after each domain reload the Editor logs an error for
   every assembly with xLua configuration and no generated bindings, an IL2CPP
