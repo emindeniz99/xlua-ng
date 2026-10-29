@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:767fe473-bbd6-53bb-a94c-88a92202d784",
+  "serialNumber": "urn:uuid:d394f8cd-93be-5803-b0a6-be385d24c339",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1881,7 +1881,7 @@
         },
         {
           "name": "xlua-ng:where",
-          "value": "mise.toml, Test/Native/coverage_cs_dotnet.py, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml"
+          "value": "mise.toml, Test/Native/coverage_cs_dotnet.py, .github/workflows/native-build.yml, .github/workflows/unity-matrix.yml, Test/Docker/Dockerfile"
         },
         {
           "name": "xlua-ng:latest",

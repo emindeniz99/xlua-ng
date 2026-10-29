@@ -12,7 +12,9 @@
 // Type (delegates, interfaces, GCOptimize structs) must still pass. The checks
 // that Lua does by name through reflection pass only when the rules keep
 // those names: [ReflectionUse] members, a [DoNotGen] member, a member left to
-// reflection, and the value names of an enum with more than 20 values. A type
+// reflection, and the value names of an enum with more than 20 values. Where the
+// generated link.xml keeps the [LuaCallCSharp] types whole (legacy), the rules
+// keep their names too, so Game.Shop is renamed only in the minimal preset. A type
 // without configuration (Unbound) is not in the name table, so renaming it
 // always breaks CS.Game.Unbound. The script passes the checks expected to fail
 // in each mode; any other result fails the run.
@@ -237,6 +239,15 @@ static class ObfuscationFixture
         return results
     ";
 
+    // Where the generated link.xml keeps every [LuaCallCSharp] type whole
+    // (legacy, and minimal with HOTFIX_ENABLE: owner decision Q75), the obfuz
+    // rules keep their names, since link.xml names them by their original names.
+#if XLUA_PRESET_MINIMAL && !HOTFIX_ENABLE
+    const bool BoundTypesKeepNames = false;
+#else
+    const bool BoundTypesKeepNames = true;
+#endif
+
     static int Main(string[] args)
     {
         string mode = args[0];
@@ -248,7 +259,7 @@ static class ObfuscationFixture
         string shop = typeof(Game.Shop).FullName, reflected = typeof(Game.Reflected).FullName;
         Console.WriteLine("Game.Shop is " + shop + ", Game.Reflected is " + reflected);
         bool renamed = shop != "Game.Shop";
-        if (renamed != (mode != "plain"))
+        if (renamed != (mode == "attributes" || (mode == "rules" && !BoundTypesKeepNames)))
         {
             Console.WriteLine("FAIL Game.Shop " + (renamed ? "was" : "was not") + " renamed in mode " + mode);
             failures++;

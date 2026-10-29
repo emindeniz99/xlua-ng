@@ -64,6 +64,8 @@ import time
 here = Path(__file__).resolve().parent
 repo = here.parents[1]
 sys.path.insert(0, str(repo / "Tools"))
+sys.path.insert(0, str(repo / "Test/MobileSmoke"))
+import check_apk_16k  # noqa: E402
 import presets  # noqa: E402
 
 PACKAGE = "org.xluang.suite"
@@ -209,6 +211,12 @@ def prepare(a):
                     ignore=shutil.ignore_patterns("*.unity", "*.unity.meta"))
     shutil.copy2(repo / "Test/Native/XLuaUnitTest.XLuaConfig.cs", project / "Assets/xLuaTest/XLuaUnitTest.XLuaConfig.cs")
     unity_fixtures(project, a.unity_version)
+    if csharp12(a.unity_version):
+        # As prepare.py --webgl and size_report.py do for WebGL: Unity 6000.6.4f1 strips
+        # ContentLoadingSystem.ProcessResults from this project, and the Android player crashed
+        # (SIGSEGV in libil2cpp, called from libunity) before its scene started.
+        (project / "Assets/link.xml").write_text(
+            '<linker>\n  <assembly fullname="UnityEngine.ContentLoadModule" preserve="all"/>\n</linker>\n')
     streaming = project / "Assets/StreamingAssets"
     shutil.copytree(repo / "Test/UnitTest/StreamingAssets", streaming)
     suite = project / "Assets/XluaSuite"
@@ -358,11 +366,53 @@ class Emulator:
         self.proc = None
 
 
+def dismiss_dialog(emu):
+    """Press the positive button of a system dialog in front of the player; 1 if there was one.
+
+    Android 16 shows one (PageSizeMismatchDialog, "Showing PageSizeMismatchDialog" in the
+    logcat) when the APK's native libraries have 4 KB aligned segments, as Unity 2021.3.45f2's
+    own libunity.so, libmain.so and libil2cpp.so have, on a device with 16 KB pages such as the
+    xlua16k AVD, or when an earlier install of the package had them (run_apk). The app runs in
+    compatibility mode, but the dialog takes the focus and the player waits for it before it
+    loads the scene."""
+    emu.cmd("shell", "uiautomator", "dump", "/sdcard/xlua-suite-ui.xml", check=False, timeout=60)
+    ui = emu.cmd("shell", "cat", "/sdcard/xlua-suite-ui.xml", check=False)
+    for node in re.findall(r"<node [^>]*>", ui):
+        if 'resource-id="android:id/button1"' in node and 'package="android"' in node:
+            bounds = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
+            if bounds:
+                x1, y1, x2, y2 = (int(v) for v in bounds.groups())
+                texts = re.findall(r'text="([^"]*)"', ui)
+                print("dismissing a system dialog (%s)" % "; ".join(t for t in texts if t)[:300], flush=True)
+                emu.cmd("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2), check=False)
+                return 1
+    return 0
+
+
+def page_size_compat(emu):
+    """The page size compat flags Android 16 keeps for PACKAGE (4: ELF alignment, 2: APK alignment), or 0."""
+    found = re.search(r"pageSizeCompat=(-?\d+)", emu.cmd("shell", "dumpsys", "package", PACKAGE, check=False))
+    return int(found.group(1)) if found else 0
+
+
+def check_16k(apk):
+    """Fail an APK that Android 16 would run in page size compat mode because of a library of its own
+    (libxlua.so or another plugin); Unity's own 4 KB libraries (2021.3) are notes. True when every
+    64-bit library is 16 KB ready."""
+    _, problems, notes = check_apk_16k.check(Path(apk), unity_libs_ok=True)
+    for line in notes + problems:
+        print("16 KB: %s" % line, flush=True)
+    if problems:
+        raise SystemExit("XLUA_IL2CPP_SUITE_FAIL: %s is not ready for 16 KB pages: %s" % (apk, "; ".join(problems)))
+    return not any("32-bit" not in n for n in notes)
+
+
 def run_apk(a, emu, config, apk):
     out = a.out.resolve()
     (out / "logs").mkdir(parents=True, exist_ok=True)
     data = "/sdcard/Android/data/" + PACKAGE
     files = data + "/files"
+    aligned = check_16k(apk)
     # Replace the app in place, which keeps its uid: after an uninstall the AVD (Android 16)
     # kept the app's folder in /sdcard/Android/data, owned by the old uid, which the shell
     # cannot delete and the new install cannot write; IL2CPP then fails to extract its
@@ -372,6 +422,20 @@ def run_apk(a, emu, config, apk):
         print("install -r: %s; installing again after an uninstall" % installed.strip(), flush=True)
         emu.cmd("uninstall", PACKAGE, check=False)
         emu.cmd("install", "--no-streaming", "-r", apk, timeout=600)
+    # Android 16 ORs the page size compat flags of every install into the package's settings, so
+    # an earlier APK with 4 KB libraries (a 2021.3 player) leaves an update of an aligned one in
+    # compat mode, with the "isn't 16 KB compatible" dialog. Only an uninstall drops them.
+    flags = page_size_compat(emu)
+    if aligned and flags & 6:
+        print("pageSizeCompat=%d is left from an earlier install of %s (the APK is 16 KB aligned); "
+              "installing again after an uninstall" % (flags, PACKAGE), flush=True)
+        emu.cmd("uninstall", PACKAGE, check=False)
+        emu.cmd("install", "--no-streaming", "-r", apk, timeout=600)
+        flags = page_size_compat(emu)
+        if flags & 6:
+            raise SystemExit("XLUA_IL2CPP_SUITE_FAIL: pageSizeCompat=%d after a new install of the 16 KB "
+                             "aligned %s" % (flags, apk))
+    print("pageSizeCompat=%d after the install" % flags, flush=True)
     # pm clear empties the app's data, external files included, as the system.
     emu.cmd("shell", "pm", "clear", PACKAGE, check=False)
     left = emu.cmd("shell", "ls", "-A", data, check=False).strip()
@@ -390,10 +454,16 @@ def run_apk(a, emu, config, apk):
     result = ""
     status = "timeout"
     try:
-        emu.cmd("shell", "am", "start", "-n", ACTIVITY)
+        # The launcher activity: UnityPlayerGameActivity in Unity 6, UnityPlayerActivity before.
+        resolved = emu.cmd("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE, check=False).split()
+        activity = resolved[-1] if resolved and resolved[-1].startswith(PACKAGE + "/") else ACTIVITY
+        emu.cmd("shell", "am", "start", "-n", activity)
         seen = False
+        dialogs = 0
         while time.time() - started < a.run_timeout:
             time.sleep(5)
+            if dialogs < 3 and "No such file" in emu.cmd("shell", "ls", files + "/" + LOG, check=False):
+                dialogs += dismiss_dialog(emu)
             result = emu.cmd("shell", "cat", files + "/" + RESULT, check=False)
             if "XLUA_SUITE_DONE" in result:
                 status = "done"

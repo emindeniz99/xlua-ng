@@ -32,6 +32,12 @@ Assets folder (Test/README.md); Unity gives those top-level folders their
    RELEASE_PLUGINS must be in it, and every plugin .meta of the package,
    the variants' included, must pass check 4 (a variant with the settings of
    its default plugin and the Editor off).
+6. A plugin source that defines functions the C# code imports from
+   "__Internal" (INTERNAL_SOURCES) is enabled in PLUGINS for exactly the
+   players whose UNITY_* symbols guard those imports: HotfixFlags.cpp for
+   the `#if (UNITY_IPHONE || UNITY_TVOS)` of DelegateBridge.cs. A player
+   that imports a function its build does not compile fails to link (tvOS
+   until 2026-10-29). The source must define each function.
 
 The file list comes from git (tracked files and untracked ones that are not
 ignored), so build output and local Unity files do not count; outside a git
@@ -64,7 +70,8 @@ ANDROID_CPU = {"arm64-v8a": "ARM64", "armeabi-v7a": "ARMv7", "x86": "X86", "x86_
 PLUGINS = {
     **{"Android/libs/%s/libxlua.so" % abi: ({"Android": cpu}, None) for abi, cpu in ANDROID_CPU.items()},
     "iOS/libxlua.a": ({"iOS": None}, None),
-    "iOS/HotfixFlags.cpp": ({"iOS": None}, None),
+    # Compiled into every player that imports its functions from "__Internal" (check 6).
+    "iOS/HotfixFlags.cpp": ({"iOS": None, "tvOS": None}, None),
     "WebGL/xlua_webgl.cpp": ({"WebGL": None}, None),
     **{"WSA/%s/xlua.dll" % d: ({"WindowsStoreApps": d}, None) for d in ("ARM", "ARM64", "x64", "x86")},
     # 32-bit players only: the Unity Editor is 64-bit, and its EditorPluginCPUArchitecture has no x86 (owner
@@ -294,6 +301,67 @@ def check_plugins(base, problems, label_prefix, variants=False):
     return count
 
 
+# Check 6: plugin sources (below Plugins/) that define functions C# imports from "__Internal", with the C# file
+# that imports them. The players that compile the source must be the players whose conditional compilation
+# symbols guard the imports.
+INTERNAL_SOURCES = {
+    "iOS/HotfixFlags.cpp": ("Assets/XLua/Src/DelegateBridge.cs", ["xlua_get_hotfix_flag", "xlua_set_hotfix_flag"]),
+}
+# The PluginImporter platform of a player's UNITY_* symbol.
+PLAYER_OF_SYMBOL = {"UNITY_IPHONE": "iOS", "UNITY_IOS": "iOS", "UNITY_TVOS": "tvOS", "UNITY_VISIONOS": "VisionOS",
+                    "UNITY_ANDROID": "Android", "UNITY_WEBGL": "WebGL", "UNITY_SWITCH": "Switch",
+                    "UNITY_WSA": "WindowsStoreApps"}
+
+
+def internal_import_players(text, function):
+    """The players (PLAYER_OF_SYMBOL) whose symbols the #if branches around the "__Internal" import of
+    function name, or None if there is no such import."""
+    stack = []  # (condition, in the #else part)
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        directive = line.strip()
+        if directive.startswith("#if "):
+            stack.append((directive[4:], False))
+        elif directive.startswith("#elif ") and stack:
+            stack[-1] = (directive[6:], False)
+        elif directive.startswith("#else") and stack:
+            stack[-1] = (stack[-1][0], True)
+        elif directive.startswith("#endif") and stack:
+            stack.pop()
+        elif re.search(r"\bextern\b.*\b%s\s*\(" % re.escape(function), line):
+            before = "\n".join(lines[max(0, i - 3):i + 1])
+            if 'DllImport("__Internal"' not in before:
+                continue
+            players = set()
+            for condition, in_else in stack:
+                if not in_else:
+                    players |= {PLAYER_OF_SYMBOL[s] for s in re.findall(r"(?<!!)\b(UNITY_[A-Z]+)\b", condition)
+                                if s in PLAYER_OF_SYMBOL}
+            return players
+    return None
+
+
+def check_internal_sources(problems):
+    """Check 6."""
+    for source, (cs_file, functions) in INTERNAL_SOURCES.items():
+        cs_text = (repo / cs_file).read_text(encoding="utf-8")
+        source_text = (repo / "Assets/Plugins" / source).read_text(encoding="utf-8")
+        compiled = set(PLUGINS[source][0])
+        for function in functions:
+            players = internal_import_players(cs_text, function)
+            if players is None:
+                problems.append("%s: no DllImport(\"__Internal\") of %s; update INTERNAL_SOURCES in "
+                                "Tools/check_meta.py" % (cs_file, function))
+                continue
+            if players != compiled:
+                problems.append("Plugins/%s is compiled for %s, but %s imports %s from __Internal for %s"
+                                % (source, ", ".join(sorted(compiled)), cs_file, function,
+                                   ", ".join(sorted(players)) or "no player"))
+            if not re.search(r"^\s*(?:extern \"C\" )?[\w ]+\b%s\s*\(" % re.escape(function), source_text, re.M):
+                problems.append("Plugins/%s does not define %s" % (source, function))
+    return len(INTERNAL_SOURCES)
+
+
 def release_plugins():
     sys.path.insert(0, str(repo / "Tools"))
     import make_upm_package
@@ -330,6 +398,7 @@ def main():
     problems = []
     metas = check_repository(problems)
     plugin_count = check_plugins(repo / "Assets/Plugins", problems, "Assets/Plugins/")
+    check_internal_sources(problems)
     for rel in release_plugins():
         if "/xlua-variants/" in "/" + rel:
             continue

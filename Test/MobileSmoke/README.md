@@ -63,9 +63,14 @@ keeps them under High stripping), a `[GCOptimize]` struct goes in and out,
 the `[CSharpCallLua]` delegate `SgTwice` is a static `__Gen_Delegate_Imp`
 method of the generated `Bridges` class in Assembly-CSharp closed over its
 `DelegateBridge`, and `Func<int, int>`, which nothing configures, gets that
-bridge by signature. A development player also logs the init-only setter's
-fallback warning once. Set `XLUA_SMOKE_STRIPPING=High` for the stripping
-check.
+bridge by signature. Where `xlua.private_accessible` exists (legacy, or
+`HOTFIX_ENABLE`), Lua also sets and reads the private field of the
+`[LuaCallCSharp]` type `SgPrivate` and calls its private method through it
+(`private_accessible` in the pass line); no C# code uses them, so under High
+stripping only the generator's `preserve="all"` for the type keeps them
+(owner decision Q75 of 2026-10-29). A development player also logs the
+init-only setter's fallback warning once. Set `XLUA_SMOKE_STRIPPING=High`
+for the stripping check.
 To check the feature defines, set `XLUA_SMOKE_DEFINES` (below) to them, for
 example `XLUA_NO_SIGNATURE_LOADER;XLUA_NO_TEMPLATE;XLUA_NO_UTIL;XLUA_NO_PROFILER`,
 and `XLUA_SMOKE_RELEASE=1` for a build without the Development flag.
@@ -156,8 +161,11 @@ above are unchanged (see "Player size" in `Test/README.md`).
 `+pbench` size variants (`PlayerBench.cs`, Lua -> C# call cost in the
 player, `XLUA_PBENCH` lines in the log) get one package per binding mode, so
 their APKs can be installed side by side and launched in turn
-([descriptor-wrappers.md](../../docs/research/descriptor-wrappers.md#call-cost-on-the-phone-and-the-emulator-2026-10-28));
-`XLUA_PBENCH_SUFFIX` (letters) appended to the package tells the players of
+([descriptor-wrappers.md](../../docs/research/descriptor-wrappers.md#call-cost-on-the-phone-and-the-emulator-2026-10-28)),
+and the `+vsbench` variants (`VsBench/VsBench.cs`, the cross-library bench of
+`vs_bench.py`) get `org.xluang.vs.plain`, `.gcm` or `.minimal`
+([benchmark-vs-puerts-zlua.md](../../docs/research/benchmark-vs-puerts-zlua.md)).
+`XLUA_PBENCH_SUFFIX` (letters) appended to a `+pbench` package tells the players of
 two trees apart, such as before and after a change. The `+pbench` APKs are
 profileable from the shell (`PbenchProfileable.cs` adds
 `<profileable android:shell="true"/>`, Android 10 and later), so the
@@ -222,6 +230,23 @@ failed intermittently on the AVD with an empty error message, and the
 non-streamed one (copy the APK, then install) did not. No script here runs
 `adb install`; whoever installs by hand or in a wrapper should pass the flag
 (or retry once with it).
+
+Android 16 shows "This app isn't 16 KB compatible" when a library of the APK
+has 4 KB aligned `PT_LOAD` segments (Unity 2021.3.45f2's own `libunity.so`,
+`libmain.so` and `libil2cpp.so`) or a stored library is not 16 KB aligned in the zip.
+`python3 check_apk_16k.py APK` runs the same check without a device and
+names the file. The device also **remembers** the result: it ORs the flags
+of every install of a package, so after a 2021.3 player of
+`org.xluang.smoke` (or of the suite's `org.xluang.suite`) was installed,
+`install -r` of an aligned 6000.x player still shows the dialog ("ELF
+alignment check failed") and runs in compatibility mode. `adb shell dumpsys
+package org.xluang.smoke | grep pageSizeCompat` shows it (4 for ELF, 2 for
+APK alignment, 0 for none); only an uninstall clears it. That is why the
+dialog came up for 6000.3.21f1 and 6000.6.4f1 players on 2026-10-29; their
+libraries were all aligned
+([android-16kb-dialog.md](../../docs/research/android-16kb-dialog.md)).
+`il2cpp_suite.py run` checks each APK with `check_apk_16k.py` and reinstalls
+after an uninstall when it finds such a stale flag.
 
 ## iOS Simulator
 
@@ -290,6 +315,60 @@ rebuilt sources. An Android ARM64 IL2CPP APK (Unity 6000.3.21f1, plugin
 built with NDK r30) ran on an Android 16 (API 36) emulator with 16 KB pages.
 A Unity 6000.6.4f1 WebGL player ran in headless Chrome 155. Unity compiled
 `xlua_webgl.cpp` with its Emscripten 4.0.20.
+
+### 2026-10-29: 16 KB pages, empty projects against xLua players
+
+Android 16's "This app isn't 16 KB compatible" dialog, traced in
+[android-16kb-dialog.md](../../docs/research/android-16kb-dialog.md).
+`size_report.py run --configs default --variants baseline,ng-5.5` with each
+editor (release ARM64 IL2CPP, Minimal stripping, package `org.xluang.smoke`,
+the Lua 5.5.1 plugin of 2026-10-28, sha256 `cb2109d0...`), then
+`check_apk_16k.py`, `zipalign -c -P 16 4` and an install after an uninstall
+on the `xlua16k` AVD:
+
+| Unity | Empty project | With xLua | Libraries below 16 KB | `pageSizeCompat`, dialog |
+| --- | ---: | ---: | --- | --- |
+| 2021.3.45f2 | 7,872,684 | 9,163,082 | `libil2cpp.so`, `libmain.so`, `libunity.so` (0x1000) in both | 4, "ELF alignment check failed" in both |
+| 2022.3.62f3 | 8,095,491 | 9,422,733 | none | 0, none |
+| 6000.3.21f1 | 12,279,060 | 13,748,214 | none | 0, none |
+| 6000.6.4f1 | 12,497,340 | 13,917,706 | none | 0, none |
+
+Every APK compresses its libraries (`extractNativeLibs=true`), and
+`zipalign` passed. `libxlua.so` was 0x4000 aligned in every APK. Installing
+the 6000.3.21f1 xLua APK and then the 6000.6.4f1 empty APK with `install
+-r` over the 2021.3.45f2 xLua APK kept `pageSizeCompat=4` and the dialog;
+an uninstall cleared both.
+
+### 2026-10-29: `xlua.private_accessible` under High stripping (owner decision Q75)
+
+The player proof of the generator's `preserve="all"` for `[LuaCallCSharp]`
+types in legacy ([source-generator.md](../../docs/design/source-generator.md#luacallcsharp-types-kept-whole-where-reflection-reaches-them-2026-10-29)).
+Two projects from `prepare.py --android-plugin ... --source-gen BUILD_DIR`:
+"before" from main at `fd4a43ce` with only the new `SgPrivate` check of
+`SgSmoke.cs`, "after" from the same commit with the generator change. Unity
+6000.3.21f1, Android ARM64 IL2CPP, release (`XLUA_SMOKE_RELEASE=1`), **High**
+stripping, legacy (`XLUA_SMOKE_DEFINES=XLUA_SMOKE_NONE` applied by
+`SmokeBuild.ApplyDefines` in a launch of its own), the Lua 5.5.1 arm64-v8a
+plugin of 2026-10-28 (NDK r30, sha256 `cb2109d0...`; no native change since),
+the `xlua16k` AVD (Android 16, API 36, 16 KB pages) booted headless,
+`adb install --no-streaming -r` and `pm clear`:
+
+| Build | Generator's link.xml (`link-sourcegen.xml`) | Stripped `Assembly-CSharp.dll` | APK | Result |
+| --- | --- | --- | ---: | --- |
+| before | `SgApi`: `<method name="Reflected"/>`; `SgInit`: `<property name="Locked"/>`; `SgReflected` `preserve="all"` | `SgPrivate` without `secret` and `Doubled` | 12,964,622 | `XLUA_NG_SMOKE_FAIL: ... private members of a [LuaCallCSharp] type through xlua.private_accessible (set,get,call): false,nil,[string "chunk"]:6: attempt to call a nil value (method 'Doubled')` |
+| after | `SgApi`, `SgInit`, `SgPrivate`, `SgReflected`, each `preserve="all"` | `SgPrivate` with both | 12,964,066 | `XLUA_NG_SMOKE_PASS: ... source generator (private_accessible, 8 generated types, ...)` |
+
+So before the change setting the stripped private field raised, reading it
+gave `nil`, and the private method was missing, with no error at build time.
+The checks before it (the `[DoNotGen]` method, the init-only setter, the
+`[ReflectionUse]` type) passed in both players. The first run of the
+"before" APK uninstalled the app first and never started its scene (the
+folder in `/sdcard/Android/data` that this README warns about); replacing
+the app in place, as `il2cpp_suite.py` does, fixed it.
+
+Not run: strict minimal and minimal with `HOTFIX_ENABLE` players (strict
+minimal has no `xlua.private_accessible`, and its link.xml is the "before"
+one), Minimal and Medium stripping, a phone, iOS, other Unity versions.
 
 ### 2026-10-28: the final verification round
 

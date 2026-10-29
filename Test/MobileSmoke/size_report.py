@@ -25,7 +25,7 @@ Variants:
   NAME+game    a game-sized configuration instead of the small one for +sg: SizeGameSgConfig.cs (every class
                and struct of UnityEngine.CoreModule and UnityEngine.UI, 264 types in 6000.3, as attributes); every
                +game project, baseline+game too, has com.unity.ugui, and the probe also times Lua calls into the
-               wrapped types (XLUA_SIZE_GAME)
+               wrapped types (XLUA_SIZE_GAME). ng-5.5+minimal+strict+game binds the same types in strict minimal
   NAME+linkall, NAME+linkpublic, NAME+linktype  one more link.xml (SizeLinkXml.cs, an IUnityLinkerProcessor in
                Assets/Editor) for every type Assembly-CSharp configures with [assembly: LuaCallCSharp] or
                [assembly: ReflectionUse]: preserve="all" (what the source generator writes for [ReflectionUse] and
@@ -33,7 +33,7 @@ Variants:
                (preserve="nothing"). Without +sg the [LuaCallCSharp] types of SizeGameSgConfig.cs (+game) or
                SizeSgConfig.cs become [ReflectionUse] types (SizeReflectionUseConfig.cs) and nothing is generated:
                a reflection-mode project whose types are kept by link.xml.
-               Every +sg and +link* player also gets the link.xml files UnityLinker read (link-*.xml)
+               Every +sg, +link* and +strict+game player also gets the link.xml files UnityLinker read (link-*.xml)
   NAME+noasmdef  without xLua's four asmdefs (XLua > Project Layout > Use Assembly-CSharp): xLua compiles into
                Assembly-CSharp, as before 2026-10-18 and as every +at-REF of an older commit; without it this
                checkout's tree has the asmdefs (XLua.Core, XLua and their Editor assemblies)
@@ -72,6 +72,13 @@ Variants:
                APK is profileable from the shell (PbenchProfileable.cs), and a launch with the string extra
                pbench_profile "CASE[,CASE...][;SECONDS]" runs only those cases, for simpleperf (2026-10-29;
                the project gets com.unity.modules.androidjni to read the extra)
+  NAME+vsbench  VsBench/VsBench.cs and VsBench/VsBenchXLua.cs in Assembly-CSharp, run by the probe
+               (XLUA_SIZE_VS_BENCH): the cross-library bench of vs_bench.py, a subset of zlua-benchmark's case list,
+               XLUA_VSBENCH lines in the log; one package per mode (org.xluang.vs.plain, .gcm, .minimal); needs +sg
+               or +minimal+strict (docs/research/benchmark-vs-puerts-zlua.md). With +sg it gets no SizeSgConfig.cs:
+               every xlua-ng bench player binds the bench's types and SizeProbeApi only, as the strict minimal one
+               does (until 2026-10-29 the legacy players also bound GameObject, Transform and Debug: 134 KB of APK and
+               74 KB of libunity.so, for types the bench does not use; build/SIZE.md)
   NAME+uwr     the probe also calls UnityWebRequest.Get once, like a project that uses it anyway;
                its deltas are against baseline+uwr
   NAME+at-REF  Assets/XLua/{Src,Resources,Editor} from commit REF instead of this checkout
@@ -126,6 +133,7 @@ here = Path(__file__).resolve().parent
 repo = here.parents[1]
 sys.path.insert(0, str(repo / "Test/Native"))
 import benchmark  # noqa: E402  (size_entry and player_entry)
+import check_apk_16k  # noqa: E402  (next to this file)
 
 # Variant flags for the C# feature defines (docs/MIGRATING.md, "Opt-in defines").
 CS_FEATURE_FLAGS = {"nosig": "XLUA_NO_SIGNATURE_LOADER", "notemplate": "XLUA_NO_TEMPLATE",
@@ -160,6 +168,9 @@ HOTFIX = ["baseline", "ng-5.5+pkg+sg", "ng-5.5+pkg+sg+hotfix", "ng-5.5+pkg+sg+hf
           "ng-5.5+pkg+sg+hftargets+hotfix+intkey", "ng-5.5+pkg+sg+hfbench", "ng-5.5+pkg+sg+hfbench+hotfix"]
 # The player bench in the plain and GCM modes of the source generator (run with --configs pbench).
 PBENCH = ["ng-5.5+pkg+sg+pbench", "ng-5.5+pkg+sg+gcm+pbench"]
+# The cross-library bench (vs_bench.py; run with --configs vsbench): legacy with plain and GCM wrappers, strict
+# minimal, and the empty project as the size reference.
+VSBENCH = ["baseline", "ng-5.5+pkg+sg+vsbench", "ng-5.5+pkg+sg+gcm+vsbench", "ng-5.5+minimal+strict+vsbench"]
 CASES = {
     "android": [("default", {}, ANDROID_ALL + ["upstream+gen", "ng-5.5+pkg+sg", "ng-5.5+nosa",
                                                "baseline+uwr", "ng-5.5+uwr", "ng-5.5+nosa+uwr"]),
@@ -168,6 +179,7 @@ CASES = {
                  ["baseline", "upstream", "ng-5.5"]),
                 ("aab", {"XLUA_SMOKE_STRIPPING": "Minimal", "XLUA_SMOKE_AAB": "1"}, ["baseline", "upstream", "ng-5.5"]),
                 ("pbench", {"XLUA_SMOKE_STRIPPING": "Minimal"}, PBENCH),
+                ("vsbench", {"XLUA_SMOKE_STRIPPING": "Minimal"}, VSBENCH),
                 # Which of two prebuilt plugins a build includes (run with --configs select-...).
                 ("select-none", {"XLUA_SMOKE_DEFINES": "XLUA_SPIKE_NONE"}, ["baseline+select", "baseline+constraints"]),
                 ("select-define", {"XLUA_SMOKE_DEFINES": "XLUA_FULL_PLUGIN"}, ["baseline+select", "baseline+constraints"]),
@@ -410,7 +422,8 @@ def prepare(a, work, platform, variant, project):
         [define for flag, define in LINK_FLAGS.items() if flag in flags] + \
         (["XLUA_ANDROID_SOURCE_PLUGIN"] if srcplugin and platform == "android" and "forceinternal" not in flags else []) + \
         (["HOTFIX_ENABLE"] if "hotfix" in flags else []) + (["XLUA_SIZE_HOTFIX_INTKEY"] if "intkey" in flags else []) + \
-        (["XLUA_SIZE_HOTFIX_BENCH"] if "hfbench" in flags else []) + (["XLUA_SIZE_PLAYER_BENCH"] if "pbench" in flags else [])
+        (["XLUA_SIZE_HOTFIX_BENCH"] if "hfbench" in flags else []) + (["XLUA_SIZE_PLAYER_BENCH"] if "pbench" in flags else []) + \
+        (["XLUA_SIZE_VS_BENCH"] if "vsbench" in flags else [])
     (assets / "csc.rsp").write_text("-unsafe\n" + "".join("-define:%s\n" % d for d in defines))
     probe = "AllocProbe.cs" if "alloc" in flags else "SizeProbeCore.cs" if kind == "core" else "SizeProbe.cs"
     shutil.copy2(here / probe, assets / "XluaSmoke.cs")
@@ -422,9 +435,13 @@ def prepare(a, work, platform, variant, project):
     link = [f for f in flags if f in LINK_FLAGS]
     if len(link) > 1 or link and name == "baseline":
         sys.exit("one of +%s, with xLua: %s" % (", +".join(LINK_FLAGS), variant))
-    if sg or link:
+    # +minimal+strict+game: the game configuration in strict minimal, bound by the generator that +strict installs.
+    strict_game = strict and game
+    if sg or link or strict_game:
         config = "SizeGameSgConfig.cs" if game else "SizeSgConfig.cs"
-        if sg:
+        if sg and "vsbench" in flags:
+            pass  # the bench binds its own types (VsBenchXLua.cs) and SizeProbeApi (SizeProbe.cs), nothing else
+        elif sg or strict_game:
             shutil.copy2(here / config, assets / config)
         else:
             # Without the generator its [LuaCallCSharp] types as [ReflectionUse] (link.xml only), and none of
@@ -444,6 +461,11 @@ def prepare(a, work, platform, variant, project):
             sys.exit("+pbench needs +sg: " + variant)
         shutil.copy2(here / "PlayerBench.cs", assets / "PlayerBench.cs")
         shutil.copy2(here / "PbenchProfileable.cs", assets / "Editor/PbenchProfileable.cs")
+    if "vsbench" in flags:
+        if not (sg or strict):
+            sys.exit("+vsbench needs +sg or +minimal+strict: " + variant)
+        for n in ["VsBench.cs", "VsBenchXLua.cs"]:
+            shutil.copy2(here / "VsBench" / n, assets / n)
     if "hfbench" in flags:
         shutil.copy2(repo / "Test/Native/HotfixBench.cs", assets / "HotfixBench.cs")
         if platform == "android":
@@ -685,6 +707,8 @@ def run(a):
                     # XLUA_PBENCH_SUFFIX (letters) tells the players of two trees apart, such as before and after a change.
                     benv["XLUA_SMOKE_APP_ID"] = "org.xluang.pbench." + ("gcm" if "gcm" in flags else "plain") \
                         + os.environ.get("XLUA_PBENCH_SUFFIX", "")
+                if "vsbench" in flags:
+                    benv["XLUA_SMOKE_APP_ID"] = "org.xluang.vs." + ("minimal" if "minimal" in flags else "gcm" if "gcm" in flags else "plain")
                 if "gsize" in flags:
                     benv["XLUA_SMOKE_IL2CPP_CODEGEN"] = "OptimizeSize"
                 if "sim" in flags:
@@ -696,8 +720,11 @@ def run(a):
                 if il2cpp_flags:
                     benv["XLUA_SMOKE_IL2CPP_ARGS"] = '--compiler-flags="%s"' % " ".join(il2cpp_flags)
                 log = out / "unity.log"
-                if kind in CORE_PLUGIN_VARIANT:
+                if kind in CORE_PLUGIN_VARIANT or "minimal" in flags:
                     # The defines in a launch of their own, so the build launch compiles with them from the start.
+                    # The minimal preset's too: the generator's link.xml comes from the Editor's assemblies
+                    # (SourceGenChecks.MergedLinkXml), which a launch compiles before SmokeBuild sets the defines,
+                    # so without this launch +minimal+strict got the legacy preset's link.xml (until 2026-10-29).
                     unity(a, platform, project, "SmokeBuild.ApplyDefines", out / "defines.log", benv)
                 unity(a, platform, project, UNITY_TARGET[platform][1], log, benv)
                 seconds = a.tool_seconds
@@ -798,6 +825,11 @@ def measure_player(player_dir):
     entry.update(info)
     if zipfile.is_zipfile(path) if path.is_file() else False:
         entry["components"] = zip_components(path)
+        # What would put the player in Android 16's page size compat mode (check_apk_16k.py).
+        _, problems, notes = check_apk_16k.check(path, unity_libs_ok=True)
+        entry["page_16k"] = {"problems": problems, "notes": notes}
+        for line in problems:
+            print("XLUA_APK_16K_FAIL: %s: %s" % (path, line))
         with zipfile.ZipFile(path) as z:
             # Which xlua library the build packed: the minimal preset's has no io library and no LuaSocket.
             for n in z.namelist():

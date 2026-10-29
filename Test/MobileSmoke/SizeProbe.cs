@@ -8,8 +8,11 @@
 // XLUA_HOTFIX_BENCH lines: ns per call of unpatched and patched hotfix methods, entry checks and the lock.
 // With XLUA_SIZE_PLAYER_BENCH (the +pbench variants) it also starts PlayerBench.Run() as a coroutine, which
 // logs XLUA_PBENCH lines: ns per call of the Lua -> C# cases of Test/Native/Benchmark.cs in the player.
+// With XLUA_SIZE_VS_BENCH (the +vsbench variants) it starts the cross-library bench (VsBench/VsBench.cs) with the
+// xlua-ng adapter, which logs XLUA_VSBENCH lines (vs_bench.py, docs/research/benchmark-vs-puerts-zlua.md).
 // With XLUA_SIZE_STRICT (ng-5.5+minimal+strict) the source generator binds SizeProbeApi, so the minimal
-// preset's player, which has no reflection fallback, runs the probe.
+// preset's player, which has no reflection fallback, runs the probe. The +vsbench variants bind it the same
+// way instead of SizeSgConfig.cs, so their legacy and minimal players bind the same types.
 // With XLUA_SIZE_MIXED (mixed-5.5) it also runs SizeProbeCore.Run(), LuaScript in the same player.
 // With XLUA_SIZE_GAME (the +game variants) it also times Lua calls into wrapped UnityEngine types
 // (XLUA_SIZE_TIMING lines: median ns per call of five runs, the Lua loop included), so players built
@@ -25,7 +28,7 @@ using System.Diagnostics;
 using Debug = UnityEngine.Debug;
 #endif
 
-#if XLUA_SIZE_STRICT
+#if XLUA_SIZE_STRICT || XLUA_SIZE_VS_BENCH && !XLUA_SIZE_BASELINE
 [assembly: LuaCallCSharp(typeof(SizeProbeApi))]
 #endif
 
@@ -118,6 +121,9 @@ return {
   Debug.Log(Run());
 #if XLUA_SIZE_PLAYER_BENCH
   StartCoroutine(XLuaBench.PlayerBench.Run());
+#endif
+#if XLUA_SIZE_VS_BENCH
+  StartCoroutine(VsBench.Runner.Run(() => new VsBench.XLuaAdapter(), "xlua-ng", VsBench.XLuaAdapter.Mode()));
 #endif
  }
 }

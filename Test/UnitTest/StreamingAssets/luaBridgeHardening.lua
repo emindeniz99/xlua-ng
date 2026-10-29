@@ -396,7 +396,7 @@ function CMyTestCaseBridgeHardening.CaseRestrictPrivateAccess(self)
     if not restricted then
         ASSERT_EQ(secret(), 42)
     end
-    ASSERT_EQ(xlua.get_generic_method(P, "Echo")(CS.System.Int32)(7), 7)
+    ASSERT_VALUE_TYPE_GENERIC(7, xlua.get_generic_method(P, "Echo")(CS.System.Int32), 7)
     ASSERT_EQ(xlua.get_generic_method(P, "Hidden") == nil, restricted)
     -- Limit (bridge-audit.md item 12): reflection still reaches private members
     -- in both states, through typeof or any object's GetType, until a type

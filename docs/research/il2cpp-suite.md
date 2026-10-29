@@ -90,7 +90,9 @@ same in both. The first strict run gave 506/522. None was a bridge bug:
    2021.3 predates full generic sharing [S] and could throw
    `ExecutionEngineException` for an instance IL2CPP did not compile [U]. Kept as upstream does, the case now
    expects the error in IL2CPP players (`LuaTestCommon.Il2Cpp()`); owner
-   question below.
+   question below. (2026-10-29: the guard is gone, and the case expects
+   the result everywhere; see
+   [Generic methods in IL2CPP reflection wrappers](#generic-methods-in-il2cpp-reflection-wrappers-2026-10-29).)
 
 4. **[BlackList] lists and filters in players** [C]. `CaseBlackListFilterReflected`
    expected the filter of a static class to hide members, but players read
@@ -166,6 +168,90 @@ Unity secrets yet, and the owner starts costly workflows. An X86_64 strict
 APK was built locally with the same commands (`--arch x86_64`); this Mac
 cannot run an x86_64 emulator.
 
+## Generic methods in IL2CPP reflection wrappers (2026-10-29)
+
+The coordinator's brief of 2026-10-29 (Q78): remove the `#if
+!ENABLE_IL2CPP` guard of owner question 1, test it in Android IL2CPP
+release players of several Unity versions, including an instance IL2CPP
+may lack code for, and keep the guard only where that crashes.
+
+**What reflection closes.** `OverloadSignature.Prepare`
+(`MethodWarpsCache.cs:178`) closes a generic method definition with
+`tryMakeGenericMethod`, which takes each type parameter's first
+constraint; `Utils.IsSupportedMethod` (`Utils.cs:2577`) accepts only
+methods whose generic parameters all have class constraints (not
+`ValueType`, not interfaces) and appear among the parameters. So the
+instance is always over classes, and IL2CPP runs it on its shared code for
+reference types. Value-type instances come only from
+`xlua.get_generic_method`, which the guard never covered. **[C]** by reading.
+
+**Players** (Android ARM64, IL2CPP release, Minimal stripping, code
+generation OptimizeSpeed, compiler configuration Release; the plain
+configuration of `il2cpp_suite.py`; Lua 5.5.1 from the tree, NDK r30; the
+`xlua16k` AVD, Android 16, 16 KB pages). Two rounds: the guard removed with
+the old test expectation and a probe (below), then the final code and
+tests, again with the probe. **[C]**
+
+| Unity | Suite, final code | `Constrained<Ref>` through reflection | `xlua.get_generic_method` with a value type (`Echo<int>`, `<long>`, `<Point>`, `<Guid>`, `Pair<int, string>`) | APK (bytes) |
+|---|---|---|---|---:|
+| 2021.3.45f2 | 523/523 in both modes, 0 differences from Mono | works | catchable `ExecutionEngineException`: "Attempting to call method 'Coverage.Generics::Echo<System.Int32>' for which no ahead of time (AOT) code was generated" | 10,967,246 |
+| 2022.3.62f3 | 523/523, 0 differences | works | works (full generic sharing) | 11,133,633 |
+| 6000.3.21f1 | 523/523, 0 differences | works | works | 15,450,910 |
+| 6000.6.4f1 | 523/523, 0 differences | works | works | 15,733,974 |
+
+"0 differences" compares every case with `run_managed.py --source-gen` of
+the same tree on the host (`il2cpp_suite.py check --host-log`). 6000.6.6f1,
+which the brief named, has no Android Build Support on this machine, so
+6000.6.4f1 stood in for the 6000.6 line. In the first round (the old
+expectation) the guard's removal was the only cause of
+`CaseConstrainedGenericMethod` failing ("expected: false, actual: true") on
+2021.3 and 2022.3; 2021.3 also failed `CaseGetGenericMethod`,
+`CaseGetGenericMethodIndex` and `CaseRestrictPrivateAccess`, the value-type
+instances above, which the guard does not touch.
+
+**The probe** (project copies only, not committed: a block at the top of
+`main.lua` that `pcall`s each call and prints the outcome, and a method
+`ConstrainedUsed<T>` that C# calls once with another class): in 2021.3 the
+reflection wrapper ran `Constrained<Ref>`, which no C# code calls, as well
+as `ConstrainedUsed<Ref>`, so IL2CPP 2021.3 keeps the shared body of a
+generic method that is never instantiated with a class; every value-type
+instance failed with the exception above, `pcall` caught it, and the probe
+went on ("after the probes: ok"). No crash and no hang in any version.
+**[C]**
+
+**Decision.** The guard is removed for every Unity version, with no version
+check: the reflected call works in all four versions, and the only failure
+mode seen, a missing instance, is a catchable exception with a clear
+message (the same one `xlua.get_generic_method` already gave). The suite
+now expects `Constrained` to work everywhere, and `ASSERT_VALUE_TYPE_GENERIC`
+(`luaunit_compat.lua`) expects the exception for the value-type calls in
+IL2CPP players before Unity 2022.1
+(`LuaTestCommon.Il2CppNoFullGenericSharing`, `ENABLE_IL2CPP &&
+!UNITY_2022_1_OR_NEWER`; full generic sharing arrived in 2022.1 [S], and
+only 2021.3 and 2022.3 were run). `CaseGetGenericMethodIndex` uses `string`
+instead of `int`. MIGRATING.md has the row.
+
+**Harness changes** needed to run the other versions: `XluaSuiteBuild.cs`
+reads the code generation setting from `EditorUserBuildSettings` before
+2022.1; `il2cpp_suite.py run` resolves the launcher activity
+(`UnityPlayerActivity` before Unity 6) and presses the positive button of
+Android 16's page-size dialog ("This app isn't 16 KB compatible ... page
+size compatible mode"), which took the focus so that the 2021.3 player
+never loaded its scene; and `prepare` writes the `UnityEngine.ContentLoadModule`
+link.xml for 6000.6 and later, without which the 6000.6.4f1 player crashed
+at start (SIGSEGV in `libil2cpp.so` called from `libunity.so`, before the
+scene), as the WebGL smoke player did. The dialog also came up for the
+6000.3 and 6000.6 APKs, whose libraries all have 16 KB `LOAD` alignment
+(`llvm-readelf`). Its cause there (traced the same day, [C]): Android 16
+keeps the page size compat flag of the earlier 2021.3 install of
+`org.xluang.suite` through every `install -r`
+([android-16kb-dialog.md](android-16kb-dialog.md)); `run` now reinstalls
+after an uninstall when it finds such a stale flag.
+
+Not run: the gcm and strict configurations on these versions, 6000.0,
+6000.6.6f1, a phone, iOS, High stripping, Development players, other Lua
+versions.
+
 ## Questions for the owner
 
 1. **Generic methods in IL2CPP reflection wrappers.** Remove the
@@ -175,7 +261,22 @@ cannot run an x86_64 emulator.
    is untested and may throw where IL2CPP has no code for the
    instantiation. Cost: none measured in size; a 2021.3 player run to
    check. Today players silently lose such methods ("invalid arguments").
+
+   **Done 2026-10-29 (coordinator's brief Q78, under the owner's 'do what
+   is best'): removed in every Unity version, no version check.** It works
+   in all four tested versions, and where a player has no code for an
+   instance the call raises a catchable `ExecutionEngineException`; no
+   crash was seen
+   ([below](#generic-methods-in-il2cpp-reflection-wrappers-2026-10-29)).
 2. **Silent nil for stripped members.** A stripped constant or method of a
    reflected type reads as nil. Should the reflection path warn once in
    Development builds when a type's member list looks stripped? (No cheap
    way to detect it is known [U].)
+
+   **Coordinator's decision under the owner's 'do what is best',
+   2026-10-29: document it prominently, no warning.** The FAQ entry on
+   "attempt to call a nil value" is now "Why is a C# member nil in an
+   IL2CPP player when the Editor has it?", and Configure_EN.md has a note
+   in the `LuaCallCSharp` section: a stripped member of a reflected type
+   reads as nil with no error, and `[ReflectionUse]` (or `LuaCallCSharp`,
+   `link.xml`, `[Preserve]`) keeps it.

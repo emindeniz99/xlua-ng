@@ -102,10 +102,16 @@ public static class XluaSuiteBuild
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         new GameObject("XluaSuiteRunner").AddComponent<XluaSuiteRunner>();
         EditorSceneManager.SaveScene(scene, "Assets/XluaSuite.unity");
+#if UNITY_2022_1_OR_NEWER
+        var codeGen = PlayerSettings.GetIl2CppCodeGeneration(Android);
+#else
+        // 2021.3 keeps the setting in the build settings, as SmokeBuild.cs reads it.
+        var codeGen = EditorUserBuildSettings.il2CppCodeGeneration;
+#endif
         Debug.Log("XLUA_SUITE_BUILD_SETTINGS: unity=" + Application.unityVersion
             + " stripping=" + PlayerSettings.GetManagedStrippingLevel(Android)
             + " android=" + PlayerSettings.Android.targetArchitectures
-            + " il2cppCodeGen=" + PlayerSettings.GetIl2CppCodeGeneration(Android)
+            + " il2cppCodeGen=" + codeGen
             + " il2cppConfig=" + PlayerSettings.GetIl2CppCompilerConfiguration(Android)
             + " defines=" + PlayerSettings.GetScriptingDefineSymbols(Android));
         var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions

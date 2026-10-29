@@ -12,10 +12,19 @@
    - rules: the obfuz rule file, as obfuz 4.0.0 applies it;
    - attributes: only [Obfuscation(Exclude = true)], as Obfuscar, ConfuserEx
      and other attribute-driven tools do.
-5. Runs the plain and both renamed builds on Mono. Every check must pass,
+5. Checks that the renaming with the rules kept every type and member name
+   that the generator's link.xml fragment uses: UnityLinker reads that file
+   after obfuz renamed the assemblies, and it names them by their original
+   names.
+6. Runs the plain and both renamed builds on Mono. Every check must pass,
    except those expected to fail: a type without configuration (not in the
    name table) after any renaming, and, without the rules, what Lua reaches
    by name through reflection.
+
+Run it for the legacy preset (the default) and with --define
+XLUA_PRESET_MINIMAL --define XLUA_REFLECTION: legacy keeps the [LuaCallCSharp]
+types whole in link.xml, so the rules keep their names, and only the minimal
+run renames them (the name table checks).
 
 Usage: python3 Test/Native/obfuscation_check.py --plugin <libxlua> --output <dir>
 """
@@ -119,7 +128,8 @@ rules = out / "xlua-ng-rules.xml"
 run([a.mono, plain / rules_tool.name, rules, fixture], cwd=plain)
 text = rules.read_text()
 for expected in ['<assembly name="ObfuscationFixture">', '<type name="Game.Reflected" obName="0" applyToMembers="*" />',
-                 '<method name="Secret" obName="0" />', '<property name="X" obName="0" />', '<type name="Game.Big">',
+                 '<method name="Secret" obName="0" />', '<property name="X" obName="0" />', '<type name="Game.Big"',
+                 '<field name="*" obName="0" />',
                  '<type name="XLua.*" obName="0" applyToMembers="*" />']:
     if expected not in text:
         raise SystemExit("the rule file lacks " + expected)
@@ -127,6 +137,38 @@ for expected in ['<assembly name="ObfuscationFixture">', '<type name="Game.Refle
 renamer = tools / "ObfuscationRenamer.exe"
 run([a.compiler, "-r:" + str(cecil), "-r:System.Xml.dll", "-r:System.Core.dll", "-out:" + str(renamer),
      repo / "Test/Native/ObfuscationRenamer.cs"])
+
+
+def check_link_xml_names(mapping):
+    """Every type and member of the fixture that link.xml names kept its name."""
+    files = list(generated.rglob("XLua.LinkXml.g.cs"))
+    if len(files) != 1:
+        raise SystemExit("expected one XLua.LinkXml.g.cs, found %d" % len(files))
+    text = files[0].read_text()
+    start = text.index('Xml = @"') + len('Xml = @"')
+    linker = ET.fromstring(text[start:text.index('";', start)].replace('""', '"'))
+    renamed = set()
+    for line in mapping.read_text().splitlines():
+        kind, _, rest = line.partition(" ")
+        renamed.add((kind, rest.split(" -> ")[0]))
+    named, problems = 0, []
+    for assembly in linker.findall("assembly"):
+        if assembly.get("fullname") != fixture.stem:
+            continue
+        for t in assembly.findall("type"):
+            name = t.get("fullname")
+            named += 1
+            if ("type", name) in renamed:
+                problems.append("type " + name)
+            for m in t:
+                if (m.tag, name + "::" + m.get("name")) in renamed:
+                    problems.append(m.tag + " " + name + "::" + m.get("name"))
+    if named == 0:
+        raise SystemExit("link.xml names no type of " + fixture.stem)
+    if problems:
+        raise SystemExit("the obfuz rules renamed what link.xml names by its original name: " + ", ".join(problems))
+    print("link.xml: the %d types of %s it names kept their names and named members" % (named, fixture.stem))
+
 
 env = dict(os.environ)
 for mode, extra in [("plain", None), ("rules", ["--rules", rules]), ("attributes", ["--attributes"])]:
@@ -141,6 +183,8 @@ for mode, extra in [("plain", None), ("rules", ["--rules", rules]), ("attributes
     run_env = dict(env)
     for key in ["LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"]:
         run_env[key] = str(folder) + os.pathsep + env.get(key, "")
+    if mode == "rules":
+        check_link_xml_names(folder / "mapping.txt")
     log = run([a.mono, folder / fixture.name, mode] + EXPECTED_FAILURES[mode], timeout=a.timeout, cwd=folder, env=run_env)
     (out / ("fixture-" + mode + ".log")).write_text(log)
     if "XLUA_OBFUSCATION_FIXTURE_PASS" not in log:

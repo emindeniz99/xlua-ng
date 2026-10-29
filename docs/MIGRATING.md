@@ -103,6 +103,9 @@ how existing code behaves. Every behaviour change is added here when it lands.
 | A Lua table converted to a packable `[GCOptimize]` struct through `LuaTable.Cast<T>`, `LuaFunction.Cast<T>`, `ObjectTranslator.GetObject`, or as an element of an array, `List<T>` or `Dictionary<K, V>` or a field of a class filled from a table, with generated bindings | Filled the struct's public fields by reflection, so its `[AdditionalProperties]` properties stayed at their defaults, while a parameter of a generated wrapper and `LuaTable.Get<T>` used the generated reader and set them | Every path uses the generated reader, in every preset (owner decision of 2026-10-28), so the properties are set everywhere, as for a parameter. Without generated bindings (no source generator, or before it ran) the fields are still filled by reflection | `fix(runtime): read packable GCOptimize structs through the generated reader everywhere` |
 | LuaJIT: an `xlua.sethook` profiler function (`perf.profiler` included) that raises an error at the return of a C# function | The profiler's hook was turned off while the function ran and not set again after its error, so the profiler saw no further event until `xlua.sethook` was called again | The hook is set again before the error goes on, so the profiler keeps working, as on Lua 5.3 to 5.5, where it always did. The error reaches the caller with the same value; a message handler (`xpcall`, LuaEnv's traceback) now runs where the error goes on, at the C# function's return, so the traceback no longer shows the profiler function's own frames | `fix(native): keep the LuaJIT profiler hook after the profiler function raises` |
 | Lua 5.4: `LuaDLL.Lua.lua_gc` with operation 10 (`LUA_GCGEN`) or 11 (`LUA_GCINC`), values that `LuaGCOptions` does not name | Lua 5.4's `lua_gc` reads two or three parameters for these operations and got one; the others were whatever the registers or stack held, so the generational major multiplier or the incremental step multiplier and step size were set to undefined values | The parameters C# cannot pass are 0, which Lua 5.4 reads as "leave unchanged"; the mode switch and the first parameter work as before. Found by CodeQL (`cpp/unterminated-variadic-call`, docs/research/codeql-extended.md). Lua 5.3, 5.5 and LuaJIT are unchanged | `fix(native): pass zeros for the lua_gc parameters C# cannot give on Lua 5.4` |
+| A generic method whose type parameters all have a class constraint, called through a reflection wrapper in an IL2CPP player: a type without generated code, a `[ReflectionUse]` type, the members `xlua.private_accessible` adds | Left out of the wrapper (upstream: "il2cpp does not support reflective calls of generic methods"), so the call raised `invalid arguments to T.M` in players while it worked in the Editor and on Mono; an overload set that has such a method could pick another overload in players | Closed over its constraints, as in the Editor and on Mono, in every IL2CPP player. The type arguments are classes, which run on IL2CPP's shared code for reference types; Unity 2021.3.45f2, 2022.3.62f3, 6000.3.21f1 and 6000.6.4f1 kept that code also for a method no C# code calls (Android ARM64 release players). Where a player has no code for an instance, the call raises a catchable `ExecutionEngineException` ("no ahead of time (AOT) code"), as `xlua.get_generic_method` with a value type does in 2021.3 | `fix(runtime): close constrained generic methods in IL2CPP reflection wrappers` |
+| IntKey hotfix ids of the process-wide list (`HotfixDelegateBridge.Set`; xLua's own assembly without generated `HotfixBridges`, `Inline` types) set from several threads, and on iOS read while a patch is installed (`Assets/Plugins/iOS/HotfixFlags.cpp`) | `Set` grew the list without a lock: two threads could each publish a copy without the other's id, or store past the end of a list another thread had just replaced (`IndexOutOfRangeException`). The iOS flags grew with `realloc` while other threads read them, so an injected method could read freed memory, and two writers could corrupt the heap | `Set` takes a lock and sets the iOS flag inside it; the iOS flags are written under a lock and published with release and acquire ordering, and an array is never freed while a reader may hold it (`hotfix_check.py` steps 7 and 8, `Test/Native/hotfix_flags_race.py` under ThreadSanitizer) | `fix(hotfix): make the process-wide IntKey list and the iOS flags thread-safe` |
+| tvOS players (`UNITY_TVOS`; xlua-ng ships no tvOS `libxlua.a`, so the project builds one, e.g. with `build/cmake/ios.toolchain.cmake` and `PLATFORM=TVOS`) | `HotfixDelegateBridge` imports `xlua_get_hotfix_flag` and `xlua_set_hotfix_flag` from `__Internal` on iOS and tvOS, but `Plugins/iOS/HotfixFlags.cpp`, which defines them, was compiled for iOS only. Every tvOS IL2CPP player failed to link ("Undefined symbols for architecture arm64: _xlua_get_hotfix_flag, _xlua_set_hotfix_flag"), with or without `HOTFIX_ENABLE` | `HotfixFlags.cpp` is compiled for tvOS as well; `Tools/check_meta.py` fails when the file's platforms differ from the platforms that import its functions. A project with its own copy of `HotfixFlags.cpp.meta` enables tvOS there | `fix(hotfix): compile HotfixFlags.cpp for tvOS players` |
 
 ## Opt-in defines (no change unless defined)
 
@@ -299,6 +302,12 @@ alike:
 - **`[ReflectionUse]`** keeps only its meaning for the linker (link.xml); it
   does not make its type reachable without bindings (owner decision,
   2026-10-28). `XLUA_REFLECTION` is the opt-in, for the whole project.
+- **link.xml keeps only what the bindings call** of a `[LuaCallCSharp]` type
+  (and its `DoNotGen` and fallback members), unless `HOTFIX_ENABLE` is defined;
+  legacy, and minimal with `HOTFIX_ENABLE`, keep every such type whole, as
+  upstream did (owner decision Q75 of 2026-10-29; "Stripping (M5)" under
+  [Source generator](#source-generator-preview)). Members your own C#
+  reaches by reflection on a bound type need `[ReflectionUse]` for it.
 - **To keep reflection**, define `XLUA_REFLECTION` next to
   `XLUA_PRESET_MINIMAL`. A project without the source generator needs it, since
   nothing is bound there. **XLua > Validate Setup** warns when the preset is on
@@ -1373,17 +1382,33 @@ pushers (M4):
   lists what Lua reaches by reflection: `[ReflectionUse]` types with
   `preserve="all"`, as the legacy `LinkXmlGen`, and the `DoNotGen` and fallback
   members of wrapped types. A player build passes them to UnityLinker as one
-  file (`Temp/XLuaSourceGen/link.xml`). Wrapped members need no entry. The
-  legacy `link.xml` kept every member of every `[LuaCallCSharp]` type, so
-  under stripping a bound type now loses the members only reflection reaches:
-  non-public members used through `xlua.private_accessible`, `xlua.access` or
+  file (`Temp/XLuaSourceGen/link.xml`). What it keeps of a `[LuaCallCSharp]`
+  type depends on the preset (owner decision Q75 of 2026-10-29):
+
+  | Build | `[LuaCallCSharp]` types in link.xml |
+  |---|---|
+  | `legacy` (the default), with or without `HOTFIX_ENABLE` | `preserve="all"` for every type, as upstream's `link.xml` (since 2026-10-29) |
+  | `minimal` with `HOTFIX_ENABLE` | `preserve="all"` for every type (since 2026-10-29) |
+  | `minimal` without `HOTFIX_ENABLE` (strict, and with `XLUA_REFLECTION`) | Only the `DoNotGen` and fallback members; wrapped members are kept by the code that calls them |
+
+  From M5 (2026-10-18) to 2026-10-29 every preset kept only the wrapped
+  members, so in a legacy IL2CPP release player a member that only
+  reflection reaches could be stripped and read as `nil`: non-public members
+  used through `xlua.private_accessible`, `xlua.access` or
   `xlua.get_generic_method`, and members your own C# reflects on. Engine types
-  lose them with Minimal stripping too, your own types with Medium or High.
-  To keep such a type whole as before, add `[ReflectionUse]` for it too
-  (`[assembly: ReflectionUse(typeof(T))]`), which writes `preserve="all"`. On
-  the game-sized configuration of `build/SIZE.md`, not keeping the 264 wrapped
-  types whole saves 263 KB of APK with Minimal stripping and 331 KB with High
-  ([SIZE.md](../build/SIZE.md#what-linkxml-preservation-costs-2026-10-28)).
+  lose them with Minimal stripping, your own types with Medium or High.
+  Legacy keeps them again, at a cost of 264 KB of APK with Minimal
+  stripping for the 264 wrapped engine types of the game-sized configuration
+  in `build/SIZE.md`
+  ([SIZE.md](../build/SIZE.md#legacy-keeps-luacallcsharp-types-whole-2026-10-29)).
+  The minimal preset without `HOTFIX_ENABLE` has no `xlua.private_accessible`
+  or `xlua.access`, and its reflection APIs take public methods only, so Lua
+  reaches no member of a bound type that the bindings leave out; it keeps the
+  narrow entries. `XLUA_REFLECTION` does not change that: its fallback wraps
+  only types without generated bindings. If your own C# reflects on members
+  of a bound type there, add `[ReflectionUse]` for it too
+  (`[assembly: ReflectionUse(typeof(T))]`), which writes `preserve="all"` for
+  that type in every preset.
 - **When the generator did not run** (for example warning CS9057, a compiler
   older than it needs): after each domain reload the Editor logs an error for
   every assembly with xLua configuration and no generated bindings, an IL2CPP
@@ -1548,13 +1573,23 @@ and [obfuscators.md](research/obfuscators.md).
   `HOTFIX_ENABLE`, the `__Hotfix` fields. With `HOTFIX_ENABLE` a build also
   warns when obfuz runs before the injector (keep obfuz's default order,
   10000).
+- **obfuz and the types link.xml keeps whole (2026-10-29):** the rule file
+  also keeps the names of the `[LuaCallCSharp]` types that the generated
+  link.xml keeps whole (legacy, and minimal with `HOTFIX_ENABLE`), but not
+  their members' names. Before, obfuz renamed those types. The generated
+  link.xml reaches UnityLinker after obfuz ran and names types by their
+  original names, so its `preserve="all"` entries named types that no
+  longer existed, and the members that only reflection reaches were
+  stripped anyway. With obfuz, a legacy project now renames none of its
+  `[LuaCallCSharp]` types; their members are still renamed.
 - **Still reached by the current name** (keep these names, with the
   obfuscator's own exclusions, or configure the type):
   - types without any configuration attribute: add `[ReflectionUse]` (or
     another configuration attribute) to put them into the table;
   - members Lua reaches through reflection: members of unconfigured or
     `[ReflectionUse]` types, `[DoNotGen]` and fallback members, enum value
-    names of enums with more than 20 values, and everything that
+    names of enums with more than 20 values, generic methods that
+    `xlua.get_generic_method` names, and everything that
     `xlua.private_accessible` or a hotfix patch accesses by name. With a tool
     that reads `[Obfuscation]`, mark them yourself; the generator cannot add
     attributes to members you declare;

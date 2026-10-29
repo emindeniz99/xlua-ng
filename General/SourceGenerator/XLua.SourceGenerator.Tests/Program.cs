@@ -1181,25 +1181,176 @@ namespace Lib
     }
 
     // link.xml for wrapped types (docs/design/source-generator.md, "link.xml entries
-    // audited (2026-10-28)"): a [LuaCallCSharp] type gets no entry, since the wrapper
-    // calls its members, and [ReflectionUse] on the same type keeps it whole
-    // (preserve="all"), the way back to the legacy link.xml that MIGRATING.md names.
+    // audited (2026-10-28)"): in strict minimal a [LuaCallCSharp] type gets no entry,
+    // since the wrapper calls its members, and [ReflectionUse] on the same type keeps
+    // it whole (preserve="all") and leaves its wrapper in place: the way back to
+    // upstream's link.xml for one type that MIGRATING.md names. The legacy preset
+    // keeps every [LuaCallCSharp] type whole (LinkXmlKeepsBoundTypesWholeByPreset).
     public static void ReflectionUseKeepsBoundTypeWhole()
     {
-        var run = Harness.Generate("Game", Usings + @"
+        var run = Harness.Generate(Harness.Compile("Game", new[] { Usings + @"
 [assembly: LuaCallCSharp(typeof(Game.Bound), typeof(Game.Kept))]
 [assembly: ReflectionUse(typeof(Game.Kept))]
 namespace Game
 {
     public class Bound { public void Call() { } int hidden; }
     public class Kept { public void Call() { } int hidden; }
-}");
+}" }, new[] { Harness.RuntimeWith("XLUA_PRESET_MINIMAL") }, Harness.ParseWith("XLUA_PRESET_MINIMAL")));
         Assert.Compiles(run);
         Assert.True(run.Result.GeneratedSources.Any(x => x.HintName.StartsWith("W_Game_Kept_")), "[ReflectionUse] does not take the wrapper away");
-        var linkXml = run.Source(Emitter.LinkXmlFile);
-        Assert.True(linkXml != null && linkXml.Contains("<type fullname=\"\"Game.Kept\"\" preserve=\"\"all\"\"/>"), "link.xml does not keep Kept whole:\n" + linkXml);
+        var linkXml = LinkXmlOf(run);
+        Assert.True(linkXml != null && linkXml.Contains("<type fullname=\"Game.Kept\" preserve=\"all\"/>"), "link.xml does not keep Kept whole:\n" + linkXml);
         Assert.True(!linkXml.Contains("Game.Bound") && !linkXml.Contains("<method") && !linkXml.Contains("<field"),
-            "a wrapped type needs no link.xml entry:\n" + linkXml);
+            "a wrapped type needs no link.xml entry in strict minimal:\n" + linkXml);
+    }
+
+    // The link.xml fragment a run wrote (the LinkXml.Xml constant), or null.
+    static string LinkXmlOf(Run run)
+    {
+        var source = run.Source(Emitter.LinkXmlFile);
+        if (source == null) return null;
+        const string Start = "Xml = @\"";
+        int start = source.IndexOf(Start, StringComparison.Ordinal) + Start.Length;
+        int end = source.IndexOf("\";\n", start, StringComparison.Ordinal);
+        return source.Substring(start, end - start).Replace("\"\"", "\"");
+    }
+
+    // Each <type> of a fragment, once per assembly, as "assembly|type|preserve|
+    // element:name,..." with its child elements.
+    static string[] LinkXmlTypes(string xml)
+    {
+        var lines = new List<string>();
+        foreach (var a in XDocument.Parse(xml).Root.Elements("assembly"))
+        {
+            var names = new HashSet<string>();
+            foreach (var t in a.Elements("type"))
+            {
+                string name = (string)t.Attribute("fullname");
+                Assert.True(names.Add(name), "link.xml lists " + name + " twice:\n" + xml);
+                lines.Add((string)a.Attribute("fullname") + "|" + name + "|" + ((string)t.Attribute("preserve") ?? "") + "|"
+                    + string.Join(",", t.Elements().Select(m => m.Name.LocalName + ":" + (string)m.Attribute("name"))));
+            }
+        }
+        return lines.OrderBy(x => x, StringComparer.Ordinal).ToArray();
+    }
+
+    const string BoundTypesSource = Usings + @"
+[assembly: LuaCallCSharp(typeof(List<int>), typeof(Game.Outer.Inner))]
+[assembly: DoNotGen(typeof(Game.Bound), ""Slow"")]
+[assembly: ReflectionUse(typeof(Game.Reflected))]
+namespace Game
+{
+    [LuaCallCSharp] public class Bound { public void Slow() { } public void Fast() { } int hidden; void Secret() { } }
+    public class Outer { public class Inner { public int Count; int hidden; } }
+    [LuaCallCSharp] public enum Mode { A, B }
+    public class Reflected { int hidden; }
+    public class Unbound { int hidden; }
+}";
+
+    // Owner decision Q75 of 2026-10-29: where the build reaches members of a
+    // wrapped type by reflection beyond its wrapper (xlua.private_accessible,
+    // xlua.access, the reflection fallback, the project's own reflection), every
+    // [LuaCallCSharp] type gets preserve="all", as upstream's link.xml gave it:
+    // the legacy preset always, minimal with HOTFIX_ENABLE. Strict minimal, and
+    // minimal with XLUA_REFLECTION alone (whose fallback wraps only types
+    // without bindings), keep the narrow entries: the lazy members only.
+    // [ReflectionUse] keeps its type whole everywhere, and a type kept whole
+    // gets no member entries besides.
+    public static void LinkXmlKeepsBoundTypesWholeByPreset()
+    {
+        var predicate = new (string[] Defines, bool Whole)[]
+        {
+            (new string[0], true),
+            (new[] { "GEN_CODE_MINIMIZE" }, true),
+            (new[] { "HOTFIX_ENABLE" }, true),
+            (new[] { "XLUA_RESTRICT_PRIVATE_ACCESS" }, true),
+            (new[] { "XLUA_NO_REFLECTION", "XLUA_RESTRICT_PRIVATE_ACCESS" }, true),
+            (new[] { "XLUA_PRESET_MINIMAL" }, false),
+            (new[] { "XLUA_PRESET_MINIMAL", "XLUA_NO_GCM" }, false),
+            (new[] { "XLUA_PRESET_MINIMAL", "XLUA_UTIL" }, false),
+            (new[] { "XLUA_PRESET_MINIMAL", "XLUA_REFLECTION" }, false),
+            (new[] { "XLUA_PRESET_MINIMAL", "HOTFIX_ENABLE" }, true),
+            (new[] { "XLUA_PRESET_MINIMAL", "XLUA_REFLECTION", "HOTFIX_ENABLE" }, true),
+        };
+        foreach (var c in predicate)
+        {
+            Assert.Equal(c.Whole, Wrappers.PreserveBoundTypes(c.Defines), "PreserveBoundTypes(" + string.Join(";", c.Defines) + ")");
+        }
+
+        string list = typeof(List<int>).Assembly.GetName().Name + "|System.Collections.Generic.List`1|all|";
+        foreach (var c in new (string[] Defines, bool Whole)[]
+        {
+            (new string[0], true),
+            (new[] { "XLUA_PRESET_MINIMAL" }, false),
+            (new[] { "XLUA_PRESET_MINIMAL", "XLUA_REFLECTION" }, false),
+            (new[] { "XLUA_PRESET_MINIMAL", "HOTFIX_ENABLE" }, true),
+        })
+        {
+            string what = c.Defines.Length == 0 ? "legacy" : string.Join(";", c.Defines);
+            var runtime = c.Defines.Length == 0 ? Harness.Runtime : Harness.RuntimeWith(c.Defines);
+            var run = Harness.Generate(Harness.Compile("Game", new[] { BoundTypesSource }, new[] { runtime }, Harness.ParseWith(c.Defines)));
+            Assert.Compiles(run);
+            var xml = LinkXmlOf(run);
+            Assert.True(xml != null, what + ": no " + Emitter.LinkXmlFile);
+            var expected = c.Whole
+                ? new[] { "Game|Game.Bound|all|", "Game|Game.Mode|all|", "Game|Game.Outer/Inner|all|", "Game|Game.Reflected|all|", list }
+                : new[] { "Game|Game.Bound||method:Slow", "Game|Game.Reflected|all|" };
+            Same(expected.OrderBy(x => x, StringComparer.Ordinal).ToArray(), LinkXmlTypes(xml), what + " link.xml types");
+            Assert.True(!xml.Contains("Unbound"), what + ": a type without configuration in link.xml");
+        }
+    }
+
+    // The obfuz rule fragment as "type|obName|element:name=obName,..." lines
+    // (assembly Game), or an empty array.
+    static string[] ObfuzRulesTypes(Run run)
+    {
+        var source = run.Source(Emitter.ObfuzRulesFile);
+        if (source == null) return new string[0];
+        int start = source.IndexOf("@\"", StringComparison.Ordinal) + 2;
+        var xml = XDocument.Parse(source.Substring(start, source.IndexOf("\";", start, StringComparison.Ordinal) - start).Replace("\"\"", "\""));
+        return xml.Root.Elements("assembly").Where(a => (string)a.Attribute("name") == "Game").SelectMany(a => a.Elements("type"))
+            .Select(t => (string)t.Attribute("name") + "|" + ((string)t.Attribute("obName") ?? "") + "|"
+                + string.Join(",", t.Elements().Select(m => m.Name.LocalName + ":" + (string)m.Attribute("name") + "=" + (string)m.Attribute("obName"))))
+            .OrderBy(x => x, StringComparer.Ordinal).ToArray();
+    }
+
+    // obfuz renames the assemblies before UnityLinker reads link.xml, and the
+    // generated link.xml (written at link time) names types and members by
+    // their original names. So in every preset the obfuz rules keep the name of
+    // every type of the assembly that link.xml names, and of every member it
+    // names; in particular the [LuaCallCSharp] types that legacy and minimal
+    // with HOTFIX_ENABLE keep whole (owner decision Q75), which the rules let
+    // obfuz rename until 2026-10-29.
+    public static void ObfuzRulesKeepEveryNameLinkXmlUses()
+    {
+        foreach (var defines in new[]
+        {
+            new string[0], new[] { "XLUA_PRESET_MINIMAL" }, new[] { "XLUA_PRESET_MINIMAL", "XLUA_REFLECTION" },
+            new[] { "XLUA_PRESET_MINIMAL", "HOTFIX_ENABLE" },
+        })
+        {
+            string what = defines.Length == 0 ? "legacy" : string.Join(";", defines);
+            var runtime = defines.Length == 0 ? Harness.Runtime : Harness.RuntimeWith(defines);
+            foreach (var source in new[] { BoundTypesSource, FallbackSource })
+            {
+                var run = Harness.Generate(Harness.Compile("Game", new[] { source }, new[] { runtime }, Harness.ParseWith(defines)));
+                Assert.Compiles(run);
+                var rules = ObfuzRulesTypes(run).Select(l => l.Split('|')).ToDictionary(p => p[0], p => p);
+                int names = 0;
+                foreach (var t in LinkXmlTypes(LinkXmlOf(run)).Select(l => l.Split('|')).Where(p => p[0] == "Game"))
+                {
+                    string[] rule;
+                    names++;
+                    Assert.True(rules.TryGetValue(t[1], out rule) && rule[1] == "0", what + ": link.xml names " + t[1] + ", which the obfuz rules let obfuz rename");
+                    if (rule == null || t[2] == "all") continue;
+                    foreach (var m in t[3].Split(','))
+                    {
+                        Assert.True(rule[2].Split(',').Contains(m + "=0"), what + ": link.xml names " + t[1] + " " + m + ", which the obfuz rules let obfuz rename");
+                    }
+                }
+                Assert.True(names > 0, what + ": no link.xml type of Game to check");
+            }
+        }
     }
 
     const string FallbackSource = Usings + @"
@@ -1230,15 +1381,17 @@ namespace Game
         Assert.True(wrapper.Contains("BindingApi.RegisterFallback(L, global::XLua.Utils.SETTER_IDX, \"Level\", type, global::XLua.LazyMemberTypes.PropertySet, false, \"its setter is init-only")
             && wrapper.Contains("#else") && wrapper.Contains("PropertySet, false, null);"), "the reason only where it is logged");
 
-        var linkXml = run.Source(Emitter.LinkXmlFile);
+        // Legacy keeps the [LuaCallCSharp] types whole, so their lazy members get
+        // no entries of their own; strict minimal lists the lazy members by name,
+        // and wrapped members need no entry.
+        var linkXml = LinkXmlOf(run);
         Assert.True(linkXml != null, "no " + Emitter.LinkXmlFile);
-        foreach (var expected in new[] { "<assembly fullname=\"\"Game\"\">", "<type fullname=\"\"Game.Outer/Inner\"\">", "<method name=\"\"Slow\"\"/>",
-            "<field name=\"\"count\"\"/>", "<type fullname=\"\"Game.Reflected\"\" preserve=\"\"all\"\"/>", "<type fullname=\"\"Game.Settings\"\">",
-            "<property name=\"\"Level\"\"/>" })
-        {
-            Assert.True(linkXml.Contains(expected), "link.xml lacks " + expected + ":\n" + linkXml);
-        }
-        Assert.True(!linkXml.Contains("Fast") && !linkXml.Contains("Plain"), "wrapped members need no link.xml entry");
+        Same(new[] { "Game|Game.Outer/Inner|all|", "Game|Game.Reflected|all|", "Game|Game.Settings|all|" }, LinkXmlTypes(linkXml), "legacy link.xml types");
+        var strict = Harness.Generate(Harness.Compile("Game", new[] { FallbackSource }, new[] { Harness.RuntimeWith("XLUA_PRESET_MINIMAL") },
+            Harness.ParseWith("XLUA_PRESET_MINIMAL")));
+        Assert.Compiles(strict);
+        Same(new[] { "Game|Game.Outer/Inner||field:count,method:Slow", "Game|Game.Reflected|all|", "Game|Game.Settings||property:Level" },
+            LinkXmlTypes(LinkXmlOf(strict)), "strict minimal link.xml types");
 
         var skip = Harness.Generate(Harness.Compile("Game", new[] { FallbackSource }, null,
             Harness.Parse.WithPreprocessorSymbols("XLUA_SG_SKIP_REGISTER")));
@@ -1329,10 +1482,14 @@ namespace Game
 
     // Milestone M8: the obfuz rule fragment keeps the names Lua reaches by
     // reflection, and Register, which hosts find by name, carries
-    // [Obfuscation(Exclude = true)].
+    // [Obfuscation(Exclude = true)]. Strict minimal, where link.xml does not
+    // keep the [LuaCallCSharp] types whole; the legacy preset also keeps the
+    // names of those types (ObfuzRulesKeepEveryNameLinkXmlUses).
     public static void ObfuzRulesAndObfuscationExclude()
     {
-        var run = Harness.Generate("Game", ObfuzSource);
+        Func<string, Run> strict = source => Harness.Generate(Harness.Compile("Game", new[] { source },
+            new[] { Harness.RuntimeWith("XLUA_PRESET_MINIMAL") }, Harness.ParseWith("XLUA_PRESET_MINIMAL")));
+        var run = strict(ObfuzSource);
         Assert.Compiles(run);
         var bindings = run.Source(Emitter.BindingsFile);
         Assert.True(bindings.Contains("[global::System.Reflection.Obfuscation(Exclude = true)]\n        internal static void Register()"),
@@ -1357,10 +1514,22 @@ namespace Game
         var xml = System.Xml.Linq.XDocument.Parse(rules.Substring(start, rules.IndexOf("\";", start) - start).Replace("\"\"", "\""));
         Assert.Equal("obfuz", xml.Root.Name.LocalName, "root element");
 
-        var plain = Harness.Generate("Game", FallbackSource.Replace("[assembly: ReflectionUse(typeof(Game.Reflected))]", "")
-            .Replace("[assembly: DoNotGen(typeof(Game.Outer.Inner), \"Slow\", \"count\")]", "").Replace("{ get; init; }", "{ get; set; }"));
+        var plainSource = FallbackSource.Replace("[assembly: ReflectionUse(typeof(Game.Reflected))]", "")
+            .Replace("[assembly: DoNotGen(typeof(Game.Outer.Inner), \"Slow\", \"count\")]", "").Replace("{ get; init; }", "{ get; set; }");
+        var plain = strict(plainSource);
         Assert.Compiles(plain);
         Assert.True(plain.Source(Emitter.ObfuzRulesFile) == null, "rules without anything reached by reflection");
+
+        // Legacy keeps every [LuaCallCSharp] type whole in link.xml, so their
+        // names stay too; their members do not need to (preserve="all").
+        var legacy = Harness.Generate("Game", ObfuzSource);
+        Assert.Compiles(legacy);
+        Same(new[] { "Game.Big|0|field:*=0", "Game.Outer/Inner|0|field:count=0,method:Slow=0", "Game.Reflected|0|", "Game.Settings|0|property:Level=0",
+            "Game.Small|0|" }, ObfuzRulesTypes(legacy), "legacy obfuz rules");
+        var legacyPlain = Harness.Generate("Game", plainSource);
+        Assert.Compiles(legacyPlain);
+        Same(new[] { "Game.Outer/Inner|0|", "Game.Settings|0|" }, ObfuzRulesTypes(legacyPlain), "legacy obfuz rules without reflection members");
+        Assert.True(!legacyPlain.Source(Emitter.ObfuzRulesFile).Contains("applyToMembers"), "a type kept whole keeps only its name");
     }
 
     // A generator that references a newer compiler than the host's does not load
