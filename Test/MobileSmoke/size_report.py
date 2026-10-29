@@ -67,8 +67,11 @@ Variants:
                of the env's lock, and with +hotfix of a patched method; needs +sg
   NAME+pbench  PlayerBench.cs in Assembly-CSharp, run by the probe (XLUA_SIZE_PLAYER_BENCH): the Lua -> C# cases of
                Test/Native/Benchmark.cs and a few UnityEngine calls, XLUA_PBENCH lines in the log (ns per call of
-               seven rounds); each player gets its own package (org.xluang.pbench.plain or .gcm) so both can
-               be installed side by side; needs +sg (docs/research/descriptor-wrappers.md, 2026-10-28)
+               seven rounds); each player gets its own package (org.xluang.pbench.plain or .gcm, plus
+               $XLUA_PBENCH_SUFFIX) so they can be installed side by side; needs +sg (docs/research/descriptor-wrappers.md, 2026-10-28). The
+               APK is profileable from the shell (PbenchProfileable.cs), and a launch with the string extra
+               pbench_profile "CASE[,CASE...][;SECONDS]" runs only those cases, for simpleperf (2026-10-29;
+               the project gets com.unity.modules.androidjni to read the extra)
   NAME+vsbench  VsBench/VsBench.cs and VsBench/VsBenchXLua.cs in Assembly-CSharp, run by the probe
                (XLUA_SIZE_VS_BENCH): the cross-library bench of vs_bench.py, a subset of zlua-benchmark's case list,
                XLUA_VSBENCH lines in the log; one package per mode (org.xluang.vs.plain, .gcm, .minimal); needs +sg
@@ -405,6 +408,8 @@ def prepare(a, work, platform, variant, project):
     deps = {"com.unity.modules.unitywebrequestwww": "1.0.0"}
     if game:
         deps["com.unity.ugui"] = "2.0.0"  # UnityEngine.UI, which the game configuration binds
+    if "pbench" in flags:
+        deps["com.unity.modules.androidjni"] = "1.0.0"  # PlayerBench reads the launch's intent extras
     (project / "Packages/manifest.json").write_text(json.dumps({"dependencies": deps}) + "\n")
     unity = a.unity_webgl if platform == "webgl" else a.unity_mobile
     version = re.search(r"/(\d+\.\d+\.\d+[abfp]\d+)/", str(unity))
@@ -455,6 +460,7 @@ def prepare(a, work, platform, variant, project):
         if not sg:
             sys.exit("+pbench needs +sg: " + variant)
         shutil.copy2(here / "PlayerBench.cs", assets / "PlayerBench.cs")
+        shutil.copy2(here / "PbenchProfileable.cs", assets / "Editor/PbenchProfileable.cs")
     if "vsbench" in flags:
         if not (sg or strict):
             sys.exit("+vsbench needs +sg or +minimal+strict: " + variant)
@@ -697,8 +703,10 @@ def run(a):
                     benv["XLUA_SMOKE_DEFINES"] = ";".join([d for d in benv.get("XLUA_SMOKE_DEFINES", "").split(";") if d]
                                                           + [define])
                 if "pbench" in flags:
-                    # One package per mode, so the players can be installed side by side and run interleaved.
-                    benv["XLUA_SMOKE_APP_ID"] = "org.xluang.pbench." + ("gcm" if "gcm" in flags else "plain")
+                    # One package per mode, so the players can be installed side by side and run interleaved;
+                    # XLUA_PBENCH_SUFFIX (letters) tells the players of two trees apart, such as before and after a change.
+                    benv["XLUA_SMOKE_APP_ID"] = "org.xluang.pbench." + ("gcm" if "gcm" in flags else "plain") \
+                        + os.environ.get("XLUA_PBENCH_SUFFIX", "")
                 if "vsbench" in flags:
                     benv["XLUA_SMOKE_APP_ID"] = "org.xluang.vs." + ("minimal" if "minimal" in flags else "gcm" if "gcm" in flags else "plain")
                 if "gsize" in flags:

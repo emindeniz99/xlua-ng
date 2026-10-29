@@ -55,7 +55,9 @@ namespace XLua
         internal static volatile TryArrayGet genTryArrayGetPtr = null;
         internal static volatile TryArraySet genTryArraySetPtr = null;
 
-        internal static volatile ObjectTranslatorPool objectTranslatorPool = new ObjectTranslatorPool();
+        // Read on every Lua -> C# call (ObjectTranslatorPool.Instance) and never replaced: readonly, not
+        // volatile, which IL2CPP compiles to a full memory barrier (dmb ish on ARM64) per read.
+        internal static readonly ObjectTranslatorPool objectTranslatorPool = new ObjectTranslatorPool();
 
         internal static volatile Dictionary<string, string> supportOp = new Dictionary<string, string>()
         {

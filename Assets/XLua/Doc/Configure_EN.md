@@ -186,8 +186,9 @@ preset. Measured with Unity 6000.3.21f1, Android ARM64 IL2CPP release players
 ([descriptor-wrappers.md](../../../docs/research/descriptor-wrappers.md)):
 with a game-sized configuration (264 wrapped engine types) GCM made the APK
 about 628 KB smaller than the plain wrappers, and on a moto g play 2024 phone
-a call cost about 24 ns more over a mix of common calls (about 5%; +22 to
-+53 ns for single calls). Keep GCM if player size matters more than the
+a call costs about 19 ns more over a mix of common calls (about 4%; +10 to
++47 ns for single calls; 24 ns before 2026-10-29, when the call into C# got
+10 to 14 ns faster with either kind of wrapper). Keep GCM if player size matters more than the
 calls your game makes every frame; use `XLUA_NO_GCM` if a hot path calls C#
 thousands of times per frame and the size is acceptable.
 
