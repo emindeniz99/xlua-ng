@@ -1799,6 +1799,63 @@ more in the APK than the plugin of the section above). Compressed in the APK
 Not measured: High and Medium stripping, iOS, WebGL, a project's own types
 (Minimal stripping keeps them whole anyway).
 
+## Public generic methods in strict minimal (2026-10-29)
+
+What it costs to add link.xml entries for the public generic methods of
+`[LuaCallCSharp]` types in strict minimal. `xlua.get_generic_method` finds
+these methods by name, and IL2CPP strips them otherwise. The change was
+measured but not committed, and it waits for the owner
+([source-generator.md](../docs/design/source-generator.md#the-obfuz-rules-and-public-generic-methods-2026-10-29)).
+
+The measurement:
+- `size_report.py run --platforms android --configs strict --variants
+  baseline,ng-5.5+minimal+strict,baseline+game,ng-5.5+minimal+strict+game`;
+- once from `16a528ea` (main at `d3997971` merged) with the harness change of the same day
+  (before), and once with the generator change (after). Both baselines are
+  the "after" players;
+- Unity 6000.3.21f1, release ARM64 IL2CPP APKs, Minimal stripping;
+- the Lua 5.5.1 minimal plugin of 2026-10-28 (`libxlua.so` 137,270 /
+  312,176).
+
+`ng-5.5+minimal+strict+game` is new: the game configuration of
+`SizeGameSgConfig.cs` (264 engine types), bound by the generator in strict
+minimal. The `+minimal` variants now apply their defines in a launch of
+their own. Before that, the generator's link.xml came from Editor
+assemblies compiled without `XLUA_PRESET_MINIMAL`, which since Q75 meant the
+legacy `preserve="all"` for every bound type (Test/README.md, "Player
+size"). Compressed in the APK / uncompressed:
+
+| variant | APK | delta over its baseline | `libil2cpp.so` delta | `libunity.so` delta | `global-metadata.dat` delta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| baseline | 12,279,056 | | | | |
+| `ng-5.5+minimal+strict`, before | 12,761,698 | +482,642 | +289,042 / +1,014,360 | +4,446 / +10,720 | +50,040 / +153,496 |
+| `ng-5.5+minimal+strict`, after | 12,761,702 | +482,646 | +289,049 / +1,014,360 | +4,445 / +10,720 | +50,040 / +153,496 |
+| baseline+game | 12,287,140 | | | | |
+| `ng-5.5+minimal+strict+game`, before | 16,946,354 | +4,659,214 | +2,865,801 / +11,179,616 | +1,142,018 / +2,601,968 | +512,358 / +1,872,708 |
+| `ng-5.5+minimal+strict+game`, after | 17,034,170 | +4,747,030 | +2,933,848 / +11,470,960 | +1,150,749 / +2,622,080 | +523,412 / +1,912,080 |
+| **game, after - before** | **+87,816** | | **+68,047 / +291,344** | **+8,731 / +20,112** | **+11,054 / +39,372** |
+
+- **The size probe** binds one type without generic methods, so it gets no
+  link.xml and does not change (4 bytes of container noise).
+- **The game configuration:** link.xml (`link-sourcegen.xml`) grows from one
+  type to 24. Before, it held only `GameObject` with the `[DoNotGen]`
+  methods `SendMessage` and `BroadcastMessage`. After, it adds 72 method
+  names, such as:
+  - the `GetComponent` family of `GameObject` and `Component`, and
+    `AddComponent`;
+  - `Object`'s `Instantiate`, `InstantiateAsync` and `Find*ObjectsByType`;
+  - `Resources.Load` and `LoadAll`, and `ScriptableObject.CreateInstance`;
+  - the `Mesh` setters;
+  - the `GetPixelData` and `SetPixelData` methods of the texture types.
+
+  The probe calls none of them. A game that calls them from C# has them
+  already and pays less.
+- The strict minimal game player is 4.7 MB over its baseline; legacy's
+  `ng-5.5+pkg+sg+game` is 6.6 MB over it, in the package layout with plain
+  wrappers (the section above).
+
+Not measured: High and Medium stripping, iOS, WebGL.
+
 ## Hotfix (`HOTFIX_ENABLE`, 2026-10-28)
 
 `Test/MobileSmoke/size_report.py run --platforms android --configs hotfix`,
