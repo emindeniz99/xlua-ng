@@ -402,14 +402,14 @@ def prepare(a, work, platform, variant, project):
     assets = project / "Assets"
     for d in ["Assets/Editor", "Packages", "ProjectSettings"]:
         (project / d).mkdir(parents=True, exist_ok=True)
-    # xLua's StaticLuaCallbacks uses UnityEngine.WWW. Every variant gets the module, so the baseline
-    # differs only by xLua; engine code stripping drops it where nothing uses it.
+    # xLua's StreamingAssets searcher reads Android's StreamingAssets through AndroidJNI (since
+    # 2026-10-29; with UnityEngine.WWW before, which +at-REF of older commits and upstream need). Every
+    # variant gets both modules, so the baseline differs only by xLua; engine code stripping drops a
+    # module nothing uses, and every Android player has AndroidJNI anyway.
     game = "game" in flags
-    deps = {"com.unity.modules.unitywebrequestwww": "1.0.0"}
+    deps = {"com.unity.modules.unitywebrequestwww": "1.0.0", "com.unity.modules.androidjni": "1.0.0"}
     if game:
         deps["com.unity.ugui"] = "2.0.0"  # UnityEngine.UI, which the game configuration binds
-    if "pbench" in flags:
-        deps["com.unity.modules.androidjni"] = "1.0.0"  # PlayerBench reads the launch's intent extras
     (project / "Packages/manifest.json").write_text(json.dumps({"dependencies": deps}) + "\n")
     unity = a.unity_webgl if platform == "webgl" else a.unity_mobile
     version = re.search(r"/(\d+\.\d+\.\d+[abfp]\d+)/", str(unity))

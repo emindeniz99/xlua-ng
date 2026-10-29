@@ -108,7 +108,9 @@ for _, source in plugins + variants:
         parser.error("Missing rebuilt plugin: " + str(source))
 for name in ["Assets/Editor", "Assets/XLua", "Packages", "ProjectSettings"]:
     (output / name).mkdir(parents=True, exist_ok=True)
-dependencies = {"com.unity.modules.unitywebrequestwww": "1.0.0"}
+# AndroidJNI: xLua's StreamingAssetsLoader on Android (since 2026-10-29; WWW before, which older
+# trees still need).
+dependencies = {"com.unity.modules.unitywebrequestwww": "1.0.0", "com.unity.modules.androidjni": "1.0.0"}
 if args.package_tarball:
     local = output / "LocalPackages"
     local.mkdir(parents=True)

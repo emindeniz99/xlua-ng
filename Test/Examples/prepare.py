@@ -43,7 +43,8 @@ for relative, source in [("arm64/libxlua.dylib", args.macos_plugin),
     shutil.copy2(source, dest)
     shutil.copy2(repo / "Assets/Plugins" / (relative + ".meta"), str(dest) + ".meta")
 (output / "Packages/manifest.json").write_text(json.dumps({"dependencies": {
-    "com.unity.ugui": "2.0.0", "com.unity.modules.unitywebrequestwww": "1.0.0"}}) + "\n")
+    "com.unity.ugui": "2.0.0", "com.unity.modules.unitywebrequestwww": "1.0.0",
+    "com.unity.modules.androidjni": "1.0.0"}}) + "\n")
 (output / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: " + args.unity_version + "\n")
 (output / "Assets/csc.rsp").write_text("-unsafe\n")
 for name, dest in [("ExampleBuild.cs", "Assets/Editor/ExampleBuild.cs"),

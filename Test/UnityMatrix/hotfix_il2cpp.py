@@ -95,10 +95,11 @@ def prepare():
     subprocess.run([sys.executable, str(here / "prepare.py"), "--output", str(a.project), "--plugin", str(a.plugin),
                     "--unity-version", a.unity_version, "--platform", a.platform, "--editor-tools", "--hotfix",
                     "--source-gen", str((a.source_gen or a.out / "source-generator").resolve())], check=True)
-    # The Android player's StreamingAssets loader uses UnityEngine.WWW.
+    # The Android player's StreamingAssets loader uses AndroidJNI (UnityEngine.WWW before 2026-10-29).
     manifest = a.project / "Packages/manifest.json"
     packages = json.loads(manifest.read_text())
     packages["dependencies"]["com.unity.modules.unitywebrequestwww"] = "1.0.0"
+    packages["dependencies"]["com.unity.modules.androidjni"] = "1.0.0"
     manifest.write_text(json.dumps(packages, indent=2) + "\n")
     (a.project / "Tools").mkdir()
     for name in TOOLS:
