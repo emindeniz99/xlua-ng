@@ -83,7 +83,7 @@ VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)([abfpcx]\d+)?$")
 # Sources that prepare.py --editor-tools --fast-enter-play-mode puts outside
 # and inside Editor folders.
 TEST_RUNTIME = ["Test/MobileSmoke/XluaSmoke.cs", "Test/UnityMatrix/XluaEditorTestTarget.cs",
-                "Test/UnityMatrix/XluaPlayModeHost.cs"]
+                "Test/UnityMatrix/XluaPlayModeHost.cs", "Test/MobileSmoke/StreamingAssetsSmoke.cs"]
 TEST_EDITOR = ["Test/MobileSmoke/SmokeBuild.cs", "Test/UnityMatrix/XluaSmokeTests.cs",
                "Test/UnityMatrix/XluaEditorToolsTests.cs", "Test/UnityMatrix/XluaGeneratedCodeTests.cs",
                "Test/UnityMatrix/XluaStringTests.cs", "Test/UnityMatrix/XluaEditorTestSteps.cs",
@@ -182,11 +182,12 @@ def configurations():
     editor("editor-target-android", ["UNITY_ANDROID"])
     editor("editor-target-ios", ["UNITY_IOS", "UNITY_IPHONE"])
     editor("editor-target-webgl", ["UNITY_WEBGL"])
-    editor("editor-osx-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"], tests=True)
+    # XLUA_SMOKE_STREAMING_ASSETS: StreamingAssetsSmoke.cs (Test/MobileSmoke/prepare.py --streaming-assets).
+    editor("editor-osx-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55", "XLUA_SMOKE_STREAMING_ASSETS"], tests=True)
     editor("editor-osx-hotfix-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55", "HOTFIX_ENABLE"], tests=True)
     editor("editor-osx-features-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"] + FEATURES, tests=True)
     editor("editor-osx-minimal", MINIMAL)
-    editor("editor-osx-minimal-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"] + MINIMAL, tests=True)
+    editor("editor-osx-minimal-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55", "XLUA_SMOKE_STREAMING_ASSETS"] + MINIMAL, tests=True)
     # The preset's opt-in back to the reflection fallback and CodeEmit (XLUA_REFLECTION).
     editor("editor-osx-minimal-reflection", MINIMAL + ["XLUA_REFLECTION"])
     editor("editor-osx-csharp12-tests", ["UNITY_INCLUDE_TESTS", "XLUA_SMOKE_LUA55"], tests="csharp12")
