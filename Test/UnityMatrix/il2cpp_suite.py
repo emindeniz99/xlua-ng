@@ -64,6 +64,8 @@ import time
 here = Path(__file__).resolve().parent
 repo = here.parents[1]
 sys.path.insert(0, str(repo / "Tools"))
+sys.path.insert(0, str(repo / "Test/MobileSmoke"))
+import check_apk_16k  # noqa: E402
 import presets  # noqa: E402
 
 PACKAGE = "org.xluang.suite"
@@ -368,10 +370,11 @@ def dismiss_dialog(emu):
     """Press the positive button of a system dialog in front of the player; 1 if there was one.
 
     Android 16 shows one (PageSizeMismatchDialog, "Showing PageSizeMismatchDialog" in the
-    logcat) when the APK's native libraries have 4 KB aligned segments, as Unity 2021.3.45f2
-    builds them, on a device with 16 KB pages such as the xlua16k AVD. The app runs in
-    compatibility mode, but the dialog takes the focus and the player waits for it before
-    it loads the scene."""
+    logcat) when the APK's native libraries have 4 KB aligned segments, as Unity 2021.3.45f2's
+    own libunity.so, libmain.so and libil2cpp.so have, on a device with 16 KB pages such as the
+    xlua16k AVD, or when an earlier install of the package had them (run_apk). The app runs in
+    compatibility mode, but the dialog takes the focus and the player waits for it before it
+    loads the scene."""
     emu.cmd("shell", "uiautomator", "dump", "/sdcard/xlua-suite-ui.xml", check=False, timeout=60)
     ui = emu.cmd("shell", "cat", "/sdcard/xlua-suite-ui.xml", check=False)
     for node in re.findall(r"<node [^>]*>", ui):
@@ -386,11 +389,30 @@ def dismiss_dialog(emu):
     return 0
 
 
+def page_size_compat(emu):
+    """The page size compat flags Android 16 keeps for PACKAGE (4: ELF alignment, 2: APK alignment), or 0."""
+    found = re.search(r"pageSizeCompat=(-?\d+)", emu.cmd("shell", "dumpsys", "package", PACKAGE, check=False))
+    return int(found.group(1)) if found else 0
+
+
+def check_16k(apk):
+    """Fail an APK that Android 16 would run in page size compat mode because of a library of its own
+    (libxlua.so or another plugin); Unity's own 4 KB libraries (2021.3) are notes. True when every
+    64-bit library is 16 KB ready."""
+    _, problems, notes = check_apk_16k.check(Path(apk), unity_libs_ok=True)
+    for line in notes + problems:
+        print("16 KB: %s" % line, flush=True)
+    if problems:
+        raise SystemExit("XLUA_IL2CPP_SUITE_FAIL: %s is not ready for 16 KB pages: %s" % (apk, "; ".join(problems)))
+    return not any("32-bit" not in n for n in notes)
+
+
 def run_apk(a, emu, config, apk):
     out = a.out.resolve()
     (out / "logs").mkdir(parents=True, exist_ok=True)
     data = "/sdcard/Android/data/" + PACKAGE
     files = data + "/files"
+    aligned = check_16k(apk)
     # Replace the app in place, which keeps its uid: after an uninstall the AVD (Android 16)
     # kept the app's folder in /sdcard/Android/data, owned by the old uid, which the shell
     # cannot delete and the new install cannot write; IL2CPP then fails to extract its
@@ -400,6 +422,20 @@ def run_apk(a, emu, config, apk):
         print("install -r: %s; installing again after an uninstall" % installed.strip(), flush=True)
         emu.cmd("uninstall", PACKAGE, check=False)
         emu.cmd("install", "--no-streaming", "-r", apk, timeout=600)
+    # Android 16 ORs the page size compat flags of every install into the package's settings, so
+    # an earlier APK with 4 KB libraries (a 2021.3 player) leaves an update of an aligned one in
+    # compat mode, with the "isn't 16 KB compatible" dialog. Only an uninstall drops them.
+    flags = page_size_compat(emu)
+    if aligned and flags & 6:
+        print("pageSizeCompat=%d is left from an earlier install of %s (the APK is 16 KB aligned); "
+              "installing again after an uninstall" % (flags, PACKAGE), flush=True)
+        emu.cmd("uninstall", PACKAGE, check=False)
+        emu.cmd("install", "--no-streaming", "-r", apk, timeout=600)
+        flags = page_size_compat(emu)
+        if flags & 6:
+            raise SystemExit("XLUA_IL2CPP_SUITE_FAIL: pageSizeCompat=%d after a new install of the 16 KB "
+                             "aligned %s" % (flags, apk))
+    print("pageSizeCompat=%d after the install" % flags, flush=True)
     # pm clear empties the app's data, external files included, as the system.
     emu.cmd("shell", "pm", "clear", PACKAGE, check=False)
     left = emu.cmd("shell", "ls", "-A", data, check=False).strip()

@@ -2222,7 +2222,14 @@ assembles from a placeholder for every plugin:
   `make_upm_package.py`'s `RELEASE_PLUGINS` has a `.meta`. A new plugin needs
   a row there. An enabled Editor must name a CPU of the Editor's enum
   (`AnyCPU`, `x86_64`, `ARM64`), and the 32-bit `x86` desktop plugins must
-  have the Editor off.
+  have the Editor off;
+- a plugin source whose functions C# imports from `__Internal`
+  (`INTERNAL_SOURCES`) is compiled for exactly the players whose `UNITY_*`
+  symbols guard those imports: `Plugins/iOS/HotfixFlags.cpp` for the
+  `#if (UNITY_IPHONE || UNITY_TVOS) && !UNITY_EDITOR` of
+  `HotfixDelegateBridge` (`DelegateBridge.cs`), and the source defines each
+  function. Until 2026-10-29 the file was enabled for iOS only, so a tvOS
+  player imported two functions its build did not compile (below).
 
 The file list comes from git (tracked files, and untracked ones that are not
 ignored). Run on 2026-10-28, it found these, now fixed:
@@ -2267,6 +2274,26 @@ an orphan `.meta` with a malformed GUID and a wrong Android CPU each fail it,
 and a `.hidden` file and a `New~` folder do not. `make_upm_package.py` now
 leaves such hidden names out of the package, as Unity does, instead of
 stopping on their missing `.meta`. Not checked in a Unity editor.
+
+**tvOS (2026-10-29).** `HotfixDelegateBridge` imports `xlua_get_hotfix_flag`
+and `xlua_set_hotfix_flag` from `__Internal` on iOS and tvOS, and
+`HotfixFlags.cpp`, which defines them, was enabled for iOS only. A Unity
+6000.6.4f1 tvOS export (the smoke project of `prepare.py --source-gen`, a
+tvOS `libxlua.a` of Lua 5.5.1 built with `build/cmake/ios.toolchain.cmake`
+and `PLATFORM=TVOS`, release, Minimal stripping), compiled with `xcodebuild
+-sdk appletvos CODE_SIGNING_ALLOWED=NO` (Xcode 27.1 beta, tvOS 27.0 SDK),
+failed to link with the old `.meta`, without and with `HOTFIX_ENABLE`
+(`csc.rsp` and the injector in `Tools/`): "Undefined symbols for
+architecture arm64: `_xlua_get_hotfix_flag`, `_xlua_set_hotfix_flag`",
+referenced from `HotfixDelegateBridge`. With tvOS enabled in the `.meta`,
+both linked ("BUILD SUCCEEDED") and the export had
+`Libraries/Plugins/iOS/HotfixFlags.cpp`. The new check fails on the old
+`.meta` (`no settings for tvOS`, and with the old `PLUGINS` row, "compiled
+for iOS, but ... imports ... for iOS, tvOS"). Not run: a tvOS device or
+simulator, other Unity versions. Unity 6000.6.4f1 also warns that
+`HotfixFlags.cpp.meta` (like 12 of the other 17 plugin `.meta` files here)
+has `PluginImporter` `serializedVersion: 1`, "below the supported minimum
+(2). Open and re-save the file to upgrade."; it still reads the platforms.
 
 ## Unity players and upstream examples
 
@@ -2401,6 +2428,20 @@ Mono on 2021.3.45f2, 2022.3.62f3, 6000.3.21f1 and 6000.6.4f1, with reflection
 wrappers that close generic methods in IL2CPP players
 ([il2cpp-suite.md](../docs/research/il2cpp-suite.md#generic-methods-in-il2cpp-reflection-wrappers-2026-10-29)).
 The gcm and strict configurations ran on 6000.3.21f1 only.
+
+Since 2026-10-29 `run` checks each APK with
+`Test/MobileSmoke/check_apk_16k.py` before installing it and fails on a
+library that Android 16 would run in page size compatibility mode, unless
+it is Unity's own (2021.3.45f2's `libunity.so`, `libmain.so` and `libil2cpp.so`
+are 4 KB aligned and only noted). After the install it reads `pageSizeCompat` from
+`dumpsys package`: Android 16 keeps that flag from earlier installs of the
+package, so an aligned APK installed over a 2021.3 player still got the
+"isn't 16 KB compatible" dialog; `run` then uninstalls and installs again
+([android-16kb-dialog.md](../docs/research/android-16kb-dialog.md)). Tried
+with the smoke APKs on the `xlua16k` AVD: a 4 KB build gave
+`pageSizeCompat=4` and the dialog, the aligned build installed after it
+was reinstalled and gave 0 and no dialog. `size_report.py report` records the
+same check per Android player (`page_16k`).
 
 `unity-matrix.yml` builds X86_64 APKs of the three configurations
 (`il2cpp-suite-build`) and runs them on a KVM emulator of the hosted runner
