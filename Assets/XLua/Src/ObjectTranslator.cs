@@ -1562,11 +1562,28 @@ namespace XLua
 #endif
         }
 
+        // The type and id of getTypeId's last lookup that found the type in typeIdMap,
+        // whose entries are never replaced or removed. Pushing new objects of one type
+        // in a row then skips the lookup: Dictionary<Type, int> hashes and compares Type
+        // objects through their virtual GetHashCode and Equals, 14% of a new object's
+        // time in a profile on the xlua16k emulator (2026-10-29).
+        Type lastTypeIdType;
+        int lastTypeId;
+
         internal int getTypeId(RealStatePtr L, Type type, out bool is_first, LOGLEVEL log_level = LOGLEVEL.WARN)
         {
             int type_id;
             is_first = false;
-            if (!typeIdMap.TryGetValue(type, out type_id)) // no reference
+            if ((object)type == (object)lastTypeIdType && (object)type != null)
+            {
+                return lastTypeId;
+            }
+            if (typeIdMap.TryGetValue(type, out type_id))
+            {
+                lastTypeIdType = type;
+                lastTypeId = type_id;
+            }
+            else // no reference
             {
                 if (type.IsArray)
                 {
