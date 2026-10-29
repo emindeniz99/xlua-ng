@@ -456,7 +456,25 @@ used Generate Code's bridges, and the second assembly's `IntKey` type fell
 back to field mode. Under
 `--define XLUA_PRESET_MINIMAL`, which leaves out `xlua.util`, the
 two-assembly cases set the ids with `HotfixDelegateBridge.Set` and `SetSlot`
-from the id maps instead of calling `auto_id_map()`. `Tools/build_tools.py` downloads
+from the id maps instead of calling `auto_id_map()`. Since 2026-10-29 two
+more steps cover the process-wide IntKey list, which no fixture reached after
+M11 (every one was compiled with the generator's files):
+`Test/Native/HotfixFixtureShared.cs`, compiled by mcs with xLua and without
+the generator, so the assembly that holds xLua has no `HotfixBridges`, has an
+`IntKey | Inline` type with a generic method; the injector must give it ids
+without an assembly in the map, and the fixture patches and restores it
+through `HotfixDelegateBridge.Set`, then sets 6,000 ids of the list from four
+threads at once, none of which may be lost (`HOTFIX_SHARED_LIST_PASS`; the
+`Set` before 2026-10-29 failed it with `IndexOutOfRangeException` in the
+threads). Then `Test/Native/hotfix_flags_race.py --output <dir>` links the iOS
+flags of that list, `Assets/Plugins/iOS/HotfixFlags.cpp`, with
+`Test/Native/HotfixFlagsRace.cpp` (three threads read flags while two grow
+the array and set 20,000 of them) under ThreadSanitizer (`-fsanitize=thread`,
+`--cxx`, default `$CXX` or `c++`) and fails on any report, lost flag or
+crash (`XLUA_HOTFIX_FLAGS_RACE_PASS`). Where ThreadSanitizer cannot build or
+start, it runs the stress test without it and says so. The file before
+2026-10-29 failed it with a data race report, and without the sanitizer
+crashed in three of three runs. `Tools/build_tools.py` downloads
 Mono.Cecil from nuget.org once into the gitignored `Tools/.cache`; set
 `XLUA_TOOLS_CACHE` to use another directory (for a read-only checkout).
 `--cecil-dir <folder>` builds and runs the injector with the Cecil of Unity's
@@ -2165,7 +2183,14 @@ bridge presets reach it). The weekly job's merged corpora will show what
 `Test/Docker/Dockerfile` builds the Linux image these scripts were run in:
 Ubuntu 26.04, pinned by digest, with Clang and libFuzzer, clang-tidy, GCC,
 CMake and Mono 6.14.1 (as built on 2026-10-17: Clang 21.1.8, GCC 15.2, CMake
-4.2.3). macOS has no libFuzzer runtime in Apple clang and no clang-tidy, so use
+4.2.3), and since 2026-10-29 the .NET SDK that `mise.toml` pins, in
+`/opt/dotnet` (owner's decision of 2026-10-29): a build stage downloads the
+archive from `builds.dotnet.microsoft.com` and checks it with `sha512sum -c`
+against the SHA-512 in `Tools/dependencies.py`, whose `--check` keeps the
+Dockerfile's version and hashes equal to the pin. The image sets
+`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`, since it has no `libicu`. With the
+SDK, `sanitize.sh` and `coverage.sh` run the managed suite's source generator
+passes too. macOS has no libFuzzer runtime in Apple clang and no clang-tidy, so use
 it there. Mount the checkout and an output directory outside it:
 
 ```sh
@@ -2175,8 +2200,9 @@ docker run --rm -v "$PWD":/src -v /path/to/empty-dir:/out -w /src xlua-analysis:
 ```
 
 `coverage.sh`, `sanitize.sh` and `Test/Fuzz/run.sh` run the same way. The
-image is about 1.8 GB; OrbStack and Docker Desktop keep it in their data
-directory, which can be moved off the startup disk.
+image is about 2.7 GB with the SDK (1.8 GB without); OrbStack and Docker Desktop keep it in their data
+directory, which can be moved off the startup disk. After a rebuild,
+`docker image prune` removes the image it replaced.
 
 ## Unity .meta files
 
@@ -2361,6 +2387,20 @@ merging main at `9f2e51d2` (523 cases) all three passed 523/523 again, with
 the same differences. An X86_64 strict APK (the CI path) built, 15,394,397
 bytes, but did not run. Not run: a phone, iOS, High stripping, Development players, other Unity
 versions, the x86_64 APK on an emulator, Lua 5.3, 5.4 and LuaJIT.
+
+Other Unity versions since 2026-10-29: `XluaSuiteBuild.cs` builds with
+2021.3 (it reads the IL2CPP code generation setting from
+`EditorUserBuildSettings` there), `run` starts the launcher activity the APK
+declares (`UnityPlayerActivity` before Unity 6) and presses the positive
+button of a system dialog in front of the player (Android 16's "This app
+isn't 16 KB compatible" dialog took the focus, and the player waited), and
+`prepare` keeps `UnityEngine.ContentLoadModule` with a link.xml for 6000.6
+and later (without it the 6000.6.4f1 player crashed before its scene). The
+plain configuration passed 523/523 in both modes with no difference from
+Mono on 2021.3.45f2, 2022.3.62f3, 6000.3.21f1 and 6000.6.4f1, with reflection
+wrappers that close generic methods in IL2CPP players
+([il2cpp-suite.md](../docs/research/il2cpp-suite.md#generic-methods-in-il2cpp-reflection-wrappers-2026-10-29)).
+The gcm and strict configurations ran on 6000.3.21f1 only.
 
 `unity-matrix.yml` builds X86_64 APKs of the three configurations
 (`il2cpp-suite-build`) and runs them on a KVM emulator of the hosted runner
@@ -3686,15 +3726,17 @@ runtime (`build_source_generator.dotnet_environment`), so the generator and
 csc are not instrumented; the native library and Mono are, as in the
 reflection pass.
 
-To have this in the image itself, the cheapest change is a build stage in
-`Test/Docker/Dockerfile` that downloads that archive, checks it with
-`sha512sum -c` against the pin, and extracts it to `/opt/dotnet`, with
-`ENV DOTNET_ROOT=/opt/dotnet PATH=/opt/dotnet:$PATH
-DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`: about 230 MB compressed, and one
-more place to update when `mise.toml`'s pin moves. Ubuntu's own `dotnet-sdk`
-package would follow the archive's version instead of the pin. Not changed
-here: the image is the owner's decision (open question 6 of
-[source-generator.md](../docs/design/source-generator.md)).
+Since 2026-10-29 the image has that SDK itself (owner's decision of
+2026-10-29, question 6 of
+[source-generator.md](../docs/design/source-generator.md); the
+[Linux container](#linux-container) section), so the command above needs
+neither the `$SDK` mount nor the `PATH`, `DOTNET_ROOT` and globalization
+variables any more. Rebuilt on 2026-10-29,
+`VERSIONS=5.5.1 sanitize.sh` in it ran the reflection pass and both source
+generator passes (523 tests each) with only the checkout and the output
+mounted. CI did not depend on the image: native-build's sanitizer jobs
+install the SDK with mise-action and print `XLUA_MANAGED_SOURCE_GEN_PASS`
+and `..._MINIMIZE` for every Lua version (run 40756275338).
 
 **Harness note:** `prepare.py`'s `--platform` defaults to `linux`, which
 installs the plugin as `Plugins/x86_64/libxlua.so`. On macOS without

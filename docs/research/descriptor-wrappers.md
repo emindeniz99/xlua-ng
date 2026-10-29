@@ -384,7 +384,11 @@ phone's difference over the host's.
 - **GCM itself** costs on the phone +53 ns (`static_call`) and +22 to +37
   ns per call (instance, properties, fields, overloads) over plain wrappers,
   about +24 ns over the mix below (+5%) **[C]**. The minimal preset implies
-  GCM, so its players already pay this.
+  GCM, so its players already pay this. Coordinator's decision under the
+  owner's 'do what is best', 2026-10-29: minimal keeps GCM on by default,
+  for its 628 KB smaller APK at game size, and the opt-out `XLUA_NO_GCM` is
+  documented with these numbers in the preset guide and the FAQ
+  ([presets.md](../design/presets.md#owner-decision-2026-10-19-gcm-in-minimal)).
 - **Why** (not profiled) **[U]**: per call the core
   (`Assets/XLua/Src/SpikeDescriptorCore.cs` on the branch) enters the
   group through the `CSharpWrapper` delegate as GCM does, then indexes the

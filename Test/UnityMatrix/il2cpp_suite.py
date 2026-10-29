@@ -209,6 +209,12 @@ def prepare(a):
                     ignore=shutil.ignore_patterns("*.unity", "*.unity.meta"))
     shutil.copy2(repo / "Test/Native/XLuaUnitTest.XLuaConfig.cs", project / "Assets/xLuaTest/XLuaUnitTest.XLuaConfig.cs")
     unity_fixtures(project, a.unity_version)
+    if csharp12(a.unity_version):
+        # As prepare.py --webgl and size_report.py do for WebGL: Unity 6000.6.4f1 strips
+        # ContentLoadingSystem.ProcessResults from this project, and the Android player crashed
+        # (SIGSEGV in libil2cpp, called from libunity) before its scene started.
+        (project / "Assets/link.xml").write_text(
+            '<linker>\n  <assembly fullname="UnityEngine.ContentLoadModule" preserve="all"/>\n</linker>\n')
     streaming = project / "Assets/StreamingAssets"
     shutil.copytree(repo / "Test/UnitTest/StreamingAssets", streaming)
     suite = project / "Assets/XluaSuite"
@@ -358,6 +364,28 @@ class Emulator:
         self.proc = None
 
 
+def dismiss_dialog(emu):
+    """Press the positive button of a system dialog in front of the player; 1 if there was one.
+
+    Android 16 shows one (PageSizeMismatchDialog, "Showing PageSizeMismatchDialog" in the
+    logcat) when the APK's native libraries have 4 KB aligned segments, as Unity 2021.3.45f2
+    builds them, on a device with 16 KB pages such as the xlua16k AVD. The app runs in
+    compatibility mode, but the dialog takes the focus and the player waits for it before
+    it loads the scene."""
+    emu.cmd("shell", "uiautomator", "dump", "/sdcard/xlua-suite-ui.xml", check=False, timeout=60)
+    ui = emu.cmd("shell", "cat", "/sdcard/xlua-suite-ui.xml", check=False)
+    for node in re.findall(r"<node [^>]*>", ui):
+        if 'resource-id="android:id/button1"' in node and 'package="android"' in node:
+            bounds = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
+            if bounds:
+                x1, y1, x2, y2 = (int(v) for v in bounds.groups())
+                texts = re.findall(r'text="([^"]*)"', ui)
+                print("dismissing a system dialog (%s)" % "; ".join(t for t in texts if t)[:300], flush=True)
+                emu.cmd("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2), check=False)
+                return 1
+    return 0
+
+
 def run_apk(a, emu, config, apk):
     out = a.out.resolve()
     (out / "logs").mkdir(parents=True, exist_ok=True)
@@ -390,10 +418,16 @@ def run_apk(a, emu, config, apk):
     result = ""
     status = "timeout"
     try:
-        emu.cmd("shell", "am", "start", "-n", ACTIVITY)
+        # The launcher activity: UnityPlayerGameActivity in Unity 6, UnityPlayerActivity before.
+        resolved = emu.cmd("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE, check=False).split()
+        activity = resolved[-1] if resolved and resolved[-1].startswith(PACKAGE + "/") else ACTIVITY
+        emu.cmd("shell", "am", "start", "-n", activity)
         seen = False
+        dialogs = 0
         while time.time() - started < a.run_timeout:
             time.sleep(5)
+            if dialogs < 3 and "No such file" in emu.cmd("shell", "ls", files + "/" + LOG, check=False):
+                dialogs += dismiss_dialog(emu)
             result = emu.cmd("shell", "cat", files + "/" + RESULT, check=False)
             if "XLUA_SUITE_DONE" in result:
                 status = "done"

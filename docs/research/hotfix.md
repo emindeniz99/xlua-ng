@@ -360,6 +360,13 @@ against the three behaviour changes in such builds), take it only with
 `SetSlot` doing nothing without the define (one of the three left), or keep
 the bridges.
 
+**Coordinator's decision under the owner's 'do what is best', 2026-10-29:
+keep the bridges.** The source generator keeps writing `HotfixBridges`
+without `HOTFIX_ENABLE`; the branch `small-perf-hotfixbridges` is not
+merged. It would save about 3 KB of DLL for 500 hotfix methods, only in
+projects with `[Hotfix]` types that build without the define, against three
+behaviour changes in exactly those builds.
+
 ### The env lock and hotfix
 
 **Why `HOTFIX_ENABLE` locks.** **[C]** Until upstream `426d6a5f`, the
@@ -409,6 +416,13 @@ pays too.
 4. **Lock only the hotfix session.** Not safe: a patched call on a worker
    thread would still run Lua while the main thread does, unless every
    entry locks.
+
+**Coordinator's decision under the owner's 'do what is best', 2026-10-29:
+option 1.** The env lock under `HOTFIX_ENABLE` stays in every preset.
+Patched methods may run on any thread, and a hotfix, an emergency patch,
+must not start throwing on worker threads in the presets that would drop
+the lock; the price is the measured 16 to 34 ns per C# -> Lua entry on
+IL2CPP (11 to 26 ns on the host). Nothing changed in the code.
 
 ### The iOS IntKey flag
 
@@ -466,6 +480,84 @@ while another thread runs one. **[C]** by reading; not reproduced.
    (a MIGRATING row).
 3. **An inline slot read for IntKey** (above): about 3.4 ns per call less
    on IL2CPP, more code per method. Measure the code size before deciding.
+
+### Who still reaches the process-wide list (2026-10-29)
+
+The coordinator's brief of 2026-10-29 (Q77): remove the list and the
+native flag if no supported configuration reaches them since M11, else
+keep them, report the configuration and fix the `realloc` race.
+
+**Reached, so kept.** **[C]** by reading, and by a run (below). The injector
+takes the list only when `sharedIntKey` holds: the injected assembly is
+xLua's own and has no generated `HotfixBridges` (`Hotfix.cs:453`). Then:
+
+- `injectMethod` cannot reach it: it needs a hotfix bridge
+  (`findHotfixDelegate`, `Hotfix.cs:680`), and bridges exist only in a
+  `HotfixBridges` class, which always has `Get`, so `slotGetter` is set and
+  the slots are used instead.
+- `injectGenericMethod`, which injects every method of an `Inline` type and
+  generic methods (`Hotfix.cs:992`), needs no bridge and calls
+  `xlua_get_hotfix_flag` for an IntKey type (`Hotfix.cs:1744-1754`).
+- The generator writes `HotfixBridges` into an assembly as soon as it has
+  one `[Hotfix]` type or `[assembly: Hotfix]` entry, `Inline` ones included
+  (`HotfixBridges.cs:40-49`), but it does not read configuration lists.
+
+So the list is used by **xLua compiled into the injected assembly** (the
+way back to Assembly-CSharp in [MIGRATING.md](../MIGRATING.md#the-way-back-everything-in-assembly-csharp),
+or a non-Unity build that compiles xLua into the game's assembly, as
+`hotfix_check.py` does), **with `HOTFIX_ENABLE`, IntKey on `Inline` types
+(or on types whose every method is generic), and no `[Hotfix]` attribute in
+that assembly**: either the source generator is not installed (a
+reflection-only project; only `Inline` types can be injected there), or
+every hotfix type of the assembly comes from a `[Hotfix]` configuration
+list, which [Hotfix_EN.md](../../Assets/XLua/Doc/Hotfix_EN.md#configure-types-to-patch)
+still allows for `Inline` types. Hotfix_EN.md documents the id map entry
+without `["<assembly>"]` and `HotfixDelegateBridge.Set` for it. Every other
+layout uses the assembly's own slots. Removing the list would make that
+configuration fall back to field mode with the injector's warning, a change
+for projects that use it, so nothing was removed: **owner question 1 above
+stays open**, now with the configuration named.
+
+Since M11 no test reached the list: every `hotfix_check.py` fixture was
+compiled with the generator's files. Step 7 of `hotfix_check.py` now does:
+`HotfixFixtureShared.cs`, compiled by mcs with xLua and without the
+generator, has an `IntKey | Inline` type with a generic method; the
+injector writes its ids without an assembly (`.ctor` 0, `Neg` 1, `Name` 2,
+`Echo` 3), and the fixture patches and restores them through
+`HotfixDelegateBridge.Set` (15 checks) **[C]**.
+
+**Races fixed** (`Assets/Plugins/iOS/HotfixFlags.cpp`,
+`HotfixDelegateBridge.Set`) **[C]**:
+
+- `HotfixFlags.cpp` grew its array with `realloc` while readers on other
+  threads could hold the old pointer, and two writers could `realloc` at
+  once. Now writers take a `std::mutex`, a grown array is published with a
+  release store, readers load it with acquire, and no array is freed: each
+  keeps a pointer to the one it replaced, so a reader that still holds an
+  old one reads valid memory (the array doubles, so the old ones take less
+  than the one in use). `Test/Native/hotfix_flags_race.py` links it with
+  `HotfixFlagsRace.cpp` (three reader threads, two writer threads setting
+  20,000 ids) under ThreadSanitizer. The old file: a ThreadSanitizer data
+  race report at once (Apple clang 21 on macOS, GCC 15 in the Linux
+  container), and without the sanitizer three of three runs crashed (SIGABRT
+  or SIGBUS). The new one passes with Apple clang, GCC and Clang. `hotfix_check.py`
+  runs it as step 8.
+- `HotfixDelegateBridge.Set` had the same race in C#: two threads that grew
+  the list at once could each publish a copy without the other's id, and a
+  thread could then store into a shorter list than it checked. Now `Set`
+  takes a lock and calls the native flag inside it, so the flag follows the
+  list's order. Step 7 sets 6,000 ids from four threads: before, three of
+  three runs died with `IndexOutOfRangeException` in the threads; after,
+  none lost.
+
+Not changed, for the owner: the injected code checks the flag and then
+reads the list (`Hotfix.cs:1749-1753`), two reads, so a patch removed on
+another thread between them gives `InvokeSessionStart` a null bridge (a
+`NullReferenceException`). The slot path reads the slot once. Upstream has
+the same two reads. Also, `HotfixFlags.cpp.meta` enables the file for iOS
+only, while `DelegateBridge.cs` declares the `__Internal` import for
+`UNITY_IPHONE || UNITY_TVOS`; a tvOS player with `HOTFIX_ENABLE` would lack
+the symbols **[U]** (no tvOS build here).
 
 ## Also worth a look
 

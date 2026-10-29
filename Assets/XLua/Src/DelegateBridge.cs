@@ -105,21 +105,32 @@ namespace XLua
             return DelegateBridge.DelegateBridgeList[idx];
         }
 
+        static readonly object setLock = new object();
+
+        // Patches may be installed from several threads (an env each): the lock keeps
+        // a concurrent Set from replacing the list with a shorter copy, which lost the
+        // other's patch and could make Get throw, and keeps the iOS flag in the order
+        // of the list. Readers take no lock; the list only grows.
         public static void Set(int idx, DelegateBridge val)
         {
-            if (idx >= DelegateBridge.DelegateBridgeList.Length)
+            lock (setLock)
             {
-                DelegateBridge[] newList = new DelegateBridge[idx + 1];
-                for (int i = 0; i < DelegateBridge.DelegateBridgeList.Length; i++)
+                var list = DelegateBridge.DelegateBridgeList;
+                if (idx >= list.Length)
                 {
-                    newList[i] = DelegateBridge.DelegateBridgeList[i];
+                    DelegateBridge[] newList = new DelegateBridge[idx + 1];
+                    Array.Copy(list, newList, list.Length);
+                    newList[idx] = val;
+                    DelegateBridge.DelegateBridgeList = newList;
                 }
-                DelegateBridge.DelegateBridgeList = newList;
-            }
-            DelegateBridge.DelegateBridgeList[idx] = val;
+                else
+                {
+                    list[idx] = val;
+                }
 #if (UNITY_IPHONE || UNITY_TVOS) && !UNITY_EDITOR
-            xlua_set_hotfix_flag(idx, val != null);
+                xlua_set_hotfix_flag(idx, val != null);
 #endif
+            }
         }
 
         // IntKey with source-generated hotfix bridges (docs/design/source-generator.md,

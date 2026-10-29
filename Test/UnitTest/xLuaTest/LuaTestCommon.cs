@@ -244,11 +244,16 @@ public class LuaTestCommon
         return ((XLua.LuaLibs)field.GetValue(null) & XLua.LuaLibs.Debug) != 0;
     }
 
-    // True in IL2CPP players: Unity defines ENABLE_IL2CPP only when it compiles the scripts
-    // of an IL2CPP player (Test/UnityMatrix/il2cpp_suite.py runs the suite in one).
-    public static bool Il2Cpp()
+    // True in IL2CPP players without full generic sharing (Unity before 2022.1; Unity defines
+    // ENABLE_IL2CPP only when it compiles the scripts of an IL2CPP player, and
+    // Test/UnityMatrix/il2cpp_suite.py runs the suite in one). There a generic method
+    // instance with a value-type argument that no C# code compiled has no code, and calling
+    // it through reflection (xlua.get_generic_method) throws a catchable
+    // ExecutionEngineException ("no ahead of time (AOT) code"): seen with 2021.3.45f2, while
+    // 2022.3.62f3 and later run it through the fully shared code (docs/research/il2cpp-suite.md).
+    public static bool Il2CppNoFullGenericSharing()
     {
-#if ENABLE_IL2CPP
+#if ENABLE_IL2CPP && !UNITY_2022_1_OR_NEWER
         return true;
 #else
         return false;

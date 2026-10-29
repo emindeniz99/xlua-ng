@@ -168,7 +168,13 @@ namespace XLua
 
         // The overloads _GenMethodWrap would wrap, in its order: methods with
         // unsupported types and generic methods that cannot be closed are
-        // left out.
+        // left out. A generic method is closed over its class constraints, in
+        // IL2CPP players too since 2026-10-29 (upstream left generic method
+        // definitions out there): the type arguments are classes, whose
+        // instances share IL2CPP's code for reference types, which Unity
+        // 2021.3.45f2 to 6000.6 kept even for a method no C# code calls; where
+        // a player has no code for an instance, Invoke throws a catchable
+        // ExecutionEngineException (docs/research/il2cpp-suite.md).
         internal static OverloadSignature[] Prepare(Type type, IEnumerable<MemberInfo> methodBases)
         {
             List<OverloadSignature> overloads = new List<OverloadSignature>();
@@ -178,11 +184,7 @@ namespace XLua
                 if (mb == null || Utils.HasUnsupportedType(mb))
                     continue;
 
-                if (mb.IsGenericMethodDefinition
-#if !ENABLE_IL2CPP
-                     && !MethodWrapsCache.tryMakeGenericMethod(ref mb)
-#endif
-                    )
+                if (mb.IsGenericMethodDefinition && !MethodWrapsCache.tryMakeGenericMethod(ref mb))
                     continue;
 
                 overloads.Add(Create(type, mb));
