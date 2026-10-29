@@ -200,14 +200,12 @@ def variant_meta(default_meta, package_path):
     one name conflict there). Returns None when the default plugin's settings cannot be adapted."""
     text = default_meta.read_text()
     text, guids = re.subn(r"^guid: [0-9a-f]{32}$", "guid: " + guid_for(package_path), text, flags=re.M)
-    # serializedVersion 2 lists platformData entries ("- first: / Editor: Editor / second: / enabled:"),
-    # serializedVersion 1 maps them ("Editor: / enabled:").
-    editor_v2 = r"(- first:\n\s+Editor: Editor\n\s+second:\n\s+enabled: )\d"
-    editor_v1 = r"(\n\s+Editor:\n\s+enabled: )\d"
-    text, n2 = re.subn(editor_v2, r"\g<1>0", text)
-    text, n1 = re.subn(editor_v1, r"\g<1>0", text)
-    any_on = re.search(r"- first:\n\s+Any: *\n\s+second:\n\s+enabled: 1|\n\s+Any:\n\s+enabled: 1", text)
-    if guids != 1 or n1 + n2 != 1 or any_on:
+    # serializedVersion 2, which Tools/check_meta.py requires, lists platformData entries
+    # ("- first: / Editor: Editor / second: / enabled:").
+    editor = r"(- first:\n\s+Editor: Editor\n\s+second:\n\s+enabled: )\d"
+    text, n = re.subn(editor, r"\g<1>0", text)
+    any_on = re.search(r"- first:\n\s+Any: *\n\s+second:\n\s+enabled: 1", text)
+    if guids != 1 or n != 1 or any_on:
         return None
     return text
 
