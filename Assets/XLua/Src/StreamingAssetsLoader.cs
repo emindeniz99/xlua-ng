@@ -229,9 +229,13 @@ namespace XLua
         // the UnityWebRequest and TLS engine modules.
         static class ObbAssets
         {
+            // Built at run time: UnityLinker reads a constant Type.GetType argument as
+            // a reference and would keep WWW, and its engine modules, in every player.
+            static readonly string wwwType = string.Join(".", new[] { "UnityEngine", "WWW, UnityEngine", "UnityWebRequestWWWModule" });
+
             internal static byte[] Read(string path)
             {
-                Type type = Type.GetType("UnityEngine.WWW, UnityEngine.UnityWebRequestWWWModule");
+                Type type = Type.GetType(wwwType);
                 if (type == null)
                 {
                     throw new InvalidOperationException("xLua: this player's StreamingAssets are in its OBB file (Split Application Binary),"
