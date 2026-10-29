@@ -50,8 +50,11 @@ namespace VsBench
     [Preserve]
     public sealed class TestTargets
     {
-        public static readonly TestTargets Instance = new TestTargets();
+        // SampleClass first: static initializers run in textual order, and Instance's
+        // Prop_Class reads it. Until 2026-10-29 Instance came first, so Prop_Class was
+        // null and lua2cs.instance.prop.get.class pushed nil in every library.
         public static readonly TestClass SampleClass = new TestClass(1, 2, 3);
+        public static readonly TestTargets Instance = new TestTargets();
 
         public static int StaticField_Int;
         public static int StaticProp_Int { get; set; }
@@ -328,7 +331,8 @@ namespace VsBench
             try { check = lua.Get<Str0>("check")(); } catch (Exception e) { check = "error " + e.Message; }
             var o = TestTargets.Instance;
             log("XLUA_VSBENCH_CHECK {\"lua\": " + Json(check) + ", \"csharp\": " + Json("field=" + o.Field_Int + " prop=" + o.Prop_Int
-                + " static=" + TestTargets.StaticField_Int + " v3=" + o.Prop_Vector3 + " str=" + o.Prop_String) + ", \"cs2lua\": " + Json(Cs2LuaValues(lua)) + "}");
+                + " static=" + TestTargets.StaticField_Int + " v3=" + o.Prop_Vector3 + " str=" + o.Prop_String
+                + " class=" + (o.Prop_Class == TestTargets.SampleClass)) + ", \"cs2lua\": " + Json(Cs2LuaValues(lua)) + "}");
             log("XLUA_VSBENCH_DONE " + library + "/" + mode);
             try
             {

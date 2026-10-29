@@ -74,6 +74,14 @@ namespace XLua
         }
     }
 
+    // typeof(T), read once per T. In an IL2CPP player every typeof and GetType()
+    // looks its Type object up in a table under a lock
+    // (il2cpp::vm::Reflection::GetTypeObject); a static field of the type is a load.
+    static class TypeOf<T>
+    {
+        public static readonly Type Value = typeof(T);
+    }
+
     // MonoPInvokeCallbackAttribute, LuaTypes, LuaGCOptions, LuaThreadStatus and LuaIndexes
     // are in the XLua.Core assembly (Assets/XLua/Core/LuaTypes.cs).
 
@@ -1055,7 +1063,7 @@ namespace XLua
                 {
                     int obj_index;
                     //Lua GC removes the weak-table entry before calling __gc. In between, the same object may be pushed again with a new index.
-                    bool is_enum = o.GetType().IsEnum();
+                    bool is_enum = o is Enum; // Type.IsEnum of its class, without reflection (Push)
                     if ((is_enum ? enumMap.TryGetValue(o, out obj_index) : reverseMap.TryGetValue(o, out obj_index))
                         && obj_index == obj_index_to_collect)
                     {
@@ -1121,9 +1129,10 @@ namespace XLua
             return GetTypeOf(L, index);
         }
 
+        // The generated overload checks: TypeOf<T>, not a typeof lookup per call.
         public bool Assignable<T>(RealStatePtr L, int index)
 		{
-            return Assignable(L, index, typeof(T));
+            return Assignable(L, index, TypeOf<T>.Value);
         }
 
         public bool Assignable(RealStatePtr L, int index, Type type)
@@ -1187,26 +1196,30 @@ namespace XLua
                 }
                 return obj;
             }
-            else
+            return NonCSObject(L, index, type, argument);
+        }
+
+        // getObject for a value that is no C# object (xlua_tocsobj_safe gave -1;
+        // BindingApi.GetObject<T> calls it after its own check).
+        internal object NonCSObject(RealStatePtr L, int index, Type type, bool argument)
+        {
+            if (LuaAPI.lua_type(L, index) == LuaTypes.LUA_TUSERDATA)
             {
-                if (LuaAPI.lua_type(L, index) == LuaTypes.LUA_TUSERDATA)
+                GetCSObject get;
+                int type_id = LuaAPI.xlua_gettypeid(L, index);
+                if (type_id != -1 && type_id == decimal_type_id)
                 {
-                    GetCSObject get;
-                    int type_id = LuaAPI.xlua_gettypeid(L, index);
-                    if (type_id != -1 && type_id == decimal_type_id)
-                    {
-                        decimal d;
-                        Get(L, index, out d);
-                        return d;
-                    }
-                    Type type_of_struct;
-                    if (type_id != -1 && typeMap.TryGetValue(type_id, out type_of_struct) && type.IsAssignableFrom(type_of_struct) && custom_get_funcs.TryGetValue(type, out get))
-                    {
-                        return get(L, index);
-                    }
+                    decimal d;
+                    Get(L, index, out d);
+                    return d;
                 }
-                return ((argument ? objectCasters.GetArgCaster(type) : objectCasters.GetCaster(type))(L, index, null));
+                Type type_of_struct;
+                if (type_id != -1 && typeMap.TryGetValue(type_id, out type_of_struct) && type.IsAssignableFrom(type_of_struct) && custom_get_funcs.TryGetValue(type, out get))
+                {
+                    return get(L, index);
+                }
             }
+            return ((argument ? objectCasters.GetArgCaster(type) : objectCasters.GetCaster(type))(L, index, null));
         }
 
         // A value Lua passes to a C# parameter or assigns to a field or
@@ -1549,11 +1562,28 @@ namespace XLua
 #endif
         }
 
+        // The type and id of getTypeId's last lookup that found the type in typeIdMap,
+        // whose entries are never replaced or removed. Pushing new objects of one type
+        // in a row then skips the lookup: Dictionary<Type, int> hashes and compares Type
+        // objects through their virtual GetHashCode and Equals, 14% of a new object's
+        // time in a profile on the xlua16k emulator (2026-10-29).
+        Type lastTypeIdType;
+        int lastTypeId;
+
         internal int getTypeId(RealStatePtr L, Type type, out bool is_first, LOGLEVEL log_level = LOGLEVEL.WARN)
         {
             int type_id;
             is_first = false;
-            if (!typeIdMap.TryGetValue(type, out type_id)) // no reference
+            if ((object)type == (object)lastTypeIdType && (object)type != null)
+            {
+                return lastTypeId;
+            }
+            if (typeIdMap.TryGetValue(type, out type_id))
+            {
+                lastTypeIdType = type;
+                lastTypeId = type_id;
+            }
+            else // no reference
             {
                 if (type.IsArray)
                 {
@@ -1683,6 +1713,36 @@ namespace XLua
                 return;
             }
 
+            // The commonest boxed values first, by the object's own type test: what
+            // pushPrimitive and the string branch below push for them, without
+            // o.GetType(), which IL2CPP looks up under a lock (Push).
+            if (o is int)
+            {
+                LuaAPI.xlua_pushinteger(L, (int)o);
+                return;
+            }
+            if (o is double)
+            {
+                LuaAPI.lua_pushnumber(L, (double)o);
+                return;
+            }
+            if (o is long)
+            {
+                LuaAPI.lua_pushint64(L, (long)o);
+                return;
+            }
+            if (o is bool)
+            {
+                LuaAPI.lua_pushboolean(L, (bool)o);
+                return;
+            }
+            string s = o as string;
+            if (s != null)
+            {
+                LuaAPI.lua_pushstring(L, s);
+                return;
+            }
+
             Type type = o.GetType();
             if (type.IsPrimitive())
             {
@@ -1785,14 +1845,15 @@ namespace XLua
             }
 
             int index = -1;
-            Type type = o.GetType();
-#if !UNITY_WSA || UNITY_EDITOR
-            bool is_enum = type.IsEnum;
-            bool is_valuetype = type.IsValueType;
-#else
-            bool is_enum = type.GetTypeInfo().IsEnum;
-            bool is_valuetype = type.GetTypeInfo().IsValueType;
-#endif
+            // The type tests of the object itself, not of its Type: for the class of
+            // an object they give what Type.IsEnum and Type.IsValueType give, but
+            // IL2CPP compiles them to a check of the class hierarchy, while
+            // GetType(), Type.IsEnum and Type.IsValueType go through reflection:
+            // each Type object they reach is looked up under a lock
+            // (il2cpp::vm::Reflection::GetTypeObject), about seven times per push.
+            // The Type is needed only when the object has no userdata yet.
+            bool is_enum = o is Enum;
+            bool is_valuetype = o is ValueType;
             bool needcache = !is_valuetype || is_enum;
             if (needcache && (is_enum ? enumMap.TryGetValue(o, out index) : reverseMap.TryGetValue(o, out index)))
             {
@@ -1804,6 +1865,7 @@ namespace XLua
                 //collectObject(index);
             }
 
+            Type type = o.GetType();
             bool is_first;
             int type_id = getTypeId(L, type, out is_first);
 

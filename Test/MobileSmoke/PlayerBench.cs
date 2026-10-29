@@ -116,6 +116,8 @@ namespace XLuaBench
             {"struct_gcopt_field_get", "local v = V(1, 2, 3)\nreturn function(n) local s = 0 for i = 1, n do s = s + v.x end return s end"},
             {"struct_boxed_field_get", "local v = VB(1, 2, 3)\nreturn function(n) local s = 0 for i = 1, n do s = s + v.x end return s end"},
             {"object_return_cached", "local o = T()\nreturn function(n) for i = 1, n do o:Self() end end"},
+            // A new object per call: the push's miss path, a new userdata, and its __gc later (2026-10-29).
+            {"object_new", "return function(n) for i = 1, n do T() end end"},
             {"unity_object_arg", "local f = T.UnityObjectArg\nreturn function(n) for i = 1, n do f(go) end end"},
             {"class_object_arg", "local f, o = T.ClassArg, T()\nreturn function(n) for i = 1, n do f(o) end end"},
             {"overload_disjoint", "local f = T.Disjoint\nreturn function(n) for i = 1, n do f(i) end end"},

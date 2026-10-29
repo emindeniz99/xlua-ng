@@ -2418,4 +2418,41 @@ namespace Coverage
         public new string Hidden() { return "derived"; }
         public int DerivedField = 2;
     }
+
+    // The object path (docs/research/benchmark-vs-puerts-zlua.md, "Object path on
+    // the phone (2026-10-29)"): pushing C# objects, enums and boxed values, and
+    // reading class and object arguments, in generated code and reflection alike
+    // (CaseObjectPath*). ObjectPathItem and ObjectPathKind have no bindings, so
+    // their objects reach ObjectTranslator.Push and PushAny's general branches.
+    public class ObjectPathItem
+    {
+        public string Name;
+        public ObjectPathItem(string name) { Name = name; }
+    }
+
+    public enum ObjectPathKind { None = 0, One = 1 }
+
+    [LuaCallCSharp]
+    public static class ObjectPath
+    {
+        static readonly ObjectPathItem kept = new ObjectPathItem("kept");
+        public static ObjectPathItem Get() { return kept; }
+        public static object GetAsObject() { return kept; }
+        public static ObjectPathItem Make(string name) { return new ObjectPathItem(name); }
+        public static ObjectPathItem Same(ObjectPathItem item) { return item; }
+        public static string NameOf(ObjectPathItem item) { return item == null ? "null" : item.Name; }
+        public static object Echo(object o) { return o; }
+        public static string KindOf(object o) { return o == null ? "null" : o.GetType().FullName; }
+        public static bool IsOne(object o) { return o is ObjectPathKind && (ObjectPathKind)o == ObjectPathKind.One; }
+        public static object BoxedInt() { return 7; }
+        public static object BoxedLong() { return 1L << 40; }
+        public static object BoxedDouble() { return 0.5; }
+        public static object BoxedFloat() { return 1.5f; }
+        public static object BoxedBool() { return true; }
+        public static object BoxedByte() { return (byte)200; }
+        public static object BoxedChar() { return 'A'; }
+        public static object BoxedString() { return "s"; }
+        public static object BoxedEnum() { return ObjectPathKind.One; }
+        public static object BoxedPoint() { return new Point(1, 2); }
+    }
 }
