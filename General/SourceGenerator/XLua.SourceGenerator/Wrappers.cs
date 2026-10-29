@@ -993,9 +993,16 @@ namespace XLua.SourceGenerator
                 return statement + "global::XLua.Binding.BindingApi.GetNullableStructArg(translator, L, " + i + ", out " + variable + ")";
             if (isStruct)
                 return statement + StructGet(Effective(t, c), i, variable, c, luaResult);
+            // A class, interface or array type: BindingApi.GetObject<T>, which is
+            // (T)translator.GetObject(L, i, typeof(T)) without the typeof for a C#
+            // object (IL2CPP looks each Type object up under a lock), and
+            // GetUnityObjectArg<T> the same way. A value type that gets here (a
+            // primitive without a reader, such as UIntPtr) keeps GetObject.
             if (!luaResult && RefusesTables(Effective(t, c)))
-                return statement + "(" + Cs(t, c) + ")translator.GetUnityObjectArg(L, " + i + ", typeof(" + Cs(t, c) + "))";
-            return statement + "(" + Cs(t, c) + ")translator.GetObject(L, " + i + ", typeof(" + Cs(t, c) + "))";
+                return statement + "global::XLua.Binding.BindingApi.GetUnityObjectArg<" + Cs(t, c) + ">(translator, L, " + i + ")";
+            if (!Effective(t, c).IsReferenceType)
+                return statement + "(" + Cs(t, c) + ")translator.GetObject(L, " + i + ", typeof(" + Cs(t, c) + "))";
+            return statement + "global::XLua.Binding.BindingApi.GetObject<" + Cs(t, c) + ">(translator, L, " + i + ")";
         }
 
         // ObjectCasters.RefusesTables: a Lua table never converts to
