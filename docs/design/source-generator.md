@@ -3555,6 +3555,13 @@ runs were before decision 10's message change.
 4. **`HotfixDelegateBridge.Set`** and the process-wide id list now serve only
    xLua's own assembly without `HotfixBridges`. Keep them, or remove them (and
    the iOS native flag) and make IntKey need `HotfixBridges`?
+   2026-10-29: still reached, so kept, and still open. The configuration:
+   xLua compiled into the injected assembly, `HOTFIX_ENABLE`, IntKey on
+   `Inline` types (or types with only generic methods), and no `[Hotfix]`
+   attribute in that assembly (no generator, or only configuration lists).
+   The races of the list and of `HotfixFlags.cpp` were fixed, and
+   `hotfix_check.py` covers the list again (steps 7 and 8);
+   [hotfix.md](../research/hotfix.md#who-still-reaches-the-process-wide-list-2026-10-29).
 5. **Unbound configuration without the generator:** the build check now fails
    IL2CPP builds with `[CSharpCallLua]` configuration even when the generator
    is not installed, and warns for xLua's own `[assembly: GCOptimize]` in a
@@ -3566,6 +3573,23 @@ runs were before decision 10's message change.
    `sanitize.sh` source generator pass, with
    `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` because the image has no
    `libicu` ([Test/README.md](../../Test/README.md#the-checks-the-round-left-out-2026-10-28)).
+
+   **Owner's decision of 2026-10-29: add it.** `Test/Docker/Dockerfile`
+   has a `dotnet` stage that downloads the SDK `mise.toml` pins (10.0.401)
+   for the image's architecture, checks the archive with `sha512sum -c`
+   against the SHA-512 that `Tools/dependencies.py` records
+   (`DOTNET_SDK_SHA512`; its `--check` fails when the Dockerfile's version or
+   hashes differ from the pin), and extracts it to `/opt/dotnet`; the image
+   sets `DOTNET_ROOT`, `PATH` and `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`.
+   Rebuilt here (arm64; 1.78 GB to 2.69 GB on disk), `VERSIONS=5.5.1
+   sanitize.sh` ran in it with nothing mounted but the checkout: the
+   reflection pass and both source generator passes, 523 tests each
+   (`XLUA_MANAGED_SOURCE_GEN_PASS`, `..._MINIMIZE`). CI needed nothing:
+   native-build's sanitizer jobs already install the SDK with mise-action
+   and run those passes under ASan and UBSan. Run 40756275338 (main,
+   2026-10-28) prints both markers for 5.3.6, 5.4.9, 5.5.1 and LuaJIT in
+   `linux / ASan + UBSan`, and for the minimal preset, LuaScript and
+   `luajit-uint` in the extra sanitizer job.
 7. **A release package without the generator:** `make_upm_package.py` still
    builds one without `--source-gen` (the tests use that for the reflection
    run). Make `--source-gen` required for anything but tests?
@@ -3819,6 +3843,11 @@ code changed: the smoke players on the emulator, `run_managed.py`,
    done. *2026-10-29: unchanged. The owner's decision Q75 (question 2) keeps
    the `[ReflectionUse]` entries as they are and closes the backlog item, as
    (a) would.*
+
+   **Coordinator's decision under the owner's 'do what is best',
+   2026-10-29 (Q74): (a).** `[ReflectionUse]` keeps `preserve="all"` in
+   every preset, as upstream, which is what Q75 left in place.
+
 2. **Confirm M5's change for `[LuaCallCSharp]` types, `legacy` included.**
    Upstream's `link.xml` kept every member of every `[LuaCallCSharp]` type;
    since M5 only what the wrappers call is kept. MIGRATING.md records the

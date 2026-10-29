@@ -985,6 +985,18 @@ on the seven installed editors (2021.3.45f2 to 6000.6.6f1, 133 of 133); and
 `XLUA_NO_GCM` and without the preset. Not run: the Unity editor suite, players
 and `sanitize.sh` with the preset.
 
+**Coordinator's decision under the owner's 'do what is best', 2026-10-29:
+minimal keeps GCM on by default** (Q82, after the phone measurement of
+[descriptor-wrappers.md](../research/descriptor-wrappers.md#phone-moto-g-play-2024-c)).
+On the moto g play 2024, GCM costs about +24 ns per Lua -> C# call over the
+plain wrappers across the hot-path mix (+5%; +22 to +53 ns for single
+calls), and it makes the game-sized player about 628 KB smaller (627,780
+bytes of APK with Minimal stripping, 627,004 with High). Minimal is the size
+preset, so it keeps the smaller player. `XLUA_NO_GCM` is now documented
+with these numbers in the preset guide
+([Configure_EN.md](../../Assets/XLua/Doc/Configure_EN.md#presets)) and the
+FAQ ([Faq_EN.md](../../Assets/XLua/Doc/Faq_EN.md#how-do-i-make-an-il2cpp-player-smaller)).
+
 ### Cheap hardening as implemented
 
 Done 2026-10-18 (item 4). Native library, NDK r30, API 23, the release build,
