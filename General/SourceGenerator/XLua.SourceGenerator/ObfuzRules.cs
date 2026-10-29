@@ -15,7 +15,11 @@
 //   names); nested types keep their own rules (applyToNestedTypes="0");
 // - enums whose wrapper reads the value names by reflection (more than 20
 //   values: Utils.RegisterEnumType and Enum.Parse in __CastFrom): the names
-//   of their fields.
+//   of their fields;
+// - [LuaCallCSharp] types that the link.xml fragment keeps whole (the legacy
+//   preset, and minimal with HOTFIX_ENABLE; LinkXml.cs PreserveBoundTypes):
+//   the type's name only (KeepName), since link.xml names it, and its members
+//   are kept by preserve="all" whatever their names.
 //
 // The fragment is the constant ObfuzRules.Xml of the generated namespace, for
 // Editor and host builds only. The Editor adapter (XLua.Editor
@@ -32,9 +36,13 @@ namespace XLua.SourceGenerator
     {
         public const string EnumFields = "enumfields";
 
+        // The type's name only, for a type the link.xml fragment keeps whole.
+        public const string KeepName = "typename";
+
         // The rule document of "assembly|type|element|name" lines (LinkLine):
         // element "*" for a whole type, EnumFields for the value names of an
-        // enum, or method, field, property or event.
+        // enum, KeepName for the type's name, or method, field, property or
+        // event.
         public static string ObfuzRulesDocument(IEnumerable<string> lines)
         {
             var byAssembly = new SortedDictionary<string, SortedDictionary<string, SortedSet<string>>>(StringComparer.Ordinal);
@@ -46,7 +54,7 @@ namespace XLua.SourceGenerator
                 if (!byAssembly.TryGetValue(parts[0], out types)) byAssembly.Add(parts[0], types = new SortedDictionary<string, SortedSet<string>>(StringComparer.Ordinal));
                 SortedSet<string> members;
                 if (!types.TryGetValue(parts[1], out members)) types.Add(parts[1], members = new SortedSet<string>(StringComparer.Ordinal));
-                members.Add(parts[2] == LinkAll || parts[2] == EnumFields ? parts[2] : parts[2] + "|" + parts[3]);
+                members.Add(parts[2] == LinkAll || parts[2] == EnumFields || parts[2] == KeepName ? parts[2] : parts[2] + "|" + parts[3]);
             }
             if (byAssembly.Count == 0) return "";
             var sb = new StringBuilder("<obfuz>\n");
@@ -65,6 +73,11 @@ namespace XLua.SourceGenerator
                     bool named = false;
                     foreach (var m in t.Value)
                     {
+                        if (m == KeepName)
+                        {
+                            named = true; // link.xml keeps the type whole, by this name
+                            continue;
+                        }
                         if (m == EnumFields)
                         {
                             members.Add("      <field name=\"*\" obName=\"0\"/>\n");
@@ -75,6 +88,11 @@ namespace XLua.SourceGenerator
                         named = true; // the link.xml fragment names the type
                     }
                     if (named) sb.Append(" obName=\"0\" applyToNestedTypes=\"0\"");
+                    if (members.Count == 0)
+                    {
+                        sb.Append("/>\n");
+                        continue;
+                    }
                     sb.Append(">\n");
                     foreach (var m in members) sb.Append(m);
                     sb.Append("    </type>\n");

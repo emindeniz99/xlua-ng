@@ -25,7 +25,7 @@ Variants:
   NAME+game    a game-sized configuration instead of the small one for +sg: SizeGameSgConfig.cs (every class
                and struct of UnityEngine.CoreModule and UnityEngine.UI, 264 types in 6000.3, as attributes); every
                +game project, baseline+game too, has com.unity.ugui, and the probe also times Lua calls into the
-               wrapped types (XLUA_SIZE_GAME)
+               wrapped types (XLUA_SIZE_GAME). ng-5.5+minimal+strict+game binds the same types in strict minimal
   NAME+linkall, NAME+linkpublic, NAME+linktype  one more link.xml (SizeLinkXml.cs, an IUnityLinkerProcessor in
                Assets/Editor) for every type Assembly-CSharp configures with [assembly: LuaCallCSharp] or
                [assembly: ReflectionUse]: preserve="all" (what the source generator writes for [ReflectionUse] and
@@ -33,7 +33,7 @@ Variants:
                (preserve="nothing"). Without +sg the [LuaCallCSharp] types of SizeGameSgConfig.cs (+game) or
                SizeSgConfig.cs become [ReflectionUse] types (SizeReflectionUseConfig.cs) and nothing is generated:
                a reflection-mode project whose types are kept by link.xml.
-               Every +sg and +link* player also gets the link.xml files UnityLinker read (link-*.xml)
+               Every +sg, +link* and +strict+game player also gets the link.xml files UnityLinker read (link-*.xml)
   NAME+noasmdef  without xLua's four asmdefs (XLua > Project Layout > Use Assembly-CSharp): xLua compiles into
                Assembly-CSharp, as before 2026-10-18 and as every +at-REF of an older commit; without it this
                checkout's tree has the asmdefs (XLua.Core, XLua and their Editor assemblies)
@@ -429,11 +429,13 @@ def prepare(a, work, platform, variant, project):
     link = [f for f in flags if f in LINK_FLAGS]
     if len(link) > 1 or link and name == "baseline":
         sys.exit("one of +%s, with xLua: %s" % (", +".join(LINK_FLAGS), variant))
-    if sg or link:
+    # +minimal+strict+game: the game configuration in strict minimal, bound by the generator that +strict installs.
+    strict_game = strict and game
+    if sg or link or strict_game:
         config = "SizeGameSgConfig.cs" if game else "SizeSgConfig.cs"
         if sg and "vsbench" in flags:
             pass  # the bench binds its own types (VsBenchXLua.cs) and SizeProbeApi (SizeProbe.cs), nothing else
-        elif sg:
+        elif sg or strict_game:
             shutil.copy2(here / config, assets / config)
         else:
             # Without the generator its [LuaCallCSharp] types as [ReflectionUse] (link.xml only), and none of
@@ -709,8 +711,11 @@ def run(a):
                 if il2cpp_flags:
                     benv["XLUA_SMOKE_IL2CPP_ARGS"] = '--compiler-flags="%s"' % " ".join(il2cpp_flags)
                 log = out / "unity.log"
-                if kind in CORE_PLUGIN_VARIANT:
+                if kind in CORE_PLUGIN_VARIANT or "minimal" in flags:
                     # The defines in a launch of their own, so the build launch compiles with them from the start.
+                    # The minimal preset's too: the generator's link.xml comes from the Editor's assemblies
+                    # (SourceGenChecks.MergedLinkXml), which a launch compiles before SmokeBuild sets the defines,
+                    # so without this launch +minimal+strict got the legacy preset's link.xml (until 2026-10-29).
                     unity(a, platform, project, "SmokeBuild.ApplyDefines", out / "defines.log", benv)
                 unity(a, platform, project, UNITY_TARGET[platform][1], log, benv)
                 seconds = a.tool_seconds

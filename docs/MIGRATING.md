@@ -1572,13 +1572,23 @@ and [obfuscators.md](research/obfuscators.md).
   `HOTFIX_ENABLE`, the `__Hotfix` fields. With `HOTFIX_ENABLE` a build also
   warns when obfuz runs before the injector (keep obfuz's default order,
   10000).
+- **obfuz and the types link.xml keeps whole (2026-10-29):** the rule file
+  also keeps the names of the `[LuaCallCSharp]` types that the generated
+  link.xml keeps whole (legacy, and minimal with `HOTFIX_ENABLE`), but not
+  their members' names. Before, obfuz renamed those types. The generated
+  link.xml reaches UnityLinker after obfuz ran and names types by their
+  original names, so its `preserve="all"` entries named types that no
+  longer existed, and the members that only reflection reaches were
+  stripped anyway. With obfuz, a legacy project now renames none of its
+  `[LuaCallCSharp]` types; their members are still renamed.
 - **Still reached by the current name** (keep these names, with the
   obfuscator's own exclusions, or configure the type):
   - types without any configuration attribute: add `[ReflectionUse]` (or
     another configuration attribute) to put them into the table;
   - members Lua reaches through reflection: members of unconfigured or
     `[ReflectionUse]` types, `[DoNotGen]` and fallback members, enum value
-    names of enums with more than 20 values, and everything that
+    names of enums with more than 20 values, generic methods that
+    `xlua.get_generic_method` names, and everything that
     `xlua.private_accessible` or a hotfix patch accesses by name. With a tool
     that reads `[Obfuscation]`, mark them yourself; the generator cannot add
     attributes to members you declare;

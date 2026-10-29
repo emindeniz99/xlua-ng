@@ -86,11 +86,14 @@ namespace XLua.SourceGenerator
         // The [LuaCallCSharp] types of the configuration, kept whole when
         // PreserveBoundTypes says so: the list the wrappers come from, types a
         // referenced assembly wraps included (Lua reaches them the same way).
-        static List<string> BoundTypeLinkLines(Compilation compilation, IEnumerable<INamedTypeSymbol> luaCallCSharp)
+        // element is LinkAll for link.xml, KeepName for the obfuz rules, which
+        // keep the names of those types: link.xml is read at link time, after
+        // obfuz renamed the assemblies, and names them by their original names.
+        static List<string> BoundTypeLinkLines(Compilation compilation, IEnumerable<INamedTypeSymbol> luaCallCSharp, string element)
         {
             var lines = new List<string>();
             if (!PreserveBoundTypes(compilation)) return lines;
-            foreach (var t in luaCallCSharp) lines.Add(LinkLine(t, LinkAll, ""));
+            foreach (var t in luaCallCSharp) lines.Add(LinkLine(t, element, ""));
             return lines;
         }
 

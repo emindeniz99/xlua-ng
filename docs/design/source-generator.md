@@ -2648,6 +2648,10 @@ compile-time name table is the obfuscation-safe path:
     name with `obName="0"`, and the type's own name (`obName="0"
     applyToNestedTypes="0"`), because the link.xml fragment, written at link
     time after obfuz ran, names the type by its original name;
+  - since 2026-10-29, the `[LuaCallCSharp]` types that link.xml keeps whole
+    (legacy, minimal with `HOTFIX_ENABLE`): the type's name only
+    (`obName="0" applyToNestedTypes="0"`)
+    ([below](#the-obfuz-rules-and-public-generic-methods-2026-10-29));
   - enums with more than 20 values: `<field name="*" obName="0"/>`, because
     their wrapper reads value names by reflection (`Utils.RegisterEnumType`,
     `Enum.Parse` in `__CastFrom`); smaller enums use literals.
@@ -3937,7 +3941,8 @@ with them too.
 - a type kept whole gets no member entries besides: `LinkXmlDocument` drops
   the lazy members of a type that has `preserve="all"`, so no type is listed
   twice;
-- the obfuz rules are unchanged (see "Not changed" below).
+- the obfuz rules are unchanged (see "Not changed" below; changed the same
+  day, [below](#the-obfuz-rules-and-public-generic-methods-2026-10-29)).
 
 **Tests:**
 
@@ -4007,10 +4012,198 @@ by their old names anyway. **Question for the owner:** keep it so, or have
 the obfuz rules keep the names of every type kept whole (the name table
 already holds those names as strings, so little would be revealed, but obfuz
 would rename no `[LuaCallCSharp]` type in legacy)? This joins M8 question 1
-("Type names kept for link.xml").
+("Type names kept for link.xml"). *Decided 2026-10-29 (coordinator's
+decision under the owner's "do what is best"): the rules keep those names
+([below](#the-obfuz-rules-and-public-generic-methods-2026-10-29)).*
 
 **Not run:** players of minimal with `HOTFIX_ENABLE` or `XLUA_REFLECTION`,
 High and Medium stripping sizes, iOS, WebGL, a phone, obfuz itself.
+
+### The obfuz rules and public generic methods (2026-10-29)
+
+Two gaps that the [Q75 change](#luacallcsharp-types-kept-whole-where-reflection-reaches-them-2026-10-29)
+left. The first is closed by the coordinator's decision under the owner's
+"do what is best", 2026-10-29. The second is measured and waits for the
+owner, because it costs more than 30 KB at game size.
+
+**1. The obfuz rules keep the names of the types link.xml keeps whole.**
+
+- **The gap** ("Not changed: obfuz" above): in legacy, and in minimal with
+  `HOTFIX_ENABLE`, link.xml has `preserve="all"` for every `[LuaCallCSharp]`
+  type, but the obfuz rules let obfuz rename those types. link.xml then names
+  types that no longer exist, so the members that only reflection reaches
+  are stripped anyway.
+- **The order** **[C]**:
+  1. obfuz renames the player's script assemblies in
+     `IPostBuildPlayerScriptDLLs` at order 10000
+     ([obfuscators.md](../research/obfuscators.md), table "Tools").
+  2. UnityLinker then runs on the renamed DLLs.
+  3. The generator's link.xml reaches UnityLinker through `SourceGenLinkXml`
+     (an `IUnityLinkerProcessor`). It carries the names of the Editor's
+     assemblies, which obfuz does not touch.
+  4. obfuz's `LinkXmlProcess` rewrites only the project's own link.xml files,
+     not the files another `IUnityLinkerProcessor` returns.
+
+  So every type and member name that the generated link.xml uses has to
+  survive obfuz. The rules already kept the names that member entries use
+  (M8). Q75's whole types were the exception.
+- **Decision (coordinator's decision under the owner's "do what is best",
+  2026-10-29).** The rule fragment keeps the name of every `[LuaCallCSharp]`
+  type that link.xml keeps whole, in the builds where it does that
+  (`PreserveBoundTypes`): `<type name="T" obName="0" applyToNestedTypes="0"/>`.
+  - **Members are still renamed.** `preserve="all"` keeps them whatever
+    their names, and wrappers name the members Lua sees with literals. As
+    before, a hotfix patch or `xlua.private_accessible` reaches a renamed
+    private member only by its new name ([xLua#271](https://github.com/Tencent/xLua/issues/271)).
+  - **Nested types** have rules of their own, because they are entries of
+    their own in the configuration.
+  - **The alternative**, translating link.xml through obfuz's
+    `symbol-mapping.xml` (M8 question 1), would make xLua parse obfuz's
+    mapping format. It gets the same answer as M8 question 1: keep the names.
+  - **The cost:** with obfuz in a legacy project, no `[LuaCallCSharp]` type
+    is renamed. The name table already holds those names as strings in the
+    player, so this reveals little. Player size does not change: the rules
+    exist only in the Editor and in host builds.
+- **Where:** `LinkXml.cs` `BoundTypeLinkLines` gives the same types with the
+  element `KeepName`, and `ObfuzRules.cs` writes the rule for that element.
+- **Tests:**
+  - Generator unit tests (`build_source_generator.py --test`, 53 of 53):
+    - `ObfuzRulesKeepEveryNameLinkXmlUses` checks two sources in legacy,
+      strict minimal, minimal with `XLUA_REFLECTION` and minimal with
+      `HOTFIX_ENABLE`. Every type of the assembly that link.xml names must
+      have a rule with `obName="0"`, and so must every member it names.
+      Before the change it failed with "legacy: link.xml names Game.Mode,
+      which the obfuz rules let obfuz rename".
+    - `ObfuzRulesAndObfuscationExclude` now runs its checks in strict
+      minimal. It also checks the legacy rules: a type kept whole keeps only
+      its name, without `applyToMembers`.
+  - `obfuscation_check.py` (macOS arm64, Mono 6.14.1, Lua 5.5.1 plugins built
+    from this tree):
+    - It now checks that the renamer's mapping renamed no type or member
+      that the generated link.xml names.
+    - It expects the rules to rename `Game.Shop` only where link.xml does not
+      keep it whole.
+
+    Both runs pass:
+    - **Legacy:** link.xml names 9 types of the fixture, and the rules keep
+      all of them.
+    - **`--define XLUA_PRESET_MINIMAL --define XLUA_REFLECTION`:** 3 types,
+      and `Game.Shop` is renamed (`$N0.$33`), so the name-table checks still
+      have something to check.
+  - `run_managed.py --source-gen --source-gen-minimize --source-gen-fallback`
+    on Lua 5.5.1, legacy and `--define XLUA_PRESET_MINIMAL`: 523 tests in
+    each of two modes in every pass. link.xml is unchanged: 118 entries in
+    legacy, 17 in strict minimal.
+  - `editor_compile_check.py`: 7 editors x 85 configurations, 588 ok, 7
+    skipped (run with both changes; no Editor code changed).
+  - **Not run:** obfuz itself in Unity. The M8 Unity steps above
+    (obfuz 4.0.0 from its repository, its settings and secret files, a Mono
+    and an IL2CPP player) are still open, and obfuz's generated rules have
+    never run in a Unity build. The host renamer applies the rules as obfuz
+    4.0.0's `ConfigurableRenamePolicy` does.
+
+**2. Public generic methods through `xlua.get_generic_method` (question for
+the owner).**
+
+- **The gap.** `xlua.get_generic_method` stays in every preset (owner
+  decision Q30). It finds a method by name through
+  `Type.GetMethods(Public | Static | Instance)` (`StaticLuaCallbacks.cs`
+  `GetGenericMethod`; `XLUA_RESTRICT_PRIVATE_ACCESS`, which minimal implies,
+  removes `NonPublic`). Wrappers do not call a generic method whose type
+  parameters no parameter uses, and C# may not call it either. In strict
+  minimal, and in minimal with `XLUA_REFLECTION`, link.xml has no entry for
+  such a method, so IL2CPP strips it and the call reads `nil`. Engine types
+  lose such methods with Minimal stripping, the project's own types with
+  Medium or High. The build gives no warning.
+- **The change, made and measured but not committed.** Where link.xml does
+  not keep the bound types whole (`!PreserveBoundTypes`), it lists, for each
+  `[LuaCallCSharp]` type, the public generic method definitions that the call
+  above returns:
+  - the type's own static and instance methods;
+  - the public instance methods of its base types, under the type that
+    declares them (`GetMethods` returns no static methods of base types
+    without `FlattenHierarchy`).
+
+  Each method is a `<method name="..."/>` entry. Like the lazy members, an
+  entry by name keeps every overload of that name. The obfuz rules keep
+  those names, with their types' names, in every preset.
+
+  The code is in `LinkXml.cs` (`GenericMethodLinkLines`), in a `TypeModel`
+  field `GenericMethods`, and in `Wrappers.cs`. Tests:
+  - `LinkXmlListsPublicGenericMethods`, a generator test;
+  - a `generic_method` check in `obfuscation_check.py`;
+  - `SgGeneric.NameOf<T>()` in `SgSmoke.cs`.
+
+  The patch is kept with the measurements (`linkxml2-2026-10-29`,
+  `fix2-generic-methods.patch`).
+- **The player proof** **[C]**. Two strict minimal smoke players, from
+  `prepare.py --android-plugin ... --android-minimal-plugin ... --source-gen`:
+  - "before" was main with only the `SgSmoke.cs` check;
+  - "after" also had the generator change.
+
+  Both were Unity 6000.3.21f1 Android ARM64 IL2CPP release players with High
+  stripping and `XLUA_PRESET_MINIMAL`, applied by `SmokeBuild.ApplyDefines`
+  in a launch of its own. They ran on the `xlua16k` AVD (Android 16, 16 KB
+  pages):
+  - **Before:** the stripped `Assembly-CSharp.dll` has no `NameOf`, and the
+    player reports `XLUA_NG_SMOKE_FAIL: ... a public generic method of a
+    [LuaCallCSharp] type through xlua.get_generic_method: nil`.
+  - **After:** the stripped DLL has `NameOf`, and the player passes
+    (`source generator (no reflection fallback, get_generic_method, GCM,
+    ...)`, debug reduced, io off: the minimal library).
+- **The size** ([SIZE.md](../../build/SIZE.md#public-generic-methods-in-strict-minimal-2026-10-29)),
+  Minimal stripping, release ARM64:
+  - **The strict size probe:** +4 bytes, which is noise. Its one bound type
+    has no generic methods, so the generator writes no link.xml.
+  - **The game configuration bound in strict minimal** (264 engine types):
+    **+87,816 bytes of APK**. That is `libil2cpp.so` +68 KB, `libunity.so`
+    +9 KB and metadata +11 KB, compressed. link.xml grows from one type (the
+    `[DoNotGen]` `GameObject.SendMessage` and `BroadcastMessage`) to 24
+    types with 72 method names. Among them are `GameObject` and
+    `Component`'s `GetComponent` family and `AddComponent`, `Object`'s
+    `Instantiate` and `FindObjectsByType`, `Resources.Load`,
+    `ScriptableObject.CreateInstance`, `Mesh.SetVertices` and the
+    `GetPixelData` and `SetPixelData` methods of the textures.
+
+  The probe calls none of these methods. A game that already calls
+  `GetComponent<T>` or `Instantiate<T>` from C# pays less.
+- **Question for the owner:** the change costs more than 30 KB at game size,
+  so it was not committed. Options:
+  - (a) Commit it as measured: up to 86 KB in strict minimal for a
+    configuration that binds many engine types, and nothing in legacy. It
+    fixes a silent `nil` that shows up only in players.
+  - (b) List only the methods of the project's own types (types declared in
+    the compiling assembly). The game configuration then costs nothing, and
+    user types are fixed. Engine generic methods still need the project's
+    own link.xml or `[ReflectionUse]` on the type (`preserve="all"`, which
+    costs more). MIGRATING.md would say so.
+  - (c) Leave link.xml as it is and document that in strict minimal,
+    `xlua.get_generic_method` needs `[ReflectionUse]` or a project link.xml
+    for the type.
+
+  **Recommendation: (a).** The bug is wrong behaviour that appears only on
+  the device. `[ReflectionUse]`, the workaround in (b) and (c), costs more
+  per type than the method entries, and many games already keep some of
+  these engine methods through their own C# calls. Signature entries that
+  name only the generic overload would save little: the wrappers already
+  call the non-generic overloads.
+
+**Found on the way: defines set in the build launch.** The generator's
+link.xml comes from the Editor's assemblies (`SourceGenChecks.MergedLinkXml`).
+A batch launch compiles those assemblies before an `-executeMethod` build
+script runs, so a script that calls `SetScriptingDefineSymbols` and then
+`BuildPlayer` in the same launch gets the link.xml of the old defines.
+`size_report.py` did that for its `+minimal` variants. Its first
+`ng-5.5+minimal+strict+game` player had the legacy preset's `preserve="all"`
+for all 264 types, although the build ran with `XLUA_PRESET_MINIMAL`. It now
+applies the defines in a launch of their own, as it already did for the core
+variants. A project that switches from minimal to legacy that way gets the
+narrow link.xml in a legacy player, which is the Q75 bug again. This is M5
+question 2 ("link.xml from the Editor assemblies"). Reading the
+player-compiled assemblies would close it; it needs Cecil in `XLua.Editor`.
+
+**Not run:** obfuz in Unity, High and Medium stripping sizes, iOS, WebGL, a
+phone, players of minimal with `HOTFIX_ENABLE`.
 
 ## 10. Open questions for the owner
 

@@ -518,18 +518,25 @@ renamer: once with the rule file, applied as obfuz 4.0.0 applies rules, once
 honouring only `[Obfuscation(Exclude = true)]`, as attribute-driven tools do.
 Types, namespaces, non-virtual methods, fields, properties and events are
 renamed (`$N0.$32`); references through generic instances and `typeof` in
-attribute blobs follow. The plain build and both renamed builds then run 17
-checks from Lua with the original names: `CS.Game.Shop`, members, statics,
-events, a nested and a generic type, enums, a GCOptimize struct, a delegate
-and an interface from Lua, `xlua.typename`, the metatable key, a
-`[ReflectionUse]` type, a `[DoNotGen]` member, an init-only setter left to
-reflection, an enum with more than 20 values used by name, and a type without
-configuration. In the plain build all pass. With the rules only the type
-without configuration fails (it is not in the name table); with the attribute
-alone the four reflection uses fail too, which shows what the rules keep.
-Any other result fails the run. `--define` works as in `run_managed.py`; each
-Mono run has a timeout (`--timeout`, 300 s) and its process group is killed
-after it.
+attribute blobs follow. Before running the build renamed with the rules, the
+script checks the renamer's mapping: no type or member that the generator's
+link.xml fragment names may have been renamed, because UnityLinker reads that
+file after obfuz ran and it names them by their original names. The plain
+build and both renamed builds then run 17 checks from Lua with the original
+names: `CS.Game.Shop`, members, statics, events, a nested and a generic type,
+enums, a GCOptimize struct, a delegate and an interface from Lua,
+`xlua.typename`, the metatable key, a `[ReflectionUse]` type, a `[DoNotGen]`
+member, an init-only setter left to reflection, an enum with more than 20
+values used by name, and a type without configuration. In the plain
+build all pass. With the rules only the type without configuration fails (it
+is not in the name table); with the attribute alone the four reflection uses
+fail too, which shows what the rules keep. Any other result fails the run.
+`--define` works as in `run_managed.py`. Run it twice: for the legacy preset
+(the default), whose link.xml keeps the `[LuaCallCSharp]` types whole, so the
+rules keep their names and `Game.Shop` is not renamed; and with `--define
+XLUA_PRESET_MINIMAL --define XLUA_REFLECTION` and the minimal plugin, where
+the rules rename `Game.Shop` and the name table checks matter. Each Mono run
+has a timeout (`--timeout`, 300 s) and its process group is killed after it.
 
 ### Windows hosts: the .NET Framework and Mono (2026-10-28)
 
@@ -3973,7 +3980,16 @@ reflection fallback and nothing bound, so its probe does not run:
 `+minimal+reflection` adds `XLUA_REFLECTION`, and `+minimal+strict` installs
 the source generator in `Assets/XLua/Src/Analyzers` and binds what the probe
 calls (`SizeProbe.cs` with `XLUA_SIZE_STRICT`), the preset as shipped;
-`--configs strict` builds the baseline and the three for Android. Results in
+`--configs strict` builds the baseline and the three for Android.
+`ng-5.5+minimal+strict+game` binds the game-sized configuration
+(`SizeGameSgConfig.cs`) the same way, and its player gets the generator's
+link.xml (`link-sourcegen.xml`); measure it against `baseline+game`. Since
+2026-10-29 the `+minimal` variants put their defines into the Player
+Settings in a launch of their own (`SmokeBuild.ApplyDefines`), as the core
+variants do. The generator's link.xml comes from the Editor's assemblies,
+and the build launch compiles those before `SmokeBuild` sets the defines. So
+before that date a `+minimal+strict` player got the legacy preset's link.xml,
+which since Q75 keeps every bound type whole. Results in
 [build/SIZE.md](../build/SIZE.md#presets). Keep `--work` short: Unity's build
 pipes live in `TMPDIR` (`WORK/tmp`): with a 69-character `--work` Unity
 6000.3.21f1 failed before compiling with `SocketAddress.Size` from
