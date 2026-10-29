@@ -74,7 +74,8 @@ Variants:
                the project gets com.unity.modules.androidjni to read the extra)
   NAME+vsbench  VsBench/VsBench.cs and VsBench/VsBenchXLua.cs in Assembly-CSharp, run by the probe
                (XLUA_SIZE_VS_BENCH): the cross-library bench of vs_bench.py, a subset of zlua-benchmark's case list,
-               XLUA_VSBENCH lines in the log; one package per mode (org.xluang.vs.plain, .gcm, .minimal); needs +sg
+               XLUA_VSBENCH lines in the log; one package per mode (org.xluang.vs.plain, .gcm, .minimal, plus
+               $XLUA_PBENCH_SUFFIX as for +pbench), profileable from the shell like +pbench; needs +sg
                or +minimal+strict (docs/research/benchmark-vs-puerts-zlua.md). With +sg it gets no SizeSgConfig.cs:
                every xlua-ng bench player binds the bench's types and SizeProbeApi only, as the strict minimal one
                does (until 2026-10-29 the legacy players also bound GameObject, Transform and Debug: 134 KB of APK and
@@ -466,6 +467,8 @@ def prepare(a, work, platform, variant, project):
             sys.exit("+vsbench needs +sg or +minimal+strict: " + variant)
         for n in ["VsBench.cs", "VsBenchXLua.cs"]:
             shutil.copy2(here / "VsBench" / n, assets / n)
+        # For simpleperf on the emulator (the attribute changes nothing at run time).
+        shutil.copy2(here / "PbenchProfileable.cs", assets / "Editor/PbenchProfileable.cs")
     if "hfbench" in flags:
         shutil.copy2(repo / "Test/Native/HotfixBench.cs", assets / "HotfixBench.cs")
         if platform == "android":
@@ -708,7 +711,9 @@ def run(a):
                     benv["XLUA_SMOKE_APP_ID"] = "org.xluang.pbench." + ("gcm" if "gcm" in flags else "plain") \
                         + os.environ.get("XLUA_PBENCH_SUFFIX", "")
                 if "vsbench" in flags:
-                    benv["XLUA_SMOKE_APP_ID"] = "org.xluang.vs." + ("minimal" if "minimal" in flags else "gcm" if "gcm" in flags else "plain")
+                    # XLUA_PBENCH_SUFFIX as for +pbench: the players of two trees side by side.
+                    benv["XLUA_SMOKE_APP_ID"] = "org.xluang.vs." + ("minimal" if "minimal" in flags else "gcm" if "gcm" in flags else "plain") \
+                        + os.environ.get("XLUA_PBENCH_SUFFIX", "")
                 if "gsize" in flags:
                     benv["XLUA_SMOKE_IL2CPP_CODEGEN"] = "OptimizeSize"
                 if "sim" in flags:
