@@ -3973,7 +3973,16 @@ reflection fallback and nothing bound, so its probe does not run:
 `+minimal+reflection` adds `XLUA_REFLECTION`, and `+minimal+strict` installs
 the source generator in `Assets/XLua/Src/Analyzers` and binds what the probe
 calls (`SizeProbe.cs` with `XLUA_SIZE_STRICT`), the preset as shipped;
-`--configs strict` builds the baseline and the three for Android. Results in
+`--configs strict` builds the baseline and the three for Android.
+`ng-5.5+minimal+strict+game` binds the game-sized configuration
+(`SizeGameSgConfig.cs`) the same way, and its player gets the generator's
+link.xml (`link-sourcegen.xml`); measure it against `baseline+game`. Since
+2026-10-29 the `+minimal` variants put their defines into the Player
+Settings in a launch of their own (`SmokeBuild.ApplyDefines`), as the core
+variants do. The generator's link.xml comes from the Editor's assemblies,
+and the build launch compiles those before `SmokeBuild` sets the defines. So
+before that date a `+minimal+strict` player got the legacy preset's link.xml,
+which since Q75 keeps every bound type whole. Results in
 [build/SIZE.md](../build/SIZE.md#presets). Keep `--work` short: Unity's build
 pipes live in `TMPDIR` (`WORK/tmp`): with a 69-character `--work` Unity
 6000.3.21f1 failed before compiling with `SocketAddress.Size` from
