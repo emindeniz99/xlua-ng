@@ -793,6 +793,8 @@ each, ns per call:
   each of two modes, in every pass, on all four **[C]**.
 - `Tools/build_source_generator.py --test`: 51 tests **[C]** (the generator
   did not change).
+- After merging main of the same day (`1cf72534`): the four suites again
+  (523 tests in each mode and pass) and the generator's 53 tests **[C]**.
 - The phone players above (plain and GCM, Lua 5.5.1, Minimal stripping)
   ran the bench's cases without an error **[C]**.
 - Not run: the Unity editor suite, `sanitize.sh`, the native checks (the
@@ -800,7 +802,10 @@ each, ns per call:
 
 ### Reproducing
 
-Scripts and raw logs are in `overhead-2026-10-29/` on the build disk:
+Scripts and raw logs are in `overhead-2026-10-29/` on the build disk
+(`scripts/`, `phone/`, `time2b/`, `spike2/`, `time3/`; `il2cpp/` keeps
+`libil2cpp.so` and its symbols of the GCM players before and after the
+change and of the descriptor players of 2026-10-28 and D2):
 `build_players.sh` (size_report.py with `XLUA_PBENCH_SUFFIX` and a source
 tree per candidate), `pbench_run.py` and `phone_session.py` (interleaved
 launches, the phone's snapshot and log), `aggregate.py` and `mdtable.py`
