@@ -258,8 +258,9 @@ namespace XLua.SourceGenerator
             set2.ExposedStructs = string.Join("\n", exposed);
             var reflectionUse = ReflectionUseLinkLines(compilation, entries, typed);
             set2.LinkXml = LinkXmlDocument(set2.Types.SelectMany(t => t.LinkXml.Split('\n')).Concat(reflectionUse)
-                .Concat(BoundTypeLinkLines(compilation, luaCallCSharp)));
-            set2.ObfuzRules = ObfuzRulesDocument(set2.Types.SelectMany(t => t.ObfuzLines.Split('\n')).Concat(reflectionUse));
+                .Concat(BoundTypeLinkLines(compilation, luaCallCSharp, LinkAll)));
+            set2.ObfuzRules = ObfuzRulesDocument(set2.Types.SelectMany(t => t.ObfuzLines.Split('\n')).Concat(reflectionUse)
+                .Concat(BoundTypeLinkLines(compilation, luaCallCSharp, KeepName)));
             return set2;
         }
 
