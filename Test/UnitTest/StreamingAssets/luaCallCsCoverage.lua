@@ -243,12 +243,30 @@ function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethod(self)
     ASSERT_VALUE_TYPE_GENERIC("Int64:7", xlua.get_generic_method(G, "Echo", 0)(CS.System.Int64), 7)
     ASSERT_EQ(xlua.get_generic_method(typeof(G), "Wrap")(CS.System.String)(G(), "x"), "g<String>x")
     ASSERT_VALUE_TYPE_GENERIC("Int32,String", xlua.get_generic_method(G, "Pair")(CS.System.Int32, CS.System.String), 1, "x")
-    ASSERT_EQ(xlua.get_generic_method(G, "NotGeneric"), nil)
-    ASSERT_EQ(xlua.get_generic_method(G, "Missing"), nil)
+    -- Without a generic method of the name: CaseGetGenericMethodMissing.
     expectError("xlua.get_generic_method, can not find c# type", xlua.get_generic_method, nil, "Echo")
     expectError("xlua.get_generic_method, #2 param need a string", xlua.get_generic_method, G, "")
     expectError("param #1 is not a type", echo, 1)
     expectError("xlua.get_generic_method", xlua.get_generic_method, G, "Echo", 5)
+end
+
+-- A name without a generic method (a typo, a non-generic method, or in an
+-- IL2CPP player one that stripping removed): with XLUA_RESTRICT_PRIVATE_ACCESS
+-- (minimal) xlua.get_generic_method raises and names the type and the method,
+-- rather than returning nil for a later "attempt to call a nil value"
+-- (2026-10-29). Legacy still returns nil, as upstream did. The stripping hint
+-- is only in IL2CPP players, which the host is not.
+function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethodMissing(self)
+    local G = CS.Coverage.Generics
+    for _, name in ipairs({"Echoo", "NotGeneric"}) do
+        if CS.BridgeHardening.Defines.RestrictPrivateAccess() then
+            local ok, err = pcall(xlua.get_generic_method, G, name)
+            ASSERT_EQ(ok, false)
+            ASSERT_EQ(tostring(err), "xlua.get_generic_method: Coverage.Generics has no public generic method '" .. name .. "'.")
+        else
+            ASSERT_EQ(xlua.get_generic_method(G, name), nil)
+        end
+    end
 end
 
 -- The third argument picks one of several generic methods with the name; the
