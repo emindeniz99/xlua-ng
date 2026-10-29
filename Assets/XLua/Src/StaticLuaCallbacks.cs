@@ -1481,6 +1481,19 @@ namespace XLua
             }
         }
 
+#if XLUA_RESTRICT_PRIVATE_ACCESS
+        internal static string GenericMethodNotFound(Type type, string methodName)
+        {
+            string typeName = type.FullName ?? type.Name;
+            return "xlua.get_generic_method: " + typeName + " has no public generic method '" + methodName + "'."
+#if ENABLE_IL2CPP && !UNITY_EDITOR
+                + " In an IL2CPP player, stripping may have removed it: add [ReflectionUse] to " + typeName
+                + " (or [assembly: XLua.ReflectionUse(typeof(" + typeName.Replace('+', '.') + "))]), or keep it in a link.xml."
+#endif
+                ;
+        }
+#endif
+
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         public static int GetGenericMethod(RealStatePtr L)
         {
@@ -1516,7 +1529,18 @@ namespace XLua
 
                 if (matchMethods.Count == 0)
                 {
+#if XLUA_RESTRICT_PRIVATE_ACCESS
+                    // Not nil, which Lua only notices as "attempt to call a nil
+                    // value" at the call. In an IL2CPP player the usual cause is
+                    // stripping: no wrapper and no C# code calls a generic method
+                    // whose type parameters no parameter uses, and link.xml keeps
+                    // it only for types kept whole (2026-10-29). Legacy, which
+                    // searches non-public methods too, still returns nil, as
+                    // upstream did.
+                    return LuaAPI.luaL_error(L, GenericMethodNotFound(type, methodName));
+#else
                     LuaAPI.lua_pushnil(L);
+#endif
                 }
                 else
                 {
