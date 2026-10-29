@@ -537,6 +537,14 @@ A `LuaEnv` is not thread-safe. In the Editor, Development Builds and outside Uni
 - Watch for other hidden threads: asynchronous socket callbacks, `Task.Run` continuations, `Application.logMessageReceivedThreaded`. Unity may run a MonoBehaviour's constructor and field initializers off the main thread while it loads a scene; creating an env there is fine, but run Lua from `Awake` or `Start`, not from the initializer.
 - `Interrupt()` and the statistics (`MemoryUsed`, `MemoryPeak`, the limits) work from any thread. `LuaOptions.CheckThread = false` turns the check off for one env.
 
+## Why does Android 16 say "This app isn't 16 KB compatible"?
+
+A device with 16 KB memory pages runs an app in page size compatibility mode, and shows this dialog when it starts, if a native library of the app has 4 KB aligned segments ("ELF alignment check failed") or is stored uncompressed in the APK without 16 KB zip alignment ("APK alignment check failed"). Google Play requires 16 KB support for apps that target Android 15 and later. xLua's Android libraries are 16 KB aligned. What to check:
+
+- **The Unity version.** Unity 2021.3.45f2's own `libunity.so` and `libmain.so`, and the `libil2cpp.so` it builds, are 4 KB aligned, so every 2021.3.45f2 player gets the dialog, with or without xLua. The Android players of 2022.3.62f3, 6000.3.21f1 and 6000.6.4f1 are 16 KB aligned (measured 2026-10-29; other versions were not checked).
+- **Other native plugins.** `python3 Test/MobileSmoke/check_apk_16k.py YOUR.apk` (or `.aab`) names every library that fails Android 16's check, with no device needed.
+- **An earlier install.** Android 16 remembers the result for the package: once a build with a 4 KB library was installed, updates keep the compatibility mode and the dialog, even when the new APK is aligned, until the app is uninstalled. `adb shell dumpsys package <package>` shows `pageSizeCompat=4` (ELF) or `2` (APK alignment). Uninstall before testing a fixed build. See [android-16kb-dialog.md](../../../docs/research/android-16kb-dialog.md).
+
 ## What if macOS 10.15 or later reports xlua.bundle as damaged?
 
 For a trusted plugin blocked by macOS quarantine, the original workaround removes the quarantine attribute from that bundle. Replace the path below with the actual trusted bundle path:
