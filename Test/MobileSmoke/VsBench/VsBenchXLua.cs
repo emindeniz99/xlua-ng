@@ -51,6 +51,8 @@ using VsBench;
 [assembly: CSharpCallLua(typeof(RetClass3))]
 [assembly: CSharpCallLua(typeof(RetVector33))]
 [assembly: CSharpCallLua(typeof(RetStruct3))]
+[assembly: CSharpCallLua(typeof(Work))]
+[assembly: CSharpCallLua(typeof(Num0))]
 
 namespace VsBench
 {

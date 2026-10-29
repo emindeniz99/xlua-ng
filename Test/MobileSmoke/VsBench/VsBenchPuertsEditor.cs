@@ -23,7 +23,7 @@ public class VsBenchPuertsConfig
                 typeof(TestTargets), typeof(TestClass), typeof(TestStruct), typeof(TestEnum), typeof(Vector3),
                 typeof(Step), typeof(Void0), typeof(Str0), typeof(VoidInt3), typeof(RetInt3), typeof(RetLong3),
                 typeof(RetDouble3), typeof(RetString3), typeof(RetObject3), typeof(RetClass3), typeof(RetVector33),
-                typeof(RetStruct3),
+                typeof(RetStruct3), typeof(Work), typeof(Num0),
             };
         }
     }

@@ -1,7 +1,7 @@
 // The library-neutral part of the cross-library player bench (vs_bench.py, docs/research/benchmark-vs-puerts-zlua.md):
 // a subset of zlua-benchmark's case list, the C# targets those cases call, one Lua module with every case, and the
-// timing loop. An adapter per library (VsBenchXLua.cs, VsBenchPuerts.cs, VsBenchZLua.cs) loads the module and
-// turns its functions into C# delegates; nothing here depends on a Lua library.
+// timing loop. An adapter per library (VsBenchXLua.cs, VsBenchPuerts.cs, VsBenchZLua.cs, VsBenchMoonSharp.cs) loads
+// the module and turns its functions into C# delegates; nothing here depends on a Lua library.
 //
 // Source of the case list: github.com/focus-creative-games/zlua-benchmark at ef18f1e9 (2026-07-28),
 // shared/case_manifest.txt (the `line` column below), shared/Lua/bench_lua2cs.lua (each Lua -> C# case runs its
@@ -13,10 +13,13 @@
 //
 // Method (as Test/MobileSmoke/PlayerBench.cs): 7 rounds; a round runs every case once with 100,000 operations after
 // a full Lua and C# collection; a case's result is the median of its rounds. The coroutine yields a frame between
-// cases. Output lines: XLUA_VSBENCH_META, XLUA_VSBENCH (one per case: ns per operation of each round, the Lua or C#
-// loop included), XLUA_VSBENCH_SKIP (a case the library cannot run, with the error), XLUA_VSBENCH_CHECK (values
-// the cases left behind, so a mapping that did nothing shows) and XLUA_VSBENCH_DONE; the same lines go to
-// vsbench-result.txt in persistentDataPath.
+// cases. Then the pure Lua workloads (Pure below, docs/research/benchmark-vs-moonsharp-ng.md): PureRuns rounds of
+// every workload with its full iteration count, ns per iteration; and an allocation pass with both collectors
+// stopped. Output lines: XLUA_VSBENCH_META, XLUA_VSBENCH (one per case: ns per operation of each round, the Lua or
+// C# loop included; pure.* cases also give their check value), XLUA_VSBENCH_SKIP (a case the library cannot run,
+// with the error), XLUA_VSBENCH_ALLOC (managed and Lua bytes per operation), XLUA_VSBENCH_CHECK (values the cases
+// left behind, so a mapping that did nothing shows) and XLUA_VSBENCH_DONE; the same lines go to vsbench-result.txt
+// in persistentDataPath.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -91,6 +94,10 @@ namespace VsBench
     public delegate TestClass RetClass3(TestClass a, TestClass b, TestClass c);
     public delegate Vector3 RetVector33(Vector3 a, Vector3 b, Vector3 c);
     public delegate TestStruct RetStruct3(TestStruct a, TestStruct b, TestStruct c);
+    // The pure Lua workloads: n iterations, the result as a string (the check value).
+    public delegate string Work(int n);
+    // collectgarbage('count') for the allocation pass.
+    public delegate double Num0();
 
     public interface ILuaAdapter
     {
@@ -111,6 +118,7 @@ namespace VsBench
         const int Rounds = 7;
         const int N = 100000;
         const int PerLoop = 10;  // BenchmarkConfig.Lua2CsCallsPerLoop
+        const int AllocOps = 10000;  // operations per bridge case in the allocation pass
 
         // name, case_manifest.txt line (0: not in zlua's list), setup (Lua), operation (Lua, run PerLoop times).
         static readonly string[,] Lua2Cs = {
@@ -160,12 +168,52 @@ namespace VsBench
             {"cs2lua.struct.3arg.ret", "56", "function(a, b, c) return a end"},
         };
 
+        // The pure Lua workloads (docs/research/benchmark-vs-moonsharp-ng.md): the Lua sources and iteration counts
+        // of the pure-Lua cases of Test/Native/flag_bench.c, as MoonSharp-ng's src/DevTools/Benchmarks/LuaWorkloads.cs
+        // copies them (the 18 rows of its docs/comparison-xlua-ng.md). table_sort is LuaWorkloads.cs's
+        // table_sort_52, which copies with a loop because Lua 5.2 has no table.move; every library runs that one.
+        // name, iterations, source (a chunk that returns function(n)), check value (tostring of the result; empty:
+        // not checked: method_call depends on earlier runs, and table_sort's seed arithmetic differs between
+        // Lua 5.2's doubles and 5.3+'s integers).
+        static readonly string[,] Pure = {
+            {"pure.empty_loop", "4000000", "return function(n) for i = 1, n do end end", "nil"},
+            {"pure.function_call", "1000000", "local function f(a) return a + 1 end\nreturn function(n) local x = 0 for i = 1, n do x = f(x) end return x end", "1000000"},
+            {"pure.method_call", "1000000", "local C = {} C.__index = C\nfunction C:inc() self.v = self.v + 1 end\nlocal o = setmetatable({ v = 0 }, C)\nreturn function(n) for i = 1, n do o:inc() end return o.v end", ""},
+            {"pure.table_array_insert", "1000000", "return function(n) local t = {} for i = 1, n do t[i] = i end return #t end", "1000000"},
+            {"pure.table_array_read", "1000000", "local t = {} for i = 1, 1024 do t[i] = i end\nreturn function(n) local s, j = 0, 1 for i = 1, n do s = s + t[j] j = j + 1 if j > 1024 then j = 1 end end return s end", "512370976"},
+            {"pure.table_hash_set_get", "1000000", "local keys = {} for i = 1, 64 do keys[i] = 'key' .. i end\nreturn function(n) local t, s, j = {}, 0, 1 for i = 1, n do local k = keys[j] t[k] = i s = s + t[k] j = j + 1 if j > 64 then j = 1 end end return s end", "500000500000"},
+            {"pure.string_concat", "500000", "return function(n) local buf, j = {}, 1 for i = 1, n do buf[j] = 'item' .. i j = j + 1 if j > 64 then j = 1 end end return buf[64] end", "item499968"},
+            {"pure.string_format", "500000", "local format = string.format\nreturn function(n) local buf, j = {}, 1 for i = 1, n do buf[j] = format('%d:%s', i, 'x') j = j + 1 if j > 64 then j = 1 end end return buf[64] end", "499968:x"},
+            {"pure.closure_create_call", "1000000", "return function(n) local s = 0 for i = 1, n do local f = function() return i end s = s + f() end return s end", "500000500000"},
+            {"pure.int_math", "2000000", "return function(n) local x = 1 for i = 1, n do x = (x * 31 + i) % 1000003 end return x end", "967568"},
+            {"pure.fib_recursive", "20000", "local function fib(n) if n < 2 then return n end return fib(n - 1) + fib(n - 2) end\nreturn function(n) local s = 0 for i = 1, n do s = s + fib(12) end return s end", "2880000"},
+            {"pure.float_math", "2000000", "return function(n) local x, y = 0.5, 0.25 for i = 1, n do x = x * 0.5 + y * 0.25 y = y * 0.5 + x / 3.0 + 0.001 end return string.format('%.6f', x + y) end", "0.004500"},
+            {"pure.string_pattern", "100000", "local s = 'the quick brown fox 123 jumps over the lazy dog 4567'\nreturn function(n) local c = 0 for i = 1, n do local a, b = s:find('(%a+) (%d+)') local r, k = s:gsub('o', '0') c = c + a + k + #s:match('%d+$') end return c end", "2500000"},
+            {"pure.table_sort", "2000", "local src, x = {}, 12345 for i = 1, 256 do x = (x * 1103515245 + 12345) % 2147483648 src[i] = x end\nreturn function(n) local s = 0 for i = 1, n do local t = {} for k = 1, 256 do t[k] = src[k] end table.sort(t) s = s + t[1] % 1000 end return s end", ""},
+            {"pure.table_concat", "50000", "local parts = {} for i = 1, 32 do parts[i] = tostring(i) end\nreturn function(n) local s = 0 for i = 1, n do s = s + #table.concat(parts, ',') end return s end", "4300000"},
+            {"pure.coroutine_switch", "500000", "return function(n) local co = coroutine.wrap(function() local i = 0 while true do i = i + 1 coroutine.yield(i) end end)\nlocal s = 0 for i = 1, n do s = s + co() end return s end", "125000250000"},
+            {"pure.gc_small_tables", "500000", "return function(n) local keep, s = {}, 0 for i = 1, n do local t = { i, i + 1, x = i } keep[i % 128 + 1] = t s = s + t[2] end return s end", "125000750000"},
+            {"pure.oop_inherit", "1000000", "local Base = {} Base.__index = Base function Base:get() return self.v end\nlocal Derived = setmetatable({}, Base) Derived.__index = Derived\nlocal o = setmetatable({ v = 3 }, Derived)\nreturn function(n) local s = 0 for i = 1, n do s = s + o:get() end return s end", "3000000"},
+        };
+
+        const int PureRuns = 5;  // timed runs per launch of each pure Lua workload, after a warm-up of a tenth
+
         public static string Module(string prelude)
         {
             var sb = new StringBuilder();
             sb.Append("local M = {}\n").Append(prelude).Append('\n');
             sb.Append("M.version = function() return _VERSION end\n");
             sb.Append("M.gc = function() collectgarbage('collect') collectgarbage('collect') end\n");
+            // The allocation pass: the Lua heap in KB (a native Lua's own heap; MoonSharp reports the managed heap),
+            // and the Lua collector stopped and restarted around a measured step.
+            sb.Append("M.heapkb = function() return collectgarbage('count') end\n");
+            sb.Append("M.gcstop = function() collectgarbage('stop') end\n");
+            sb.Append("M.gcrestart = function() collectgarbage('restart') end\n");
+            // Integer results print without '.0' on every Lua version (tostring of a 5.3+ float would add it).
+            sb.Append("local function show(v) if math.type and math.type(v) == 'float' and v == math.floor(v) and v < 2^53 then return string.format('%d', v) end return tostring(v) end\n");
+            for (int c = 0; c < Pure.GetLength(0); c++)
+                sb.Append("do local f = (function()\n").Append(Pure[c, 2]).Append("\nend)()\nM['").Append(Pure[c, 0])
+                    .Append("'] = function(n) return show((f(n))) end end\n");
             sb.Append("M.tbl = {x = 42}\n");
             sb.Append("M.check = function() local o = TT.Instance return string.format('field=%s prop=%s static=%s v3=%s,%s,%s', "
                 + "tostring(o.Field_Int), tostring(o.Prop_Int), tostring(TT.StaticField_Int), tostring(o.Prop_Vector3.x), "
@@ -323,6 +371,110 @@ namespace VsBench
                 log("XLUA_VSBENCH {\"name\": " + Json(names[c]) + ", \"library\": " + Json(library) + ", \"mode\": " + Json(mode)
                     + ", \"min\": " + Num(Math.Round(row[0], 2)) + ", \"median\": " + Num(Math.Round(row[Rounds / 2], 2))
                     + ", \"runs\": [" + string.Join(", ", parts) + "]}");
+            }
+
+            // The pure Lua workloads: PureRuns rounds, each running every workload once with its full iteration
+            // count after both collections; ns per iteration, the median of the rounds.
+            var pureNames = new List<string>();
+            var pureRuns = new List<Work>();
+            var pureIters = new List<int>();
+            for (int c = 0; c < Pure.GetLength(0); c++)
+            {
+                try
+                {
+                    var f = lua.Get<Work>(Pure[c, 0]);
+                    int iters = int.Parse(Pure[c, 1], CultureInfo.InvariantCulture);
+                    f(Math.Max(1, iters / 10));  // warm-up
+                    pureNames.Add(Pure[c, 0]); pureRuns.Add(f); pureIters.Add(iters);
+                }
+                catch (Exception e)
+                {
+                    log("XLUA_VSBENCH_SKIP {\"name\": " + Json(Pure[c, 0]) + ", \"error\": " + Json(e.GetType().Name + ": " + e.Message) + "}");
+                }
+                yield return null;
+            }
+            var pureNs = new double[pureNames.Count, PureRuns];
+            var pureCheck = new string[pureNames.Count];
+            for (int r = 0; r < PureRuns; r++)
+            {
+                for (int c = 0; c < pureNames.Count; c++)
+                {
+                    gc();
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    long start = Stopwatch.GetTimestamp();
+                    string result = pureRuns[c](pureIters[c]);
+                    long ticks = Stopwatch.GetTimestamp() - start;
+                    pureNs[c, r] = ticks * (1e9 / Stopwatch.Frequency) / pureIters[c];
+                    pureCheck[c] = result;
+                    yield return null;
+                }
+            }
+            for (int c = 0; c < pureNames.Count; c++)
+            {
+                var row = new double[PureRuns];
+                var parts = new string[PureRuns];
+                for (int r = 0; r < PureRuns; r++) { row[r] = pureNs[c, r]; parts[r] = Num(Math.Round(pureNs[c, r], 2)); }
+                Array.Sort(row);
+                string expected = null;
+                for (int k = 0; k < Pure.GetLength(0); k++) if (Pure[k, 0] == pureNames[c]) expected = Pure[k, 3];
+                log("XLUA_VSBENCH {\"name\": " + Json(pureNames[c]) + ", \"library\": " + Json(library) + ", \"mode\": " + Json(mode)
+                    + ", \"min\": " + Num(Math.Round(row[0], 2)) + ", \"median\": " + Num(Math.Round(row[PureRuns / 2], 2))
+                    + ", \"runs\": [" + string.Join(", ", parts) + "], \"iterations\": " + pureIters[c]
+                    + ", \"check\": " + Json(pureCheck[c]) + ", \"check_ok\": " + (string.IsNullOrEmpty(expected) ? "null" : expected == pureCheck[c] ? "true" : "false") + "}");
+            }
+
+            // The allocation pass, after the timing: each case once more with fewer operations and both collectors
+            // stopped. Managed bytes: GC.GetTotalMemory(false) before and after (IL2CPP has no per-thread counter;
+            // the managed heap only grows while its collector is off, rounded up to Boehm's size classes). Lua
+            // bytes: collectgarbage('count') before and after with Lua's collector stopped (a native Lua's own heap;
+            // MoonSharp's 'count' is the managed heap, so its column repeats the managed one).
+            Num0 heapKb = null;
+            Void0 luaStop = null, luaRestart = null;
+            try { heapKb = lua.Get<Num0>("heapkb"); luaStop = lua.Get<Void0>("gcstop"); luaRestart = lua.Get<Void0>("gcrestart"); }
+            catch (Exception e) { log("XLUA_VSBENCH_SKIP {\"name\": \"alloc\", \"error\": " + Json(e.GetType().Name + ": " + e.Message) + "}"); }
+            if (heapKb != null)
+            {
+                for (int c = 0; c < names.Count + pureNames.Count; c++)
+                {
+                    bool pure = c >= names.Count;
+                    string name = pure ? pureNames[c - names.Count] : names[c];
+                    int ops = pure ? Math.Max(10, pureIters[c - names.Count] / 100) : AllocOps;
+                    gc();
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    string error = null;
+                    long managed = 0;
+                    double luaKb = 0;
+                    int gcs = 0;
+#if ENABLE_IL2CPP && !UNITY_EDITOR
+                    UnityEngine.Scripting.GarbageCollector.GCMode = UnityEngine.Scripting.GarbageCollector.Mode.Disabled;
+#endif
+                    try
+                    {
+                        luaStop();
+                        gcs = GC.CollectionCount(0);
+                        double kb0 = heapKb();
+                        long m0 = GC.GetTotalMemory(false);
+                        if (pure) pureRuns[c - names.Count](ops);
+                        else runs[c](ops / perCall[c]);
+                        long m1 = GC.GetTotalMemory(false);
+                        double kb1 = heapKb();
+                        gcs = GC.CollectionCount(0) - gcs;
+                        managed = m1 - m0;
+                        luaKb = kb1 - kb0;
+                    }
+                    catch (Exception e) { error = e.GetType().Name + ": " + e.Message; }
+#if ENABLE_IL2CPP && !UNITY_EDITOR
+                    UnityEngine.Scripting.GarbageCollector.GCMode = UnityEngine.Scripting.GarbageCollector.Mode.Enabled;
+#endif
+                    try { luaRestart(); } catch (Exception) { }
+                    log("XLUA_VSBENCH_ALLOC {\"name\": " + Json(name) + ", \"library\": " + Json(library) + ", \"mode\": " + Json(mode)
+                        + ", \"ops\": " + ops + ", \"managed_bytes_per_op\": " + Num(Math.Round((double)managed / ops, 1))
+                        + ", \"lua_bytes_per_op\": " + Num(Math.Round(luaKb * 1024 / ops, 1)) + ", \"gcs\": " + gcs
+                        + ", \"error\": " + Json(error) + "}");
+                    yield return null;
+                }
             }
             string check;
             try { check = lua.Get<Str0>("check")(); } catch (Exception e) { check = "error " + e.Message; }
