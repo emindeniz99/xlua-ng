@@ -43,42 +43,111 @@ public sealed class XluaSmokeTests
     // require finds a module that exists only in StreamingAssets through the last
     // searcher, LoadFromStreamingAssetsPath. XLUA_NO_STREAMING_ASSETS_LOADER
     // (prepare.py --no-streaming-assets-loader) leaves that searcher out, so the
-    // same require fails with Lua's "not found" error.
+    // same require fails with Lua's "not found" error. The searcher logs nothing:
+    // upstream's "load lua file from StreamingAssets is obsolete" warning for
+    // every file is gone (owner decision Q83 of 2026-10-29).
     [Test]
     public void StreamingAssetsSearcherFollowsTheDefine()
     {
         const string module = "xlua_ng_streaming_assets_probe";
-        var dir = Application.streamingAssetsPath;
-        var createdDir = !Directory.Exists(dir);
-        var file = Path.Combine(dir, module + ".lua");
-        Directory.CreateDirectory(dir);
-        File.WriteAllText(file, "return 'from StreamingAssets'");
-        try
+        var messages = new System.Collections.Generic.List<string>();
+        Application.LogCallback collect = (message, stack, type) => messages.Add(type + ": " + message);
+        WithStreamingAssets(new[] { module + ".lua" }, () =>
         {
             using (var env = new LuaEnv())
             {
-#if !XLUA_NO_STREAMING_ASSETS_LOADER
-                LogAssert.Expect(LogType.Warning, new Regex("load lua file from StreamingAssets is obsolete"));
-#endif
-                var result = env.DoString("return pcall(require, '" + module + "')");
+                object[] result;
+                Application.logMessageReceived += collect;
+                try
+                {
+                    result = env.DoString("return pcall(require, '" + module + "')");
+                }
+                finally
+                {
+                    Application.logMessageReceived -= collect;
+                }
 #if XLUA_NO_STREAMING_ASSETS_LOADER
                 Assert.AreEqual(false, result[0]);
                 StringAssert.Contains("module '" + module + "' not found", (string)result[1]);
                 StringAssert.DoesNotContain("streamingAssetsPath", (string)result[1]);
 #else
                 Assert.AreEqual(true, result[0], result[1] as string);
-                Assert.AreEqual("from StreamingAssets", result[1]);
+                Assert.AreEqual("from StreamingAssets " + module + ".lua", result[1]);
+                var missing = env.DoString("return pcall(require, 'xlua_ng_no_such.module')");
+                Assert.AreEqual(false, missing[0]);
+                StringAssert.Contains("no such file 'xlua_ng_no_such/module.lua' in streamingAssetsPath!", (string)missing[1]);
 #endif
+                CollectionAssert.IsEmpty(messages, "require from StreamingAssets logs nothing");
             }
+        });
+    }
+
+    // StreamingAssetsLoader.Load, the searcher's reader as a custom loader, in
+    // every preset: a project without the searcher (minimal) adds it with one
+    // line. The module a.b.c is StreamingAssets/a/b/c.lua, whose path below
+    // StreamingAssets becomes the chunk name and require's second result.
+    [Test]
+    public void StreamingAssetsLoaderLoadsNestedModules()
+    {
+        WithStreamingAssets(new[] { "xlua_ng_sa/a/b/c.lua" }, () =>
+        {
+            using (var env = new LuaEnv())
+            {
+                env.AddLoader(StreamingAssetsLoader.Load);
+                var result = env.DoString(
+                    "local m, data = require('xlua_ng_sa.a.b.c') " +
+                    "return m, data, select(2, pcall(require, 'xlua_ng_sa.missing'))");
+                Assert.AreEqual("from StreamingAssets xlua_ng_sa/a/b/c.lua", result[0]);
+                if (result[1] != null)
+                {
+                    // Lua 5.4 and 5.5 return the loader data; 5.3 does not.
+                    Assert.AreEqual("xlua_ng_sa/a/b/c.lua", result[1]);
+                }
+                StringAssert.Contains("no such file 'xlua_ng_sa.missing' in CustomLoaders!", (string)result[2]);
+            }
+            string name = "xlua_ng_sa.a.b.c";
+            byte[] bytes = StreamingAssetsLoader.Load(ref name);
+            Assert.AreEqual("xlua_ng_sa/a/b/c.lua", name);
+            Assert.AreEqual("return 'from StreamingAssets xlua_ng_sa/a/b/c.lua'", System.Text.Encoding.UTF8.GetString(bytes));
+            string missing = "xlua_ng_sa.missing";
+            Assert.IsNull(StreamingAssetsLoader.Load(ref missing));
+            Assert.AreEqual("xlua_ng_sa.missing", missing);
+            Assert.IsNull(StreamingAssetsLoader.ReadAllBytes("xlua_ng_sa/a/b/missing.lua"));
+        });
+    }
+
+    // Writes each file below StreamingAssets ("return 'from StreamingAssets <path>'"),
+    // runs body and deletes them with any folder it made.
+    static void WithStreamingAssets(string[] files, System.Action body)
+    {
+        var root = Application.streamingAssetsPath;
+        var created = new System.Collections.Generic.List<string>();
+        foreach (var relative in files)
+        {
+            var dir = Path.GetDirectoryName(Path.Combine(root, relative));
+            for (var d = dir; d.Length >= root.Length && !Directory.Exists(d); d = Path.GetDirectoryName(d))
+            {
+                created.Add(d);
+            }
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(root, relative), "return 'from StreamingAssets " + relative + "'");
+        }
+        try
+        {
+            body();
         }
         finally
         {
-            File.Delete(file);
-            File.Delete(file + ".meta");
-            if (createdDir)
+            foreach (var relative in files)
             {
-                Directory.Delete(dir, true);
-                File.Delete(dir + ".meta");
+                File.Delete(Path.Combine(root, relative));
+                File.Delete(Path.Combine(root, relative) + ".meta");
+            }
+            created.Sort((a, b) => b.Length.CompareTo(a.Length));
+            foreach (var d in created)
+            {
+                if (Directory.Exists(d)) Directory.Delete(d, true);
+                File.Delete(d + ".meta");
             }
         }
     }
