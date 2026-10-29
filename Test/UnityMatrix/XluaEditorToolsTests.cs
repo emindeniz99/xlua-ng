@@ -196,6 +196,27 @@ public sealed class XluaEditorToolsTests
         }
     }
 
+    // A player build fails when its defines differ from the Editor's compiled
+    // ones in a define xLua's build steps read (BuildDefinesCheck.cs);
+    // defines_guard.py builds players in the real launches.
+    [Test]
+    public void BuildDefinesCheckComparesTheDefinesBuildStepsRead()
+    {
+        string none = XLua.BuildDefinesCheck.Problem(new[] { "HOTFIX_ENABLE", "GAME_A" }, "Standalone",
+            new[] { " HOTFIX_ENABLE ", "GAME_B", "XLUA_NO_UTIL", "" }, "Standalone", new[] { "GAME_C" });
+        Assert.IsNull(none, "only defines no build step reads changed");
+        string legacy = XLua.BuildDefinesCheck.Problem(new[] { "XLUA_PRESET_MINIMAL", "XLUA_REFLECTION" }, "Standalone",
+            new[] { "XLUA_REFLECTION" }, "Android", null);
+        StringAssert.Contains("XLUA_PRESET_MINIMAL removed", legacy);
+        StringAssert.DoesNotContain("XLUA_REFLECTION", legacy.Substring(0, legacy.IndexOf(" (the Editor")));
+        StringAssert.Contains("Player Settings of Android", legacy);
+        string extra = XLua.BuildDefinesCheck.Problem(new string[0], "Standalone", new[] { "GEN_CODE_MINIMIZE" }, "Standalone",
+            new[] { "HOTFIX_ENABLE" });
+        StringAssert.Contains("GEN_CODE_MINIMIZE added", extra);
+        StringAssert.Contains("HOTFIX_ENABLE added", extra);
+        StringAssert.Contains("extraScriptingDefines cannot add HOTFIX_ENABLE,", extra);
+    }
+
     [Test]
     public void HotfixToolsAreCheckedAgainstTheManifest()
     {

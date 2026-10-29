@@ -2873,6 +2873,36 @@ The editor suite in mode `sourcegen` (`prepare.py --editor-tools --asmdef
 (`MergedLinkXmlReadsAsUtf8`); with the old `SourceGenChecks.cs` that test
 fails (38/39).
 
+### Defines changed in the build launch (2026-10-29)
+
+`Test/UnityMatrix/defines_guard.py --unity EXE --unity-version V --plugin
+libxlua.dylib --project P --out O` checks `BuildDefinesCheck.cs`. It
+prepares a project with `prepare.py --platform macos --editor-tools
+--source-gen` and adds `DefinesGuard/XluaDefinesGuardSteps.cs`. Then it runs
+six editor launches, each of which may set the Player Settings defines of
+Standalone and then builds a macOS Mono player in the same launch:
+
+1. setting `XLUA_PRESET_MINIMAL;XLUA_REFLECTION` must fail with xLua's
+   message;
+2. the next launch must build;
+3. clearing the defines must fail;
+4. the next launch must build, and the generator's link.xml must keep more
+   types whole than in step 2;
+5. `BuildPlayerOptions.extraScriptingDefines` `HOTFIX_ENABLE` must fail;
+6. setting the unrelated `XLUA_GUARD_UNRELATED` must build.
+
+It prints `XLUA_DEFINES_GUARD_PASS`. The editor suite's
+`XluaEditorToolsTests.BuildDefinesCheckComparesTheDefinesBuildStepsRead`
+checks the comparison and the message without a build.
+
+| Unity | Result |
+| --- | --- |
+| 6000.3.21f1 | `XLUA_DEFINES_GUARD_PASS`; link.xml keeps 17 types whole in legacy and 0 in minimal with `XLUA_REFLECTION`. Without `BuildDefinesCheck.cs`, step 1 built a minimal player with the 17 legacy entries |
+| 2021.3.45f2 | `XLUA_DEFINES_GUARD_PASS`, the same counts |
+
+macOS arm64, the Lua 5.5.1 plugin and the generator built from the same
+tree. Not run: IL2CPP players, other build targets.
+
 ### UPM package layout (source generator M6)
 
 `prepare.py --package` builds xLua with `Tools/make_upm_package.py` into
