@@ -1,6 +1,7 @@
 # Descriptor wrappers, generic virtual methods and auto-properties in IL2CPP players
 
-Date: 2026-10-19. Spike approved by the owner (question 89): prototype and
+Date: 2026-10-19; phone and emulator call cost 2026-10-28; the per-call
+overhead experiment 2026-10-29. Spike approved by the owner (question 89): prototype and
 measure, no product feature. The prototype is on the local branch
 `spike/descriptor-wrappers` (not pushed; commits `ef22a5ee`, `69f09107`,
 `90c51ef2` on top of main `b6500f95`). Nothing of it is in the product tree.
@@ -445,6 +446,10 @@ successor or the minimal preset's default:
 Total about 15 working days (12 + 1 for the per-type choice + 2 for the
 overhead work) **[U]**.
 
+The owner chose the 2 days of point 2 on 2026-10-29 (question 81, option b),
+with the decision on the full mode after the first release; they are done, see
+[Per-call overhead on the phone](#per-call-overhead-on-the-phone-2026-10-29).
+
 ### Not run
 
 - High or Medium stripping, Development players, `armeabi-v7a`, x86_64.
@@ -460,6 +465,347 @@ overhead work) **[U]**.
 - Main's current runtime: the spike tree is from 2026-10-19, so changes to
   the translator since then (for example the bridge checks) are not in
   these numbers; they apply to all three modes alike.
+
+## Per-call overhead on the phone (2026-10-29)
+
+Owner's decision of 2026-10-29 (question 81, option b): a time-boxed
+experiment of about 2 working days on the per-call overhead of generated
+wrappers on the phone; the full descriptor mode is decided after the first
+release, and if the work turns out complicated it stops and goes into the
+roadmap in detail. The facts it started from (the section above): on the moto
+g play 2024 the descriptor mode costs about +52 ns per call over GCM (about
+42 ns fixed per call), and GCM itself about +24 ns over plain wrappers (+53
+for `static_call`). The minimal preset implies GCM, and the descriptor mode
+runs on GCM's trampoline, so a saving in GCM's entry helps every minimal
+project now.
+
+### Method
+
+**Players** **[C]**: the player bench of 2026-10-28 (`Test/MobileSmoke/PlayerBench.cs`,
+`size_report.py +pbench`), Unity 6000.3.21f1, release ARM64 IL2CPP,
+Minimal stripping, Lua 5.5.1, with three additions on main (commit
+`test(tests): profile mode and package suffix for the player bench`): the
+APKs are profileable from the shell, a launch can run chosen cases only
+(`pbench_profile`), and `XLUA_PBENCH_SUFFIX` gives the players of another
+tree their own package, so before and after a change are installed side
+by side. Main (`fd4a43ce`) in plain and GCM mode with this checkout's Lua
+5.5.1 plugin; the spike tree of 2026-10-28 (`spike/descriptor-wrappers`
+at `90c51ef2` plus the bench) in GCM and descriptor mode with the
+spike's plugin (`ultra/plugins`, as on 2026-10-28). Every candidate change
+is a player of its own, built from a copy of the tree with only that
+change.
+
+**Profiler: not used.** The plan was `simpleperf record --app` on the
+profileable players. On this phone `perf_event_paranoid` is -1, and
+simpleperf's own limit check (`environment.cpp`, `CheckPerfEventLimit`)
+returns before it would set a property, but on Android 11 and later
+simpleperf's `main` sets `security.perf_harden` to 0 whenever it runs from
+the shell and the property is not 0 already (`main.cpp`,
+`AndroidSecurityCheck`) **[C]** (AOSP `android14-release`; the phone's
+property read 1 before and 0 after one `simpleperf --version` at
+2026-10-28T23:39:30Z). That is a device setting, which the phone's rules
+do not allow, so simpleperf was not run again and no profile was recorded.
+About 70 s later the phone installed a system update and rebooted
+(`reboot,ota` at 23:41:39Z, build `U1TFS34.100-35-14-1-21` to `-1-23`,
+security patch 2026-08-01 to 2026-10-01), which reset the property: it read
+1 in every later snapshot and at 02:25Z. Both are in the phone's log
+(playground `projects/moto-g-play-2024/CHANGES.md`). Instead: the IL2CPP C++
+of the players (`Library/Bee/artifacts/Android/il2cppOutput/cpp`) and
+`llvm-objdump` of their `libil2cpp.so` with the symbols of
+`libil2cpp.sym.so`, and players with one change each, timed on the phone.
+
+**Timing** **[C]**: as on 2026-10-28, a launch runs 7 rounds of 100,000
+calls per case and gives the median per case; launches rotate between the
+APKs (15 s apart, Thermal Status 0 before and after each); the tables give
+the median of the per-launch medians, 6 launches per APK for the
+candidates, 8 for the final check and the spike. No Unity editor ran
+during the sessions used here (the script checks before every launch and
+held xlua-ng's Unity lock); a first attempt that other agents' builds kept
+waiting was stopped and is not used.
+
+### Where the time goes
+
+**GCM over plain** (main, phone, `static_call` +57 ns, the mix +18 ns) **[C]**:
+
+- **A full memory barrier per call.** `InternalGlobals.objectTranslatorPool`
+  was `static volatile` (`Assets/XLua/Src/InternalGlobals.cs:58`), and
+  IL2CPP compiles every read of a volatile field to the load and
+  `il2cpp_codegen_memory_barrier()` (`ObjectTranslatorPool_get_Instance` in
+  the generated `XLua__1.cpp`), which is `il2cpp::vm::Thread::FullMemoryBarrier`,
+  a `dmb ish` (`libil2cpp/vm/Thread.cpp:938`; in the GCM player's
+  `libil2cpp.so` at `0x49800c`). `ObjectTranslatorPool.Instance` runs on
+  every `Find`: GCM's C# entry (`StaticLuaCallbacks.CSharpWrapperCallerImpl`)
+  calls it for every call, and plain wrappers for every member that needs
+  the translator. The field is set once in the type initializer and never
+  written again.
+- **The translator lookup where plain needs none.** A plain wrapper of a
+  static method whose arguments and result are Lua types does not look the
+  translator up (`Wrappers.cs`, `Method`: `FindTranslatorLine` only when the
+  call needs it); GCM's entry needs the translator for its wrapper table on
+  every call. This is why `static_call` paid +57 ns and the property and
+  field cases, which look it up in both modes, about +30 (`instance_call`
+  was within the launches' scatter).
+- **The rest of the entry**, per call: the native trampoline reads the
+  wrapper id and the argument count through two Lua API calls
+  (`lua_tointegerx` on upvalue 1, `lua_gettop`; `build/xlua_core.c`,
+  `csharp_function_wrapper_wrapper`) where the plain one reads one
+  (`lua_tocfunction`); a C# frame more (`CSharpWrapperCallerImpl`, 16
+  instructions on its path) with `Find` (`xlua_gl` through P/Invoke, the
+  cache compare); `ObjectTranslator.CallCSharpWrapper`, an out-of-line call
+  in another C++ file (18 instructions); and the delegate call itself, one
+  indirect call: IL2CPP binds a closed delegate's `invoke_impl` straight to
+  the method (`libil2cpp/vm/Type.cpp`, `SetClosedDelegateInvokeMethod`, and
+  the generated `CSharpWrapper__ctor`). The wrappers' bodies are the same in
+  both modes (GCM's have no `try`, which costs nothing until a throw).
+
+**Candidates, one player each** (6 launches each, ns per call) **[C]**:
+
+- **A**: `objectTranslatorPool` `static readonly` instead of `static volatile`;
+- **B**: `Find` returns the cached translator without `xlua_gl` when the
+  state passed is the cached main state (calls from the main thread);
+- **C**: the GCM entry reads the pool field and the wrapper table directly
+  (no property getter, no `CallCSharpWrapper`).
+
+| case | plain | plain A | GCM | GCM A | GCM A+B+C | GCM - plain | A (plain) | A (GCM) | B (GCM) | B+C after A (GCM) | GCM A+B+C - plain A+B |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `static_call` | 143.5 | 143.8 | 200.1 | 191.3 | 188.4 | +56.6 | +0.3 | -8.8 | +1.5 | -3.0 | +41.3 |
+| `instance_call` | 375.9 | 350.6 | 366.2 | 346.4 | 343.7 | -9.6 | -25.2 | -19.9 | -2.6 | -2.7 | -12.0 |
+| `property_get` | 397.6 | 375.4 | 427.8 | 410.4 | 409.3 | +30.2 | -22.2 | -17.3 | -10.0 | -1.1 | +31.0 |
+| `property_set` | 325.7 | 320.4 | 360.9 | 353.3 | 352.5 | +35.2 | -5.3 | -7.6 | -0.3 | -0.8 | +25.8 |
+| `field_get` | 397.5 | 378.7 | 427.2 | 413.0 | 408.2 | +29.7 | -18.8 | -14.2 | -5.2 | -4.7 | +25.1 |
+| `field_set` | 326.8 | 324.2 | 360.7 | 355.1 | 351.7 | +33.9 | -2.6 | -5.6 | +0.7 | -3.3 | +23.1 |
+| `string_arg` | 398.2 | 396.3 | 439.2 | 437.9 | 431.4 | +41.0 | -2.0 | -1.4 | +0.7 | -6.5 | +33.6 |
+| `string_return` | 292.7 | 290.3 | 334.4 | 332.8 | 329.7 | +41.8 | -2.4 | -1.7 | +1.1 | -3.1 | +37.9 |
+| `struct_gcopt_pass` | 785.6 | 746.3 | 776.2 | 765.7 | 762.8 | -9.4 | -39.3 | -10.5 | +5.1 | -3.0 | +14.7 |
+| `struct_boxed_pass` | 3027.3 | 2994.1 | 3167.1 | 2992.6 | 2966.5 | +139.8 | -33.2 | -174.5 | -49.8 | -26.1 | -32.6 |
+| `struct_gcopt_new` | 730.4 | 716.3 | 742.4 | 734.3 | 727.1 | +12.0 | -14.1 | -8.0 | -3.5 | -7.2 | +11.6 |
+| `struct_gcopt_field_get` | 458.5 | 428.8 | 456.7 | 449.8 | 441.5 | -1.8 | -29.7 | -6.9 | +1.3 | -8.3 | +15.2 |
+| `struct_boxed_field_get` | 1036.2 | 1017.6 | 1125.5 | 1001.6 | 1001.7 | +89.2 | -18.6 | -123.8 | -28.9 | +0.1 | -36.0 |
+| `object_return_cached` | 1431.5 | 1384.9 | 1411.0 | 1443.7 | 1424.8 | -20.4 | -46.6 | +32.6 | +9.8 | -18.8 | +7.7 |
+| `unity_object_arg` | 527.9 | 511.2 | 517.8 | 521.0 | 518.7 | -10.1 | -16.7 | +3.2 | +11.2 | -2.3 | +14.2 |
+| `class_object_arg` | 508.1 | 499.1 | 527.9 | 511.6 | 507.4 | +19.8 | -8.9 | -16.3 | +0.2 | -4.2 | +10.6 |
+| `overload_disjoint` | 161.9 | 160.4 | 201.2 | 196.4 | 195.2 | +39.3 | -1.5 | -4.8 | +1.6 | -1.2 | +30.5 |
+| `overload_num_integer` | 194.4 | 192.7 | 230.8 | 223.7 | 223.2 | +36.4 | -1.8 | -7.1 | -0.3 | -0.6 | +30.2 |
+| `overload_num_float` | 201.0 | 198.8 | 238.9 | 230.1 | 227.9 | +37.9 | -2.2 | -8.8 | -4.2 | -2.2 | +29.5 |
+| `overload_obj_class` | 1423.1 | 1430.7 | 1460.2 | 1435.5 | 1438.5 | +37.2 | +7.7 | -24.7 | +3.0 | +3.0 | +5.0 |
+| `overload_obj_derived` | 1498.5 | 1506.1 | 1571.5 | 1616.0 | 1606.5 | +73.0 | +7.6 | +44.5 | +2.9 | -9.5 | +101.1 |
+| `unity_vector3_new` | 675.4 | 664.2 | 686.1 | 680.7 | 674.5 | +10.7 | -11.2 | -5.4 | +0.1 | -6.2 | +9.7 |
+| `unity_position_get` | 873.2 | 840.6 | 888.9 | 868.9 | 874.1 | +15.7 | -32.6 | -20.0 | -2.3 | +5.2 | +15.4 |
+| `unity_position_set` | 576.5 | 539.8 | 563.5 | 560.1 | 564.6 | -13.0 | -36.7 | -3.4 | +6.1 | +4.5 | +17.0 |
+| `unity_vector3_field_get` | 525.7 | 489.9 | 520.9 | 504.8 | 503.5 | -4.8 | -35.9 | -16.1 | +2.3 | -1.3 | +6.1 |
+| `unity_mathf_max_int` | 298.9 | 289.5 | 302.5 | 300.9 | 296.8 | +3.7 | -9.4 | -1.6 | +1.1 | -4.1 | +8.6 |
+| `unity_mathf_max_float` | 529.7 | 519.6 | 528.6 | 531.3 | 520.9 | -1.1 | -10.0 | +2.7 | +1.4 | -10.4 | +1.9 |
+| `unity_instance_method` | 3910.1 | 4012.0 | 4200.6 | 4227.5 | 4220.0 | +290.5 | +101.9 | +26.9 | -9.0 | -7.5 | +207.0 |
+| hot-path mix (18 cases) | **459.9** | **443.4** | **477.8** | **468.3** | **465.5** | **+17.9** | **-16.5** | **-9.5** | **-0.2** | **-2.9** | **+18.6** |
+
+- **A is the win**: -9.5 ns over the GCM mix (-2.0%) and -16.5 ns over the
+  plain mix (-3.6%). In GCM -1 to -20 ns for the single calls (`static_call`
+  -9, `instance_call` -20, property and field gets -14 to -17, sets -6 to
+  -8, strings -1 to -2), -124 and -175 ns for the boxed struct cases, which
+  look the translator up more than once per call; in plain up to -25 ns for
+  the instance members and -30 to -39 for the GCOptimize and `Vector3`
+  struct cases. `static_call` in plain does not change (+0.3): it never
+  looked the translator up. Two cases bound by allocation and the object
+  cache got slower in GCM (`object_return_cached` +33, `overload_obj_derived`
+  +45), and `unity_instance_method`, which goes through the reflection
+  wrapper in every mode, moves by 100 to 300 ns between builds; see the
+  build-to-build note under the spike results below.
+- **B gives nothing measurable** (-0.2 ns over the mix): the `xlua_gl`
+  P/Invoke is cheap, IL2CPP calls a cached function pointer. Not kept.
+- **C adds about -3 ns** (B+C after A: -2.9 over the mix, lower in 19 of
+  27 cases), at the edge of what one build can show; kept, as it only
+  removes a call and a getter.
+- What A and C leave of GCM's entry is structural: the extra C# frame,
+  the translator lookup, the wrapper table, the delegate and the two
+  native API calls, about +41 ns for `static_call` and +19 ns over the mix
+  against plain with A (the last column; plain A+B is the plain player with
+  A and B). Removing them means per-member native entry points again, which
+  is what GCM gives up to save size.
+
+**On main** (commit `perf(runtime): no memory barrier on the translator
+lookup of every call`): A and C, built from the commit itself and timed
+against the players of `fd4a43ce`, 8 launches each **[C]**:
+
+| case | plain | plain new | GCM | GCM new | plain: new - old | GCM: new - old | GCM - plain, old | GCM - plain, new |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `static_call` | 143.8 | 143.9 | 201.1 | 190.7 | +0.1 | -10.4 | +57.3 | +46.8 |
+| `instance_call` | 350.8 | 334.4 | 367.3 | 344.8 | -16.4 | -22.5 | +16.4 | +10.4 |
+| `property_get` | 388.8 | 374.0 | 421.4 | 408.0 | -14.8 | -13.3 | +32.5 | +34.0 |
+| `property_set` | 328.5 | 321.1 | 360.0 | 351.5 | -7.3 | -8.5 | +31.5 | +30.3 |
+| `field_get` | 390.0 | 378.3 | 423.4 | 409.6 | -11.7 | -13.7 | +33.3 | +31.3 |
+| `field_set` | 329.5 | 323.4 | 361.3 | 353.2 | -6.2 | -8.1 | +31.8 | +29.9 |
+| `string_arg` | 393.3 | 396.4 | 438.9 | 427.2 | +3.1 | -11.6 | +45.6 | +30.9 |
+| `string_return` | 292.8 | 292.1 | 334.1 | 328.5 | -0.7 | -5.6 | +41.3 | +36.4 |
+| `struct_gcopt_pass` | 776.7 | 745.4 | 780.5 | 759.8 | -31.4 | -20.7 | +3.7 | +14.4 |
+| `struct_boxed_pass` | 3022.0 | 3081.4 | 3100.4 | 3018.9 | +59.4 | -81.4 | +78.4 | -62.4 |
+| `struct_gcopt_new` | 728.4 | 715.7 | 740.0 | 726.3 | -12.7 | -13.7 | +11.6 | +10.6 |
+| `struct_gcopt_field_get` | 445.8 | 426.0 | 458.7 | 442.4 | -19.8 | -16.3 | +12.9 | +16.4 |
+| `struct_boxed_field_get` | 1028.5 | 1083.3 | 1088.2 | 993.4 | +54.8 | -94.8 | +59.7 | -90.0 |
+| `object_return_cached` | 1449.1 | 1432.9 | 1404.6 | 1427.5 | -16.2 | +22.9 | -44.5 | -5.4 |
+| `unity_object_arg` | 527.1 | 518.9 | 520.5 | 537.0 | -8.2 | +16.4 | -6.6 | +18.0 |
+| `class_object_arg` | 504.1 | 498.5 | 526.2 | 507.6 | -5.6 | -18.7 | +22.1 | +9.0 |
+| `overload_disjoint` | 159.9 | 162.0 | 201.6 | 196.3 | +2.1 | -5.3 | +41.7 | +34.3 |
+| `overload_num_integer` | 194.2 | 193.9 | 229.7 | 222.5 | -0.3 | -7.2 | +35.5 | +28.6 |
+| `overload_num_float` | 201.3 | 198.3 | 233.6 | 226.9 | -3.0 | -6.6 | +32.2 | +28.7 |
+| `overload_obj_class` | 1420.9 | 1440.5 | 1455.3 | 1425.3 | +19.6 | -29.9 | +34.3 | -15.1 |
+| `overload_obj_derived` | 1492.2 | 1508.9 | 1564.7 | 1551.4 | +16.6 | -13.2 | +72.4 | +42.6 |
+| `unity_vector3_new` | 674.9 | 668.9 | 686.6 | 672.2 | -6.0 | -14.4 | +11.7 | +3.3 |
+| `unity_position_get` | 862.2 | 862.1 | 888.4 | 864.5 | -0.1 | -23.9 | +26.1 | +2.3 |
+| `unity_position_set` | 560.0 | 540.5 | 565.5 | 548.7 | -19.5 | -16.8 | +5.5 | +8.2 |
+| `unity_vector3_field_get` | 512.7 | 500.2 | 524.0 | 500.3 | -12.6 | -23.7 | +11.2 | +0.1 |
+| `unity_mathf_max_int` | 299.1 | 287.5 | 302.5 | 295.1 | -11.6 | -7.4 | +3.4 | +7.6 |
+| `unity_mathf_max_float` | 529.0 | 518.2 | 528.7 | 519.5 | -10.8 | -9.2 | -0.4 | +1.3 |
+| `unity_instance_method` | 3937.7 | 4103.1 | 4180.0 | 4165.4 | +165.3 | -14.6 | +242.3 | +62.3 |
+| hot-path mix (18 cases) | **454.0** | **444.4** | **477.7** | **463.7** | **-9.6** | **-14.0** | **+23.7** | **+19.3** |
+
+- **GCM: -14.0 ns per call over the mix (-2.9%)**, -10 ns for
+  `static_call`, -8 to -23 ns for the instance, property and field cases,
+  -81 and -95 ns for the boxed struct cases. **Plain: -9.6 ns over the mix
+  (-2.1%)**, -6 to -16 ns for the instance members, which look the
+  translator up; `static_call` unchanged. GCM's lead over plain falls from
+  +23.7 to +19.3 ns over the mix and from +57 to +47 ns for `static_call`.
+- In plain the boxed struct cases came out +55 and +59 ns slower here and
+  -19 and -33 ns faster in the candidate run (`plain A` above), and the
+  reflection-bound `unity_instance_method` moves by 100 to 300 ns in both
+  directions between runs; they are the cases with the widest scatter
+  between launches.
+- All of today's sessions ran on the phone's new system build (it installed
+  an update and rebooted at 2026-10-28T23:40Z, below); compare absolute
+  numbers with the 2026-10-28 tables with care. Plain `static_call` read
+  143.8 ns today and 159.0 on 2026-10-28 (on the spike tree).
+
+**Descriptor over GCM** (the spike, `static_call`) **[C]**: per call the core
+(`Assets/XLua/Src/SpikeDescriptorCore.cs` on the branch) adds a second
+dispatch and a general argument loop. In the player's `libil2cpp.so`
+`DescGroup.Call` is 400 instructions with a prologue that saves 12
+registers and `d8`; per argument it loads the kind, switches on it and
+calls `SetL`/`SetD`/`SetO` (34 instructions each, a switch on the
+argument's position, not inlined); it reaches the buffer through the type
+(`owner.buffer[0]`), calls the type's switch method through a second
+delegate (`__DescInvoke`, 384 instructions, a jump table) and switches over
+the result kind. GCM's `_m_StaticAdd` is 45 instructions and reads its two
+integers in line.
+
+**On the spike only** (not merged; the copies are `spike2-src` and
+`spike3-src` in `overhead-2026-10-29/` on the build disk) **[C]**:
+
+- **D2**: `DescGroup.Call` with its hot path kept small: one overload goes
+  straight to the argument loop, overload selection and the error texts are
+  methods of their own (`Select`, `Fail`); the buffer is cached in the group;
+  integer and float arguments are stored by index through a pointer into
+  `l0..l7` and `d0..d7` (consecutive fields; IL2CPP keeps the declared
+  order) instead of a switch on the position, and `SetL`/`SetD`/`SetO` are
+  `AggressiveInlining`. `Call` shrinks from 400 to 304 instructions; `SetL`
+  is a single store. Inlined, `SetO` made clang compute the eight object
+  slot addresses before the loop on every call.
+- **D3**: D2 with `SetO` not inlined: `Call` is 261 instructions.
+
+GCM, the descriptor of 2026-10-28 and D2 and D3, interleaved, 8 launches
+each, ns per call:
+
+| case | GCM | descriptor | D2 | D3 | descriptor - GCM | D2 - GCM | D3 - GCM |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `static_call` | 207.5 | 255.1 | 242.2 | 251.7 | +47.6 | +34.7 | +44.3 |
+| `instance_call` | 360.1 | 418.7 | 406.1 | 428.5 | +58.6 | +46.0 | +68.4 |
+| `property_get` | 426.7 | 484.8 | 477.1 | 511.0 | +58.0 | +50.4 | +84.2 |
+| `property_set` | 366.8 | 428.2 | 420.0 | 443.0 | +61.3 | +53.2 | +76.2 |
+| `field_get` | 426.5 | 487.7 | 478.0 | 513.7 | +61.2 | +51.5 | +87.1 |
+| `field_set` | 370.1 | 430.0 | 421.3 | 444.7 | +59.9 | +51.1 | +74.5 |
+| `string_arg` | 440.8 | 501.2 | 514.5 | 516.6 | +60.4 | +73.7 | +75.9 |
+| `string_return` | 357.0 | 424.2 | 427.9 | 435.6 | +67.2 | +70.9 | +78.6 |
+| `struct_gcopt_pass` | 775.1 | 840.4 | 842.6 | 857.1 | +65.2 | +67.4 | +81.9 |
+| `struct_boxed_pass` | 2906.2 | 2608.5 | 2553.7 | 2580.9 | -297.7 | -352.5 | -325.3 |
+| `struct_gcopt_new` | 763.9 | 865.7 | 841.9 | 862.0 | +101.8 | +78.0 | +98.1 |
+| `struct_gcopt_field_get` | 456.7 | 504.7 | 481.7 | 498.5 | +48.0 | +25.0 | +41.8 |
+| `struct_boxed_field_get` | 896.3 | 499.0 | 499.4 | 512.9 | -397.3 | -397.0 | -383.4 |
+| `object_return_cached` | 1434.9 | 1533.9 | 1561.7 | 1549.1 | +99.0 | +126.8 | +114.2 |
+| `unity_object_arg` | 522.2 | 414.0 | 413.7 | 426.6 | -108.2 | -108.5 | -95.6 |
+| `class_object_arg` | 515.9 | 349.4 | 344.6 | 357.1 | -166.5 | -171.4 | -158.8 |
+| `overload_disjoint` | 208.6 | 257.4 | 256.4 | 264.3 | +48.8 | +47.7 | +55.6 |
+| `overload_num_integer` | 187.7 | 235.9 | 233.9 | 241.5 | +48.2 | +46.2 | +53.8 |
+| `overload_num_float` | 187.5 | 236.1 | 233.4 | 241.0 | +48.6 | +45.9 | +53.6 |
+| `overload_obj_class` | 998.3 | 1072.6 | 1094.9 | 1078.5 | +74.3 | +96.7 | +80.2 |
+| `overload_obj_derived` | 992.2 | 1085.6 | 1094.5 | 1077.4 | +93.4 | +102.3 | +85.2 |
+| `unity_vector3_new` | 712.5 | 847.8 | 828.5 | 849.5 | +135.3 | +116.0 | +137.0 |
+| `unity_position_get` | 875.6 | 982.2 | 973.5 | 1002.1 | +106.6 | +98.0 | +126.5 |
+| `unity_position_set` | 543.5 | 664.0 | 657.4 | 679.2 | +120.6 | +113.9 | +135.7 |
+| `unity_vector3_field_get` | 515.8 | 610.4 | 588.7 | 611.6 | +94.6 | +72.9 | +95.8 |
+| `unity_mathf_max_int` | 213.4 | 283.3 | 275.0 | 282.3 | +69.9 | +61.6 | +68.9 |
+| `unity_mathf_max_float` | 208.7 | 276.3 | 268.6 | 276.5 | +67.7 | +59.9 | +67.8 |
+| `unity_instance_method` | 2896.3 | 2691.0 | 2773.9 | 2723.4 | -205.3 | -122.4 | -172.9 |
+| hot-path mix (18 cases) | **459.9** | **520.2** | **510.6** | **529.3** | **+60.2** | **+50.6** | **+69.4** |
+
+- **D2 takes 1 to 24 ns off the descriptor's fixed cost** (`static_call`
+  -13, `instance_call` -13, properties and fields -8 to -10, the GCOptimize
+  struct cases -19 to -24), -9.6 ns over the mix: the gap to GCM is now
+  +50.6 ns over the mix (+11.0%) and +35 ns for `static_call`. String and
+  object arguments got slower (+13, +28): the inlined `SetO`.
+- **D3, the same code with one fewer inlined method, is slower than both**:
+  +69.4 over the mix, +44 to +87 ns for the single calls. Its hot path has
+  fewer instructions than D2's; what differs is code placement in the
+  11 MB `libil2cpp.so`. **Between two builds that differ in one attribute,
+  a call on this phone moves by 10 to 35 ns**, as much as the changes
+  measured here. Changes of a few ns cannot be told apart in one build;
+  they need several builds or a profile.
+- **The fixed cost is structural.** What is left after D2 is the second
+  dispatch (the closed `DescInvoker` delegate into the type's switch), the
+  general argument loop (load the kind, switch, store into the buffer; the
+  stub loads it back), the result switch, and a frame that saves 10
+  registers and `d8`. GCM's per-member method reads its arguments into
+  registers and calls the member directly. Getting to about 20 ns per call
+  (the target the 2026-10-28 recommendation set) needs a different design,
+  for example generated readers per argument shape shared between members
+  of the same signature, or a stub that reads its own arguments; both give
+  back part of the size the mode saves (about 100 bytes of APK per Lua
+  function against GCM). Not attempted: it is more than the 2 days, so this
+  stops here, as the owner asked, and the plan is in the
+  [backlog](../design/backlog.md) and [ROADMAP.md](../../ROADMAP.md).
+- The descriptor mode stays faster where it skips work GCM does: boxed
+  structs (-298 to -397 ns) and class or `UnityEngine.Object` arguments
+  (-108 to -171 ns), as on 2026-10-28.
+- The profile mode itself ran on the phone once (GCM with A+B+C:
+  `XLUA_PBENCH_PROFILE_START static_call,instance_call 5`, then 190.0 and
+  342.3 ns per call over 9.4 million calls each, matching the timing
+  rounds).
+
+### Not run
+
+- A CPU profile (simpleperf; see Method). The emulator could take one
+  without the phone's rule, but the emulator does not predict the phone
+  (the section above).
+- The final change on Lua versions other than 5.5.1 in a player; the host
+  suites ran it on 5.5.1 and LuaJIT (below).
+- Other cases of volatile reads on hot paths: `LuaIndexes.registryIndex`
+  (`Assets/XLua/Core/LuaTypes.cs:65`, read where the bridge pushes Lua
+  references and new objects) is `static volatile` too and set per env;
+  not measured.
+
+### Tests of the change on main
+
+- `Test/Native/run_managed.py --source-gen --source-gen-minimize
+  --source-gen-fallback` on macOS arm64 (Mono 6.14.1) with plugins built
+  from this checkout: Lua 5.5.1 and LuaJIT 2.1, each legacy and minimal
+  (`XLUA_PRESET=minimal`, `--define XLUA_PRESET_MINIMAL`): 523 tests in
+  each of two modes, in every pass, on all four **[C]**.
+- `Tools/build_source_generator.py --test`: 51 tests **[C]** (the generator
+  did not change).
+- The phone players above (plain and GCM, Lua 5.5.1, Minimal stripping)
+  ran the bench's cases without an error **[C]**.
+- Not run: the Unity editor suite, `sanitize.sh`, the native checks (the
+  native code did not change), Lua 5.4.9 and 5.3.6, iOS, WebGL.
+
+### Reproducing
+
+Scripts and raw logs are in `overhead-2026-10-29/` on the build disk:
+`build_players.sh` (size_report.py with `XLUA_PBENCH_SUFFIX` and a source
+tree per candidate), `pbench_run.py` and `phone_session.py` (interleaved
+launches, the phone's snapshot and log), `aggregate.py` and `mdtable.py`
+(the tables), `disas.py` and `cppfn.py` (instruction counts and the
+IL2CPP C++ of a method), `realflock.py` (a lock on the file the lock path
+names now: `/usr/bin/lockf` without `-k` removes the lock file when its
+command ends, and a process that waited on the removed file then holds a
+lock no newcomer sees, which let other agents' Unity builds run during
+this session's phone runs until the scripts used it).
 
 ## Generic virtual methods
 
