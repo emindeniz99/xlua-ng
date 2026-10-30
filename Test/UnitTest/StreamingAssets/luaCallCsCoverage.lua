@@ -664,6 +664,16 @@ function CMyTestCaseLuaCallCSCoverage.CaseNarrowValuesFromLua(self)
     CS.Coverage.CSharpApi.NarrowValues()
 end
 
+-- LuaTable reads and writes raw where no metamethod runs, through lua_pcall otherwise (2026-10-30).
+function CMyTestCaseLuaCallCSCoverage.CaseLuaTableRawPaths(self)
+    CS.Coverage.CSharpApi.LuaTableRawPaths()
+end
+
+-- The casters, checkers and get and push functions a translator keeps per type follow later registrations.
+function CMyTestCaseLuaCallCSCoverage.CaseTypeOpsFollowRegistrations(self)
+    CS.Coverage.CSharpApi.TypeOpsFollowRegistrations()
+end
+
 function CMyTestCaseLuaCallCSCoverage.CaseLuaFunctionApi(self)
     CS.Coverage.CSharpApi.LuaFunctionApi()
 end

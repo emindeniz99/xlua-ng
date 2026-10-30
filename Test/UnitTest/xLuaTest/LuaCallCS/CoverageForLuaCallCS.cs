@@ -39,6 +39,17 @@ namespace Coverage
         }
     }
 
+    // Types that LuaTable reads and writes in TypeOpsFollowRegistrations; no bindings.
+    public class CacheProbe
+    {
+        public int Value;
+    }
+
+    public class CacheProbePushed
+    {
+        public int Value;
+    }
+
     public struct Point
     {
         public int X;
@@ -942,6 +953,113 @@ namespace Coverage
                 add(() => t.GetInPath<Point>("x"));
             });
             return string.Join(";", names.ToArray());
+        }
+
+        // LuaTable.Get, ContainsKey and Set read and write raw where
+        // lua_gettable and lua_settable run no metamethod (a present key, a
+        // missing key of a table without a metatable) and through lua_pcall
+        // otherwise (build/xlua.c, xlua_getref_get): string keys and other
+        // keys, a missing key with __index and __newindex, a metatable without
+        // them, a value that is not a table, and the errors. The results are
+        // lua_gettable's and lua_settable's, and the stack stays as it was.
+        public static void LuaTableRawPaths()
+        {
+            fresh(env =>
+            {
+                env.DoString(@"
+                    log = {}
+                    plain = { a = 1, f = false, [2] = 'two', ['n\0ul'] = 'nul key', ['\195\169'] = 'accent' }
+                    base = { b = 'from base' }
+                    child = setmetatable({ a = 'own' }, { __index = base,
+                        __newindex = function(t, k, v) log[#log + 1] = tostring(k) rawset(t, k, v) end })
+                    nometa = setmetatable({}, {})
+                    bad = setmetatable({ x = 'raw' }, { __index = function(t, k) error('no ' .. k) end,
+                        __newindex = function(t, k, v) error('ro ' .. k) end })");
+                LuaTable plain = env.Global.Get<LuaTable>("plain"), child = env.Global.Get<LuaTable>("child");
+                LuaTable nometa = env.Global.Get<LuaTable>("nometa"), bad = env.Global.Get<LuaTable>("bad");
+                int before = top(env);
+
+                expectEqual(1, plain.Get<string, int>("a"), "a present string key");
+                expectEqual(false, plain.Get<string, bool>("f"), "false");
+                expect(plain.ContainsKey("f"), "false is a value");
+                expectEqual("two", plain.Get<int, string>(2), "a present int key");
+                expectEqual("nul key", plain.Get<string, string>("n\0ul"), "a key with a NUL");
+                expectEqual("accent", plain.Get<string, string>("\u00e9"), "a key that is not ASCII");
+                expectEqual(null, plain.Get<string, string>("missing"), "a missing key, no metatable");
+                expect(!plain.ContainsKey("missing") && !plain.ContainsKey(3), "ContainsKey of missing keys");
+                expectEqual("own", child.Get<string, string>("a"), "a present key with __index");
+                expectEqual("from base", child.Get<string, string>("b"), "a missing key: __index");
+                expect(child.ContainsKey("b") && !child.ContainsKey("c"), "ContainsKey through __index");
+                expectEqual(null, nometa.Get<string, string>("x"), "a metatable without __index");
+                expectEqual("raw", bad.Get<string, string>("x"), "a present key: no __index");
+                expect(throws(() => bad.Get<string, int>("y")).Contains("no y"), "a failing __index, string key");
+                expect(throws(() => bad.Get<int, int>(1)).Contains("no 1"), "a failing __index, int key");
+                expect(throws(() => bad.ContainsKey("z")).Contains("no z"), "ContainsKey with a failing __index");
+
+                child.Set("a", "changed");  // present: no __newindex
+                child.Set("n", "new");      // missing: __newindex
+                child.Set(5, "five");
+                child.Set<string, string>("a", null);  // present: set to nil without __newindex
+                child.Set("a", "again");    // missing again: __newindex
+                expectEqual("again", child.Get<string, string>("a"), "Set through __newindex");
+                expectEqual("five", child.Get<int, string>(5), "Set of an int key through __newindex");
+                expectEqual("n,5,a", env.DoString("return table.concat(log, ',')")[0], "__newindex calls");
+                plain.Set("new", 7);        // missing, no metatable
+                plain.Set(2, "deux");       // present int key
+                expectEqual(7, plain.Get<string, int>("new"), "Set of a new key");
+                expectEqual("deux", plain.Get<int, string>(2), "Set of a present int key");
+                bad.Set("x", "raw2");       // present: no __newindex
+                expectEqual("raw2", bad.Get<string, string>("x"), "Set of a present key with __newindex");
+                expect(throws(() => bad.Set("y", 1)).Contains("ro y"), "a failing __newindex, string key");
+                expect(throws(() => bad.Set(2, 1)).Contains("ro 2"), "a failing __newindex, int key");
+                expectEqual(before, top(env), "stack after the reads and writes");
+
+                // A LuaTable whose value is not a table: lua_gettable and lua_settable as before.
+                var L = (IntPtr)typeof(LuaEnv).GetProperty("L", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(env, null);
+                XLua.LuaDLL.Bridge.lua_pushstring(L, "text");
+                using (var text = new LuaTable(XLua.LuaDLL.Lua.luaL_ref(L), env))
+                {
+                    expect(text.Get<string, LuaFunction>("upper") != null, "a string's __index");
+                    expect(!text.ContainsKey("nothere"), "ContainsKey on a string");
+                    expect(throws(() => text.Set("x", 1)).Contains("index"), "Set on a string");
+                    expect(throws(() => text.Set(1, 1)).Contains("index"), "Set of an int key on a string");
+                }
+                expectEqual(before, top(env), "stack after the string");
+            });
+        }
+
+        // Get<T>, PushByType<T> and Assignable<T> keep what they found for a
+        // type per translator (ObjectTranslator.TypeOps); a caster, checker
+        // or get and push function registered later replaces it.
+        public static void TypeOpsFollowRegistrations()
+        {
+            fresh(env =>
+            {
+                var translator = (ObjectTranslator)typeof(LuaEnv).GetField("translator", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(env);
+                env.DoString("t = { n = 42, k = 1 }");
+                LuaTable t = env.Global.Get<LuaTable>("t");
+
+                CacheProbe probe = t.Get<string, CacheProbe>("n");
+                expect(probe == null, "no caster for a number yet");
+                int keys = 0;
+                t.ForEach<CacheProbe, int>((k, v) => keys++);
+                expectEqual(0, keys, "no checker takes the keys yet");
+                translator.RegisterCaster<CacheProbe>((IntPtr L, int idx, out CacheProbe v) => v = new CacheProbe { Value = XLua.LuaDLL.Bridge.xlua_tointeger(L, idx) });
+                expectEqual(42, t.Get<string, CacheProbe>("n").Value, "the caster registered after a read");
+                translator.RegisterChecker<CacheProbe>((L, idx) => true);
+                t.ForEach<CacheProbe, int>((k, v) => keys++);
+                expectEqual(2, keys, "the checker registered after a walk");
+
+                t.Set("p", new CacheProbePushed { Value = 7 });
+                expect(t.Get<string, CacheProbePushed>("p").Value == 7, "a C# object");
+                translator.RegisterPushAndGetAndUpdate<CacheProbePushed>(
+                    (L, v) => XLua.LuaDLL.Bridge.xlua_pushinteger(L, v.Value * 2),
+                    (IntPtr L, int idx, out CacheProbePushed v) => v = new CacheProbePushed { Value = XLua.LuaDLL.Bridge.xlua_tointeger(L, idx) + 1 },
+                    (L, idx, v) => { });
+                t.Set("p", new CacheProbePushed { Value = 7 });
+                expectEqual(14, t.Get<string, int>("p"), "the push function registered after a write");
+                expectEqual(15, t.Get<string, CacheProbePushed>("p").Value, "the get function registered after a read");
+            });
         }
 
         // The lenient casters and the checkers of the less common types,
