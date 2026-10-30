@@ -329,6 +329,9 @@ def package_json(a, samples):
         "changelogUrl": SITE + "changes/",
         "licensesUrl": REPOSITORY + "/blob/main/LICENSE.TXT",
         "keywords": ["lua", "scripting", "hotfix", "modding", "sandbox", "xlua"],
+        # StreamingAssetsLoader reads Android's StreamingAssets through AndroidJNI; the built-in
+        # module is in every Android player, and Unity enables it with the package.
+        "dependencies": {"com.unity.modules.androidjni": "1.0.0"},
         "samples": samples,
     }, indent=2) + "\n"
 

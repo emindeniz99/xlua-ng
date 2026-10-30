@@ -97,7 +97,7 @@ def prepare(a, lib, project):
     version = re.search(r"/(\d+\.\d+\.\d+[abfp]\d+)/", str(a.unity))
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: " + version.group(1) + "\n")
     # The same module list as size_report.py's projects, plus what the library's package needs.
-    deps = {"com.unity.modules.unitywebrequestwww": "1.0.0"}
+    deps = {"com.unity.modules.unitywebrequestwww": "1.0.0", "com.unity.modules.androidjni": "1.0.0"}
     if lib == "puerts":
         for name, archive in [("com.tencent.puerts.core", a.puerts_core), ("com.tencent.puerts.lua", a.puerts_lua)]:
             extract(archive, project / "Packages" / name)

@@ -845,63 +845,36 @@ namespace XLua
         }
 
 #if !XLUA_NO_STREAMING_ASSETS_LOADER
+        // The StreamingAssets searcher: the module a.b.c is StreamingAssets/a/b/c.lua,
+        // read by StreamingAssetsLoader (through Android's AssetManager on Android,
+        // owner decision Q83 of 2026-10-29). On WebGL it cannot read synchronously
+        // and says so in require's message.
         [MonoPInvokeCallback(typeof(LuaCSFunction))]
         internal static int LoadFromStreamingAssetsPath(RealStatePtr L)
         {
             try
             {
-                string filename = LuaAPI.lua_tostring(L, 1).Replace('.', '/') + ".lua";
-                var filepath = UnityEngine.Application.streamingAssetsPath + "/" + filename;
-#if UNITY_ANDROID && !UNITY_EDITOR
-                UnityEngine.WWW www = new UnityEngine.WWW(filepath);
-                while (true)
-                {
-                    if (www.isDone || !string.IsNullOrEmpty(www.error))
-                    {
-                        System.Threading.Thread.Sleep(50); //�Ƚ�hacker������
-                        if (!string.IsNullOrEmpty(www.error))
-                        {
-                            LuaAPI.lua_pushstring(L, string.Format(
-                               "\n\tno such file '{0}' in streamingAssetsPath!", filename));
-                        }
-                        else
-                        {
-                            UnityEngine.Debug.LogWarning("load lua file from StreamingAssets is obsolete, filename:" + filename);
-                            if (LuaAPI.xluaL_loadbuffer(L, www.bytes, www.bytes.Length , "@" + filename) != 0)
-                            {
-                                return LuaAPI.luaL_error(L, String.Format("error loading module {0} from streamingAssetsPath, {1}",
-                                    LuaAPI.lua_tostring(L, 1), LuaAPI.lua_tostring(L, -1)));
-                            }
-                            // The loader data: the path below StreamingAssets (see LoadFromCustomLoaders).
-                            LuaAPI.lua_pushstring(L, filename);
-                            return 2;
-                        }
-                        break;
-                    }
-                }
+                string filename = StreamingAssetsLoader.FileName(LuaAPI.lua_tostring(L, 1));
+#if UNITY_WEBGL && !UNITY_EDITOR
+                LuaAPI.lua_pushstring(L, "\n\t" + StreamingAssetsLoader.WebGLMessage(filename));
+                return 1;
 #else
-                if (File.Exists(filepath))
-                {
-                    // string text = File.ReadAllText(filepath);
-                    var bytes = File.ReadAllBytes(filepath);
-
-                    UnityEngine.Debug.LogWarning("load lua file from StreamingAssets is obsolete, filename:" + filename);
-                    if (LuaAPI.xluaL_loadbuffer(L, bytes, bytes.Length, "@" + filename) != 0)
-                    {
-                        return LuaAPI.luaL_error(L, String.Format("error loading module {0} from streamingAssetsPath, {1}",
-                            LuaAPI.lua_tostring(L, 1), LuaAPI.lua_tostring(L, -1)));
-                    }
-                    // The loader data: the path below StreamingAssets (see LoadFromCustomLoaders).
-                    LuaAPI.lua_pushstring(L, filename);
-                    return 2;
-                }
-                else
+                byte[] bytes = StreamingAssetsLoader.ReadAllBytes(filename);
+                if (bytes == null)
                 {
                     LuaAPI.lua_pushstring(L, string.Format(
                         "\n\tno such file '{0}' in streamingAssetsPath!", filename));
+                    return 1;
                 }
+                if (LuaAPI.xluaL_loadbuffer(L, bytes, bytes.Length, "@" + filename) != 0)
+                {
+                    return LuaAPI.luaL_error(L, String.Format("error loading module {0} from streamingAssetsPath, {1}",
+                        LuaAPI.lua_tostring(L, 1), LuaAPI.lua_tostring(L, -1)));
+                }
+                // The loader data: the path below StreamingAssets (see LoadFromCustomLoaders).
+                LuaAPI.lua_pushstring(L, filename);
+                return 2;
 #endif
-                return 1;
             }
             catch (System.Exception e)
             {

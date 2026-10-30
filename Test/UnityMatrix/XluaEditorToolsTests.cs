@@ -217,6 +217,23 @@ public sealed class XluaEditorToolsTests
         StringAssert.Contains("extraScriptingDefines cannot add HOTFIX_ENABLE,", extra);
     }
 
+    // Only an Android APK with Split Application Binary keeps UnityEngine.WWW,
+    // which reads StreamingAssets from the OBB, and only where the
+    // StreamingAssets searcher is compiled in (StreamingAssetsObbLinkXml.cs).
+    [Test]
+    public void StreamingAssetsKeepWwwOnlyForSplitApks()
+    {
+#if XLUA_NO_STREAMING_ASSETS_LOADER
+        Assert.IsFalse(XLua.StreamingAssetsObb.KeepsWww(UnityEditor.BuildTarget.Android, true, false));
+#else
+        Assert.IsTrue(XLua.StreamingAssetsObb.KeepsWww(UnityEditor.BuildTarget.Android, true, false));
+#endif
+        Assert.IsFalse(XLua.StreamingAssetsObb.KeepsWww(UnityEditor.BuildTarget.Android, false, false));
+        Assert.IsFalse(XLua.StreamingAssetsObb.KeepsWww(UnityEditor.BuildTarget.Android, true, true), "an AAB puts them in an asset pack");
+        Assert.IsFalse(XLua.StreamingAssetsObb.KeepsWww(UnityEditor.BuildTarget.iOS, true, false));
+        StringAssert.Contains("<type fullname=\"UnityEngine.WWW\" preserve=\"all\"/>", XLua.StreamingAssetsObb.LinkXml);
+    }
+
     [Test]
     public void HotfixToolsAreCheckedAgainstTheManifest()
     {

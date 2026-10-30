@@ -69,6 +69,7 @@ MODES = ["sourcegen", "reflection"]
 REQUIRED = [
     "XluaSmokeTests.Lua55BridgeRunsInTheEditor",
     "XluaSmokeTests.StreamingAssetsSearcherFollowsTheDefine",
+    "XluaSmokeTests.StreamingAssetsLoaderLoadsNestedModules",
     "XluaSmokeTests.FeatureDefinesInTheEditor",
     "XluaSmokeTests.UnboundTypesFollowTheReflectionDefine",
     "XluaEditorToolsTests.LuaCATSDefinitionsAreGenerated",
@@ -81,6 +82,7 @@ REQUIRED = [
     "XluaEditorToolsTests.MigrationMenuLeavesTypeAttributesWhereTheGeneratorRuns",
     "XluaEditorToolsTests.HotfixToolsAreCheckedAgainstTheManifest",
     "XluaEditorToolsTests.BuildDefinesCheckComparesTheDefinesBuildStepsRead",
+    "XluaEditorToolsTests.StreamingAssetsKeepWwwOnlyForSplitApks",
     "XluaGeneratedCodeTests.GeneratedCodeMatchesMode",
     "XluaGeneratedCodeTests.GeneratedWrappersFollowGenCodeMinimize",
     "XluaGeneratedCodeTests.CodeEmitIsCompiledIntoTheEditor",

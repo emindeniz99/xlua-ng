@@ -59,6 +59,11 @@ parser.add_argument("--core", action="store_true",
                     help="a core-only project (docs/design/core-luascript.md): with --package, whose plugins must be "
                          "core libraries (XLUA_PRESET=core), and CoreSmoke.cs instead of XluaSmoke.cs; build with "
                          "XLUA_SMOKE_DEFINES=XLUA_CORE_ONLY and run SmokeBuild.ApplyDefines in a launch before the build")
+parser.add_argument("--streaming-assets", action="store_true",
+                    help="write Lua modules below Assets/StreamingAssets/xlua_sa (20 of about 2 KB, and the nested "
+                         "a/b/c.lua) and add StreamingAssetsSmoke.cs with XLUA_SMOKE_STREAMING_ASSETS: the player "
+                         "requires them through the StreamingAssets searcher, or with XLUA_PRESET_MINIMAL through "
+                         "StreamingAssetsLoader.Load, and logs XLUA_NG_SA_TIMING lines")
 parser.add_argument("--no-smoke", action="store_true",
                     help="leave out XluaSmoke.cs, SgSmoke.cs and SmokeBuild.cs, for a project that brings its own "
                          "scene and build script (Test/UnityMatrix/il2cpp_suite.py)")
@@ -103,7 +108,9 @@ for _, source in plugins + variants:
         parser.error("Missing rebuilt plugin: " + str(source))
 for name in ["Assets/Editor", "Assets/XLua", "Packages", "ProjectSettings"]:
     (output / name).mkdir(parents=True, exist_ok=True)
-dependencies = {"com.unity.modules.unitywebrequestwww": "1.0.0"}
+# AndroidJNI: xLua's StreamingAssetsLoader on Android (since 2026-10-29; WWW before, which older
+# trees still need).
+dependencies = {"com.unity.modules.unitywebrequestwww": "1.0.0", "com.unity.modules.androidjni": "1.0.0"}
 if args.package_tarball:
     local = output / "LocalPackages"
     local.mkdir(parents=True)
@@ -139,7 +146,8 @@ elif args.package:
     ("-define:XLUA_SMOKE_LUA53\n" if args.lua_version == "5.3" else
      "-define:XLUA_SMOKE_LUA55\n" if args.lua_version == "5.5" else "") +
     ("-define:XLUA_SMOKE_SOURCE_GEN\n" if args.source_gen else "") +
-    ("-define:XLUA_SMOKE_MINIMAL_PLUGIN\n" if any("/minimal" in relative for relative, _ in variants) else ""))
+    ("-define:XLUA_SMOKE_MINIMAL_PLUGIN\n" if any("/minimal" in relative for relative, _ in variants) else "") +
+    ("-define:XLUA_SMOKE_STREAMING_ASSETS\n" if args.streaming_assets and not args.no_smoke else ""))
 # The asmdef layout: xLua in Assets/XLua/Src and Core, as in the repository; the
 # source generator runs in the assemblies that reference the XLua asmdef. Without
 # asmdefs it runs in every assembly, Assembly-CSharp (which holds xLua) among them.
@@ -215,6 +223,15 @@ if args.webgl:
     # and the WebGL player halts with "null function" before the first scene starts.
     (output / "Assets/link.xml").write_text(
         '<linker>\n  <assembly fullname="UnityEngine.ContentLoadModule" preserve="all"/>\n</linker>\n')
+if args.streaming_assets and not args.no_smoke:
+    # Modules of about 2 KB each, as a game's would be; StreamingAssetsSmoke.cs requires them.
+    streaming = output / "Assets/StreamingAssets/xlua_sa"
+    (streaming / "a/b").mkdir(parents=True)
+    for i in range(1, 21):
+        body = "".join("function M.f%02d(x) return x * %d + %d end\n" % (j, i, j) for j in range(1, 51))
+        (streaming / ("m%02d.lua" % i)).write_text("local M = {id = %d}\n%sreturn M\n" % (i, body))
+    (streaming / "a/b/c.lua").write_text("return 'nested a.b.c'\n")
+    shutil.copy2(Path(__file__).with_name("StreamingAssetsSmoke.cs"), output / "Assets/StreamingAssetsSmoke.cs")
 if not args.no_smoke:
     shutil.copy2(Path(__file__).with_name("CoreSmoke.cs" if args.core else "XluaSmoke.cs"), output / "Assets/XluaSmoke.cs")
     shutil.copy2(Path(__file__).with_name("SmokeBuild.cs"), output / "Assets/Editor/SmokeBuild.cs")

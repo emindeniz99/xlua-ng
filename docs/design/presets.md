@@ -37,7 +37,7 @@ Three presets. `legacy` is the default for now; switching the default to
 | Source-generated bindings | ✓ | ✓ | – | |
 | Minimized wrappers (`GEN_CODE_MINIMIZE`, the source generator's GCM mode; `XLUA_NO_GCM` keeps minimal's plain wrappers; done 2026-10-19, [below](#owner-decision-2026-10-19-gcm-in-minimal)) | opt-in | ✓ (opt-out `XLUA_NO_GCM`) | – | |
 | Reflection fallback and CodeEmit (`XLUA_NO_REFLECTION`, done 2026-10-19, [below](#reflection-fallback-and-codeemit-as-implemented)) | ✓ | opt-in (`XLUA_REFLECTION`) | – | |
-| StreamingAssets searcher (`XLUA_NO_STREAMING_ASSETS_LOADER`, done) | ✓ | ✗ | ✗ | |
+| StreamingAssets searcher (`XLUA_NO_STREAMING_ASSETS_LOADER`, done; Android reads through the `AssetManager` since 2026-10-29, [below](#the-streamingassets-searcher-owner-decision-q83-2026-10-29)) | ✓ | opt-in (`luaenv.AddLoader(StreamingAssetsLoader.Load)`) | ✗ | |
 | Locked bridge metatables (`XLUA_LOCK_METATABLES`, done) | opt-in | ✓ | – | |
 | Bridge checks (`XLUA_BRIDGE_CHECKS`, 2026-10-19; [bridge-hardening.md](bridge-hardening.md#the-bridge-checks-as-implemented-2026-10-19)): the tag check on C# objects read from Lua, in `xlua.genaccessor` accessors and on userdata cache hits. Follow the build type; `XLUA_BRIDGE_CHECKS` forces them into release players, `XLUA_NO_BRIDGE_CHECKS` leaves them out | Editor, Development Builds, `XLUA_GENERAL` | Editor, Development Builds, `XLUA_GENERAL` | – | on |
 | `xlua.getmetatable` without `__gc` and the tag (`XLUA_RESTRICT_GETMETATABLE`, done) | opt-in | ✓ | – | |
@@ -1001,6 +1001,122 @@ Since 2026-10-29 (the translator lookup without a memory barrier,
 GCM costs about +19 ns over the mix (+4%; +10 to +47 ns for single calls),
 and both kinds of wrappers are 10 to 14 ns faster per call.
 
+### The StreamingAssets searcher (owner decision Q83, 2026-10-29)
+
+**The question** ([SIZE.md](../../build/SIZE.md#what-legacy-adds-to-libunityso-2026-10-29)):
+legacy's StreamingAssets searcher read Android's StreamingAssets with
+`UnityEngine.WWW`. `WWW` kept the UnityWebRequest and TLS engine modules in
+every legacy Android player, 573,164 bytes of APK. The searcher also spun
+until each request finished, slept 50 ms per file on the calling thread and
+logged an obsolete warning for every file, on every platform.
+
+**The decision: option (c).** Keep the searcher and its behaviour; change
+only how Android reads.
+
+1. **Android reads through Android's `AssetManager`** over
+   `UnityEngine.AndroidJavaObject` and `AndroidJNI` (`StreamingAssetsLoader.cs`).
+   - The application context's `AssetManager` is looked up once and kept as
+     a global reference, with the method IDs of `AssetManager.open` and
+     `InputStream.available`, `read` and `close`.
+   - Each read attaches the calling thread to the Java VM
+     (`AndroidJNI.AttachCurrentThread`, a no-op on an attached thread),
+     opens the path below `assets/` with `ACCESS_BUFFER`, reads into one Java
+     byte array of the asset's length and frees its local references in a
+     local frame. No wait, no sleep.
+   - Same file names (`a.b` is `a/b.lua`), the same "no such file 'a/b.lua'
+     in streamingAssetsPath!" when the file is missing.
+   - APKs, the base module of an AAB and install-time asset packs: all of them
+     are in the `AssetManager`.
+   - The project needs the AndroidJNI built-in package
+     (`com.unity.modules.androidjni`) instead of Unity Web Request WWW. The
+     UPM package depends on it; the Hub templates have it.
+2. **Split Application Binary (OBB).** An APK built with the setting has its
+   StreamingAssets in the OBB, which the `AssetManager` does not see.
+   - Run time: `Application.dataPath` names the OBB in such a build (Unity's
+     documentation of `Application.dataPath`). Then the reader uses `WWW` as
+     before (the wait and the 50 ms sleep included), found by reflection.
+   - Build time: `StreamingAssetsObbLinkXml`, an `IUnityLinkerProcessor`,
+     keeps `WWW` when the build is an Android APK (not an AAB),
+     `PlayerSettings.Android.splitApplicationBinary` (`useAPKExpansionFiles`
+     before Unity 6) is on and the searcher is compiled in. No define: a
+     preprocess callback cannot add one to the build it runs in without
+     changing the project's settings, and the run-time check needs none.
+   - The type name is built at run time. UnityLinker reads a constant
+     `Type.GetType` argument as a reference, and the first build kept `WWW`
+     in every player that way ([SIZE.md](../../build/SIZE.md#the-streamingassets-searcher-through-the-assetmanager-2026-10-29)).
+   - An AAB with Split Application Binary puts StreamingAssets into an
+     install-time asset pack, which the `AssetManager` reads.
+   - Google Play no longer accepts OBB files for new apps; the path is for
+     existing projects and other stores.
+3. **No obsolete warning**, on any platform. It announced upstream's plan to
+   drop the searcher, which stays.
+4. **Minimal:** the searcher stays off (`XLUA_NO_STREAMING_ASSETS_LOADER`).
+   `StreamingAssetsLoader.Load` is public and is a `CustomLoader`:
+   `luaenv.AddLoader(StreamingAssetsLoader.Load)` gives the same lookup.
+   `StreamingAssetsLoader.ReadAllBytes(path)` reads any other file. A minimal
+   project in an OBB build gets an exception that says how to keep `WWW`
+   (a link.xml line), because the link.xml processor keeps it only where the
+   searcher is compiled in.
+5. **WebGL:** a synchronous `require` cannot wait for a download. The
+   searcher adds "StreamingAssets cannot be read synchronously on WebGL ..."
+   to `require`'s message instead of missing silently, and
+   `StreamingAssetsLoader` throws `NotSupportedException`. The FAQ ("How do I
+   load Lua on each platform?") and [Lua_Loaders.md](../../Assets/XLua/Doc/Lua_Loaders.md#streamingassets)
+   say what to do instead.
+
+**Size** ([SIZE.md](../../build/SIZE.md#the-streamingassets-searcher-through-the-assetmanager-2026-10-29)):
+a legacy Android APK is 559,920 bytes smaller (Unity 6000.3.21f1, ARM64
+IL2CPP release, Minimal stripping; the estimate was about 540 KB), and keeps
+the same engine modules as the empty project. `XLUA_NO_STREAMING_ASSETS_LOADER`
+now saves 1,356 bytes. It stays as the preset difference: minimal leaves
+the searcher out.
+
+**On devices** (2026-10-29): smoke players (`Test/MobileSmoke/prepare.py
+--streaming-assets`, release ARM64 IL2CPP, Unity 6000.3.21f1, Minimal
+stripping, source generator), on the moto g play 2024 (Android 14) and the
+`xlua16k` emulator (Android 16, 16 KB pages). Each requires 20 modules of
+about 2 KB, the nested `xlua_sa.a.b.c` (`xlua_sa/a/b/c.lua`) and a missing
+module, first on a worker thread that then exits, and fails on any log line
+from the reader. AABs were installed with bundletool 1.18.3
+(`build-apks --connected-device`, `install-apks`, as split APKs
+`base-master` and `base-arm64_v8a`); OBB files were pushed to
+`/sdcard/Android/obb/org.xluang.smoke/main.1.org.xluang.smoke.obb`.
+
+| player | phone | emulator | ms for the 20 modules, phone (5 rounds per launch) | emulator |
+| --- | --- | --- | --- | --- |
+| legacy before (`WWW`), APK, 2 launches | fail as expected: the obsolete warning for every file | the same | 1,046 to 1,070 | 1,038 to 1,076 |
+| legacy after, APK, 2 launches | pass | pass | 9.0 to 14.0 | 1.4 to 2.1 |
+| legacy after, AAB | pass | pass | 8.9 to 10.3 | 1.3 to 2.1 |
+| legacy after, APK + OBB (`WWW` path) | pass | pass | 1,035 to 1,054 | 1,029 to 1,052 |
+| minimal, `StreamingAssetsLoader.Load`, APK | pass | pass | 9.9 to 14.8 | 2.3 to 3.3 |
+| minimal, AAB | pass | pass | 8.4 to 12.4 | 2.1 to 5.8 |
+| minimal, APK + OBB | the expected exception ("... in its OBB file (Split Application Binary), which only UnityEngine.WWW reads ... add `<assembly fullname="UnityEngine.UnityWebRequestWWWModule">` ...") | the same | | |
+
+- **Load time:** the `AssetManager` reads the 20 modules about 100 times
+  faster on the phone (about 0.5 ms per module, compiling included) than
+  `WWW` did, whose 50 ms sleep per file was nearly all of its time. The OBB
+  path keeps upstream's timing.
+- **Threads:** the worker thread's `require` (the reader's first use, so the
+  `AssetManager` lookup ran there) passed everywhere, and no log had an ART
+  JNI warning ("DetachCurrentThread", "JNI DETECTED ERROR") or a crash after
+  the thread exited. `WWW` also worked from the worker thread in the OBB
+  players.
+- **The missing module** gave "no such file 'xlua_sa/missing.lua' in
+  streamingAssetsPath!" (searcher) and "no such file 'xlua_sa.missing' in
+  CustomLoaders!" (the loader).
+- **Not tested on a device:** iOS (an export of the legacy smoke player built
+  with `xcodebuild -sdk iphoneos CODE_SIGNING_ALLOWED=NO` through the Unity lock
+  and linked; `StreamingAssetsLoader` reads with `File` there, as the
+  Editor tests check on macOS), WebGL (compiled only: `editor_compile_check.py`'s
+  WebGL players), install-time and on-demand asset packs, an AAB with Split
+  Application Binary, Unity versions other than 6000.3.21f1 on a device
+  (2021.3, 2022.3, 6000.0 and 6000.6 compile in `editor_compile_check.py`).
+- **Other checks:** the IL2CPP suite on the emulator (plain, gcm, strict:
+  523 tests in each mode; plain and gcm load the suite through the searcher,
+  so through the `AssetManager`), the Unity editor suite on 6000.3.21f1
+  (legacy and minimal), `run_managed.py` with the three source generator
+  passes, legacy and minimal.
+
 ### Cheap hardening as implemented
 
 Done 2026-10-18 (item 4). Native library, NDK r30, API 23, the release build,
@@ -1055,6 +1171,9 @@ measurement was 312,440 and 209,180 bytes stripped, 609,040 for LuaJIT.
   Most of it is C#. On Android 539,626 bytes are `libunity.so`: without
   xLua's `UnityWebRequest` use (`XLUA_NO_STREAMING_ASSETS_LOADER`) engine code
   stripping drops the module, which a project that downloads anything keeps.
+  *Since 2026-10-29 legacy reads StreamingAssets through the `AssetManager`
+  and no longer keeps the module either
+  ([below](#the-streamingassets-searcher-owner-decision-q83-2026-10-29)).*
   `libxlua.so` gives 26,415 and `libxlua.a` 46,569 live bytes.
 - **Legacy:** the stripped Android library is main's byte for byte once the
   build ID note is removed.

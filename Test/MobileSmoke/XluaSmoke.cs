@@ -67,6 +67,12 @@ public class XluaSmoke : MonoBehaviour {
 
  // Every check except LuaEnv.Dispose; returns what was found.
  static string Checks(LuaEnv env) {
+#if XLUA_SMOKE_STREAMING_ASSETS
+  // First, so that its worker thread is the reader's first use (StreamingAssetsSmoke.cs).
+  string streaming = ", " + StreamingAssetsSmoke.Run();
+#else
+  string streaming = "";
+#endif
   Check((string)env.DoString("return _VERSION")[0] == ExpectedVersion, "Lua version");
   Check((bool)env.DoString("return os.execute == nil")[0], "os.execute disabled");
   int expectedPause = ExpectedVersion == "Lua 5.5" ? 212 : 224;
@@ -97,7 +103,7 @@ public class XluaSmoke : MonoBehaviour {
   env.GcStep(0);
   Check(env.Memroy >= 0, "GC memory count");
   env.FullGc();
-  return "integer rule, delegates " + bridge + ", " + features;
+  return "integer rule, delegates " + bridge + ", " + features + streaming;
  }
 
  // LuaEnv.Dispose refuses to run while a delegate made from a Lua function is alive.
