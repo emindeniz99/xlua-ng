@@ -654,7 +654,13 @@ exported functions through the PLT, a `JUMP_SLOT` relocation that names a
 function the library defines: one linked without `-Wl,-Bsymbolic-functions`
 ([build/README.md](../build/README.md#calls-to-the-librarys-own-exports)).
 The Lua 5.5.1 arm64-v8a library of main `102b059b` failed it with 144 such
-slots (36 with `XLUA_EXPORTS=managed`).
+slots (36 with `XLUA_EXPORTS=managed`). `native_regression.py`'s
+`ref_table_access` checks `xlua_getref_get`, `_getfield`, `_set` and
+`_setfield` against `lua_gettable` and `lua_settable`, and
+`ref_table_values` (2026-10-31) checks `xlua_getref_getvalue` and
+`_getfieldvalue` against those reads followed by `xlua_tointeger64`,
+`lua_tonumber` or `lua_toboolean` and `lua_settop`: every value kind, raw and
+through `__index`, a failing `__index`, and the 64-bit integers.
 `native_regression.py` also calls exports that `LuaDLL.cs` does not import
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library. Its `global_state_key` check (2026-10-28) requires `xlua_gl`, the

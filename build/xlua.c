@@ -63,7 +63,7 @@ LUA_API int xlua_get_registry_index(void) {
 }
 
 LUA_API int xlua_get_lib_version(void) {
-	return 112;
+	return 113;
 }
 
 #if LUA_VERSION_NUM >= 505
@@ -696,6 +696,45 @@ LUA_API int xlua_getref_getfield(lua_State *L, int ref, const char *key, int len
 	*top = lua_gettop(L);
 	lua_pushlstring(L, key, (size_t)len);
 	return getref_gettable(L, ref);
+}
+
+/* LuaTable.Get of a number or a boolean (LuaTable.cs ScalarRead): the read of
+ * xlua_getref_get or xlua_getref_getfield, the value converted as conv says
+ * and popped, so one P/Invoke does what three did (the read, the conversion
+ * and lua_settop; 2026-10-31). conv: 0 the type only (no caller: for
+ * ContainsKey it measured slower than the read and lua_settop); 1
+ * value_to_integer's value with *valid its result, as
+ * xlua_tointeger64 gives them; 2 lua_tonumber's double, as its bits; 3
+ * lua_toboolean. Returns the value's type with the stack at *top, or -1 with
+ * the error object on the top, as xlua_getref_get. */
+static int getref_value(lua_State *L, int type, int conv, int64_t *value, int *valid) {
+	*value = 0;
+	*valid = 1;
+	if (type < 0) {
+		return type;
+	}
+	if (conv == 1) {
+		*valid = value_to_integer(L, -1, value);
+	} else if (conv == 2) {
+		double d = (double)lua_tonumber(L, -1);
+		memcpy(value, &d, sizeof d);
+	} else if (conv == 3) {
+		*value = lua_toboolean(L, -1);
+	}
+	lua_pop(L, 1);
+	return type;
+}
+
+LUA_API int xlua_getref_getvalue(lua_State *L, int ref, int conv, int *top, int64_t *value, int *valid) {
+	*top = lua_gettop(L) - 1;
+	return getref_value(L, getref_gettable(L, ref), conv, value, valid);
+}
+
+LUA_API int xlua_getref_getfieldvalue(lua_State *L, int ref, const char *key, int len, int conv, int *top,
+		int64_t *value, int *valid) {
+	*top = lua_gettop(L);
+	lua_pushlstring(L, key, (size_t)len);
+	return getref_value(L, getref_gettable(L, ref), conv, value, valid);
 }
 
 /* LuaTable.Set: t[k] = v for the key and the value on the top, with *top the

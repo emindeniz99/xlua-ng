@@ -410,6 +410,16 @@ alike:
   checks of debug builds (owner decision Q37; "Changes in every build").
   Rebuild the plugins with the C# update; a release player without the bridge
   checks does not call them.
+- **Native bridge version 113 (2026-10-31):** the plugin adds
+  `xlua_getref_getvalue` and `xlua_getref_getfieldvalue`, which read a
+  `LuaTable` value as a number or a boolean and pop it in the same call
+  (`LuaTable.Get` of `int`, `long`, `uint`, `ulong`, `double`, `float` and
+  `bool`), and counts the `xlua_getref_get`,
+  `_getfield`, `_set` and `_setfield` of 2026-10-30, which came without a new
+  version. Values, exceptions and the stack are as before. Rebuild the
+  plugins with the C# update: an older plugin now fails the version check
+  when the first `LuaEnv` starts, instead of failing at the first
+  `LuaTable` access.
 - **Windows ARM64:** `build/make_win_arm64_*.bat` build `Plugins/arm64/xlua.dll`
   for Unity 2023.1+ Windows ARM64 players; upstream has no Windows ARM64
   plugin. See [build/README.md](../build/README.md#windows-libraries).
