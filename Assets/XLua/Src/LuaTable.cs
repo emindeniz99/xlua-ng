@@ -37,6 +37,33 @@ namespace XLua
             internal static readonly bool Value = typeof(T).IsValueType();
         }
 
+        // Whether TKey is string, tested once per type: a string key goes to
+        // the native side with the read or write (xlua_getref_getfield,
+        // xlua_getref_setfield) instead of in a push of its own.
+        static class StringKey<T>
+        {
+            internal static readonly bool Value = typeof(T) == typeof(string);
+        }
+
+        // Pushes t[key] as lua_gettable gives it (__index included), with
+        // oldTop the stack top before. Returns the value's type, or -1 with
+        // the error on the top (xlua_getref_get).
+        int Fetch<TKey>(RealStatePtr L, ObjectTranslator translator, TKey key, out int oldTop)
+        {
+#if !NATIVE_LUA_PUSHSTRING
+            if (StringKey<TKey>.Value)
+            {
+                string name = (string)(object)key;
+                if (name != null)
+                {
+                    return LuaAPI.xlua_getref_getfield(L, luaReference, name, out oldTop);
+                }
+            }
+#endif
+            translator.PushByType(L, key);
+            return LuaAPI.xlua_getref_get(L, luaReference, out oldTop);
+        }
+
         // no boxing version get
         public void Get<TKey, TValue>(TKey key, out TValue value)
         {
@@ -46,18 +73,17 @@ namespace XLua
 #endif
                 var L = State;
                 var translator = luaEnv.translator;
-                int oldTop = LuaAPI.lua_gettop(L);
-                LuaAPI.lua_getref(L, luaReference);
-                translator.PushByType(L, key);
+                int oldTop;
+                int type = Fetch(L, translator, key, out oldTop);
 
-                if (0 != LuaAPI.xlua_pgettable(L, -2))
+                if (type < 0)
                 {
                     string err = LuaAPI.lua_tostring(L, -1);
                     LuaAPI.lua_settop(L, oldTop);
                     throw new Exception("get field [" + key + "] error:" + err);
                 }
 
-                LuaTypes lua_type = LuaAPI.lua_type(L, -1);
+                LuaTypes lua_type = (LuaTypes)type;
                 if (lua_type == LuaTypes.LUA_TNIL && NilRefused<TValue>.Value)
                 {
                     LuaAPI.lua_settop(L, oldTop);
@@ -90,18 +116,17 @@ namespace XLua
 #endif
                 var L = State;
                 var translator = luaEnv.translator;
-                int oldTop = LuaAPI.lua_gettop(L);
-                LuaAPI.lua_getref(L, luaReference);
-                translator.PushByType(L, key);
+                int oldTop;
+                int type = Fetch(L, translator, key, out oldTop);
 
-                if (0 != LuaAPI.xlua_pgettable(L, -2))
+                if (type < 0)
                 {
                     string err = LuaAPI.lua_tostring(L, -1);
                     LuaAPI.lua_settop(L, oldTop);
                     throw new Exception("get field [" + key + "] error:" + err);
                 }
 
-                bool ret =  LuaAPI.lua_type(L, -1) != LuaTypes.LUA_TNIL;
+                bool ret = (LuaTypes)type != LuaTypes.LUA_TNIL;
 
                 LuaAPI.lua_settop(L, oldTop);
 
@@ -120,18 +145,30 @@ namespace XLua
             {
 #endif
                 var L = State;
-                int oldTop = LuaAPI.lua_gettop(L);
+                int oldTop;
+                int status;
                 var translator = luaEnv.translator;
 
-                LuaAPI.lua_getref(L, luaReference);
-                translator.PushByType(L, key);
-                translator.PushByType(L, value);
+#if !NATIVE_LUA_PUSHSTRING
+                string name = StringKey<TKey>.Value ? (string)(object)key : null;
+                if (name != null)
+                {
+                    translator.PushByType(L, value);
+                    status = LuaAPI.xlua_getref_setfield(L, luaReference, name, out oldTop);
+                }
+                else
+#endif
+                {
+                    translator.PushByType(L, key);
+                    translator.PushByType(L, value);
+                    status = LuaAPI.xlua_getref_set(L, luaReference, out oldTop);
+                }
 
-                if (0 != LuaAPI.xlua_psettable(L, -3))
+                // Done: the stack is at oldTop again.
+                if (0 != status)
                 {
                     luaEnv.ThrowExceptionFromError(oldTop);
                 }
-                LuaAPI.lua_settop(L, oldTop);
 #if THREAD_SAFE || HOTFIX_ENABLE
             }
 #endif
