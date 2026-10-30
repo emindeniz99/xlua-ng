@@ -190,6 +190,24 @@ launching the relevant player build. An iOS device export still requires an
 Xcode build, development signing, installation, and launch before it counts as a
 device test; `ios_sim_smoke.py` runs a simulator export (below).
 
+StreamingAssets (2026-10-29, owner decision Q83): `prepare.py
+--streaming-assets` writes 20 Lua modules of about 2 KB and a nested
+`a/b/c.lua` below `Assets/StreamingAssets/xlua_sa`, copies
+`StreamingAssetsSmoke.cs` and defines `XLUA_SMOKE_STREAMING_ASSETS`. Before the
+other checks the player requires them through the StreamingAssets searcher, or
+with `XLUA_PRESET_MINIMAL` through `env.AddLoader(StreamingAssetsLoader.Load)`:
+first on a worker thread, then five rounds of the 20 modules in fresh envs, the
+nested module and a missing one (the error text). It fails on any log line
+about StreamingAssets (upstream warned for every file) and logs
+`XLUA_NG_SA_TIMING: <reader> 20 modules, ms per round ...`; the pass line
+names the reader. On WebGL it expects require's "cannot be read synchronously
+on WebGL" message instead. `XLUA_SMOKE_SPLIT_BINARY=1` builds an Android APK
+with Split Application Binary, which puts StreamingAssets into
+`unity-android-smoke.main.obb` next to the APK; push it to
+`/sdcard/Android/obb/<package>/main.1.<package>.obb` before the launch. The
+projects list `com.unity.modules.androidjni`, which the reader needs on
+Android.
+
 The player logs `XLUA_NG_SMOKE_PASS` or `XLUA_NG_SMOKE_FAIL` and writes
 `xlua-smoke-result.txt` under `Application.persistentDataPath`. A successful
 export or APK build alone does not establish that these runtime checks passed.
@@ -315,6 +333,19 @@ rebuilt sources. An Android ARM64 IL2CPP APK (Unity 6000.3.21f1, plugin
 built with NDK r30) ran on an Android 16 (API 36) emulator with 16 KB pages.
 A Unity 6000.6.4f1 WebGL player ran in headless Chrome 155. Unity compiled
 `xlua_webgl.cpp` with its Emscripten 4.0.20.
+
+### 2026-10-29: StreamingAssets through the AssetManager (Q83)
+
+Unity 6000.3.21f1, release ARM64 IL2CPP, Minimal stripping, `--streaming-assets
+--source-gen`, legacy and `XLUA_SMOKE_DEFINES=XLUA_PRESET_MINIMAL`, on the moto
+g play 2024 and the `xlua16k` emulator: the APK, the AAB (bundletool 1.18.3
+`build-apks --connected-device` and `install-apks`) and the APK with its OBB
+passed for legacy; the APK and the AAB passed for minimal, whose OBB build
+raised the expected "only UnityEngine.WWW reads" exception. A player of the
+tree before the change failed on the obsolete warnings, as it should, and
+took about 1,050 ms for the 20 modules against 9 to 14 ms after it on the
+phone. Details and the table in
+[presets.md](../../docs/design/presets.md#the-streamingassets-searcher-owner-decision-q83-2026-10-29).
 
 ### 2026-10-29: 16 KB pages, empty projects against xLua players
 
