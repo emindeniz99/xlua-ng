@@ -30,6 +30,8 @@ import subprocess
 import sys
 import time
 
+from unity_adb import unity_env
+
 repo = Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 p.add_argument("--unity", type=Path, required=True, help="the editor executable (Unity.app/Contents/MacOS/Unity)")
@@ -72,7 +74,7 @@ def launch(log, method, quit):
            "-executeMethod", method] + (["-quit"] if quit else [])
     print("+", " ".join(cmd), flush=True)
     start = time.time()
-    proc = subprocess.Popen(cmd, start_new_session=True)
+    proc = subprocess.Popen(cmd, start_new_session=True, env=unity_env())
     try:
         code = proc.wait(timeout=a.timeout)
     except subprocess.TimeoutExpired:

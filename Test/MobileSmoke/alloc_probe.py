@@ -30,6 +30,7 @@ here = Path(__file__).resolve().parent
 repo = here.parents[1]
 sys.path.insert(0, str(here))
 from size_report import Lock, ref_tree  # noqa: E402
+from unity_adb import unity_env  # noqa: E402  (size_report puts Test/UnityMatrix on the path)
 
 MARK = re.compile(r"XLUA_ALLOC_RESULT: (\{.*\})")
 
@@ -60,7 +61,7 @@ def editor(a):
                "-executeMethod", "SmokeBuild.CheckEditor", "-logFile", str(log)]
         print("+", " ".join(cmd), flush=True)
         with Lock(a.lock):
-            proc = subprocess.Popen(cmd, start_new_session=True)
+            proc = subprocess.Popen(cmd, start_new_session=True, env=unity_env())
             try:
                 rc = proc.wait(timeout=a.timeout)
             except subprocess.TimeoutExpired:

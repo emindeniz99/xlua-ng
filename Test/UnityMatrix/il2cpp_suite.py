@@ -61,6 +61,8 @@ import subprocess
 import sys
 import time
 
+from unity_adb import unity_env
+
 here = Path(__file__).resolve().parent
 repo = here.parents[1]
 sys.path.insert(0, str(repo / "Tools"))
@@ -257,7 +259,7 @@ def build(a, config):
         log = out / "logs" / ("%s-%s.log" % (config, step))
         start = time.time()
         with locked(a.unity_lock, "Unity"):
-            code = run_group(base + extra + ["-logFile", log], a.build_timeout)
+            code = run_group(base + extra + ["-logFile", log], a.build_timeout, env=unity_env())
         print("  %s %s: exit %d in %.0f s" % (config, step, code, time.time() - start), flush=True)
         text = log.read_text(errors="replace") if log.exists() else ""
         marker = "XLUA_SUITE_DEFINES:" if step == "defines" else "XLUA_SUITE_BUILD_PASS:"

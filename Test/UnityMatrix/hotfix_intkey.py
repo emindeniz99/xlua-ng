@@ -50,6 +50,8 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
+from unity_adb import unity_env
+
 here = Path(__file__).resolve().parent
 repo = here.parents[1]
 TOOLS = ["XLuaHotfixInject.exe", "XLuaHotfixInject.manifest", "Mono.Cecil.dll", "Mono.Cecil.Mdb.dll",
@@ -114,7 +116,7 @@ def unity(name, args):
     cmd = [str(a.unity), "-batchmode", "-nographics", "-projectPath", str(a.project), "-logFile", str(log)] + args
     print("+", " ".join(cmd), flush=True)
     start = time.time()
-    proc = subprocess.Popen(cmd, start_new_session=True)
+    proc = subprocess.Popen(cmd, start_new_session=True, env=unity_env())
     try:
         code = proc.wait(timeout=a.timeout)
     except subprocess.TimeoutExpired:

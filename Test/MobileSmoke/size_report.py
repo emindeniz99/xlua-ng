@@ -135,6 +135,8 @@ repo = here.parents[1]
 sys.path.insert(0, str(repo / "Test/Native"))
 import benchmark  # noqa: E402  (size_entry and player_entry)
 import check_apk_16k  # noqa: E402  (next to this file)
+sys.path.insert(0, str(repo / "Test/UnityMatrix"))
+from unity_adb import unity_env  # noqa: E402
 
 # Variant flags for the C# feature defines (docs/MIGRATING.md, "Opt-in defines").
 CS_FEATURE_FLAGS = {"nosig": "XLUA_NO_SIGNATURE_LOADER", "notemplate": "XLUA_NO_TEMPLATE",
@@ -620,7 +622,7 @@ def run_tool(a, cmd, log, env):
             print("  another Unity editor runs; waiting", flush=True)
             time.sleep(30)
         started = time.time()
-        proc = subprocess.Popen([str(c) for c in cmd], env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        proc = subprocess.Popen([str(c) for c in cmd], env=unity_env(env), stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             rc = proc.wait(timeout=a.timeout)
         except subprocess.TimeoutExpired:

@@ -37,6 +37,8 @@ import subprocess
 import sys
 import time
 
+from unity_adb import unity_env
+
 here = Path(__file__).resolve().parent
 repo = here.parents[1]
 
@@ -72,7 +74,7 @@ def unity(project, name, args):
     log = logs / ("%03d-%s-%s.log" % (launches[0], project.name, name))
     cmd = [str(a.unity), "-batchmode", "-nographics", "-projectPath", str(project), "-logFile", str(log)] + args
     start = time.time()
-    proc = subprocess.Popen(cmd, start_new_session=True)
+    proc = subprocess.Popen(cmd, start_new_session=True, env=unity_env())
     try:
         code = proc.wait(timeout=a.timeout)
     except subprocess.TimeoutExpired:

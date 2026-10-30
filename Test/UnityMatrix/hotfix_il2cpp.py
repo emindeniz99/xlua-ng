@@ -52,6 +52,8 @@ import subprocess
 import sys
 import time
 
+from unity_adb import unity_env
+
 here = Path(__file__).resolve().parent
 repo = here.parents[1]
 TOOLS = ["XLuaHotfixInject.exe", "XLuaHotfixInject.manifest", "Mono.Cecil.dll", "Mono.Cecil.Mdb.dll",
@@ -117,7 +119,7 @@ def run(name, cmd, timeout):
     log = a.out / (name + ".log")
     print("+", " ".join(cmd), flush=True)
     start = time.time()
-    proc = subprocess.Popen(cmd, start_new_session=True)
+    proc = subprocess.Popen(cmd, start_new_session=True, env=unity_env())
     try:
         code = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:

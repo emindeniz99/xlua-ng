@@ -37,6 +37,9 @@ import time
 import zipfile
 
 here = Path(__file__).resolve().parent
+sys.path.insert(0, str(here.parent / "UnityMatrix"))
+from unity_adb import unity_env  # noqa: E402
+
 ACTIVITY = "com.unity3d.player.UnityPlayerGameActivity"
 EMU_SERIAL = "emulator-5554"
 # Players: name, package, APK path below WORK.
@@ -135,7 +138,7 @@ def unity(a, project, method, log, env):
         while unity_runs():
             print("  another Unity editor runs; waiting", flush=True)
             time.sleep(30)
-        proc = subprocess.Popen([str(c) for c in cmd], env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        proc = subprocess.Popen([str(c) for c in cmd], env=unity_env(env), stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             rc = proc.wait(timeout=a.timeout)
         except subprocess.TimeoutExpired:

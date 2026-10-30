@@ -44,6 +44,8 @@ import subprocess
 import sys
 import time
 
+from unity_adb import unity_env
+
 here = Path(__file__).resolve().parent
 repo = here.parents[1]
 ASMDEFS = ["Core/XLua.Core.asmdef", "Core/Editor/XLua.Core.Editor.asmdef", "Src/XLua.asmdef",
@@ -78,7 +80,7 @@ def unity(name, method, expect_errors=False):
            "-executeMethod", method]
     print("+", " ".join(cmd), flush=True)
     start = time.time()
-    proc = subprocess.Popen(cmd, start_new_session=True)
+    proc = subprocess.Popen(cmd, start_new_session=True, env=unity_env())
     try:
         code = proc.wait(timeout=a.timeout)
     except subprocess.TimeoutExpired:
