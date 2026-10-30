@@ -1,5 +1,6 @@
 // size_report.py +pbench copies this into Assets: the Lua -> C# cases of Test/Native/Benchmark.cs
-// (the members the descriptor spike covers) and a few UnityEngine calls, timed in an IL2CPP player.
+// (the members the descriptor spike covers), a few UnityEngine calls and C#'s LuaTable reads and writes
+// (TableCases), timed in an IL2CPP player.
 // SizeProbe.cs starts PlayerBench.Run() as a coroutine (XLUA_SIZE_PLAYER_BENCH). Every round runs
 // every case once, so drift spreads evenly over the cases; between cases the coroutine yields a frame.
 // Output: XLUA_PBENCH_META, one XLUA_PBENCH line per case (ns per call of each round, the Lua loop
@@ -135,6 +136,50 @@ namespace XLuaBench
             {"unity_instance_method", "return function(n) for i = 1, n do go:GetInstanceID() end end"},
         };
 
+        // C# reading and writing a Lua table through LuaTable (2026-10-30): one operation per iteration, timed in
+        // C#. table_get_int is the vs-bench's cs.table.get. TableCases below runs them on this module.
+        const string TableModule = "local t = { x = 42, d = 1.5, s = 'hello', b = true, l = 1099511627776, sub = {},"
+            + " a = { b = 7 }, [1] = 11 }\n"
+            + "local f = {} for i = 1, 16 do f['k' .. i] = i end\n"
+            + "local arr = {} for i = 1, 16 do arr[i] = i end\n"
+            + "return t, setmetatable({}, { __index = t }), f, arr";
+
+        static int sink;  // the cases' results, so that no read is optimized away
+
+        static RunN[] TableCases(LuaEnv env, List<string> names)
+        {
+            var r = env.DoString(TableModule, "table_bench");
+            LuaTable t = (LuaTable)r[0], viaIndex = (LuaTable)r[1], f = (LuaTable)r[2], arr = (LuaTable)r[3];
+            int each = 0;
+            Action<string, int> add = (k, v) => each += v;
+            var cases = new List<KeyValuePair<string, RunN>>
+            {
+                new KeyValuePair<string, RunN>("table_get_int", n => { int s = 0; for (int i = 0; i < n; i++) s += t.Get<string, int>("x"); sink = s; }),
+                new KeyValuePair<string, RunN>("table_get_double", n => { double s = 0; for (int i = 0; i < n; i++) s += t.Get<string, double>("d"); sink = (int)s; }),
+                new KeyValuePair<string, RunN>("table_get_long", n => { long s = 0; for (int i = 0; i < n; i++) s += t.Get<string, long>("l"); sink = (int)s; }),
+                new KeyValuePair<string, RunN>("table_get_bool", n => { int s = 0; for (int i = 0; i < n; i++) if (t.Get<string, bool>("b")) s++; sink = s; }),
+                new KeyValuePair<string, RunN>("table_get_string", n => { int s = 0; for (int i = 0; i < n; i++) s += t.Get<string, string>("s").Length; sink = s; }),
+                new KeyValuePair<string, RunN>("table_get_object", n => { int s = 0; for (int i = 0; i < n; i++) if (t.Get<string, object>("x") != null) s++; sink = s; }),
+                new KeyValuePair<string, RunN>("table_get_table", n => { int s = 0; for (int i = 0; i < n; i++) using (var sub = t.Get<string, LuaTable>("sub")) if (sub != null) s++; sink = s; }),
+                new KeyValuePair<string, RunN>("table_get_index", n => { int s = 0; for (int i = 0; i < n; i++) s += t.Get<int, int>(1); sink = s; }),
+                new KeyValuePair<string, RunN>("table_get_via_index", n => { int s = 0; for (int i = 0; i < n; i++) s += viaIndex.Get<string, int>("x"); sink = s; }),
+                new KeyValuePair<string, RunN>("table_get_in_path", n => { int s = 0; for (int i = 0; i < n; i++) s += t.GetInPath<int>("a.b"); sink = s; }),
+                new KeyValuePair<string, RunN>("table_contains_key", n => { int s = 0; for (int i = 0; i < n; i++) if (t.ContainsKey("x")) s++; sink = s; }),
+                new KeyValuePair<string, RunN>("table_set_int", n => { for (int i = 0; i < n; i++) t.Set("w", i); }),
+                new KeyValuePair<string, RunN>("table_set_string", n => { for (int i = 0; i < n; i++) t.Set("ws", "hello"); }),
+                new KeyValuePair<string, RunN>("table_length", n => { int s = 0; for (int i = 0; i < n; i++) s += arr.Length; sink = s; }),
+                // Per element: n / 16 walks over the 16 entries of f.
+                new KeyValuePair<string, RunN>("table_for_each", n => { each = 0; for (int i = 0; i < n / 16; i++) f.ForEach(add); sink = each; }),
+            };
+            var runs = new RunN[cases.Count];
+            for (int c = 0; c < cases.Count; c++)
+            {
+                names.Add(cases[c].Key);
+                runs[c] = cases[c].Value;
+            }
+            return runs;
+        }
+
         static string Mode()
         {
 #if XLUA_SPIKE_DESC
@@ -235,14 +280,25 @@ namespace XLuaBench
             var env = new LuaEnv();
             var go = new GameObject("xlua_pbench");
             env.Global.Set("go", go);
-            int count = Cases.GetLength(0);
+            int luaCount = Cases.GetLength(0);
+            var caseNames = new List<string>();
+            for (int c = 0; c < luaCount; c++) caseNames.Add(Cases[c, 0]);
+            var tableRuns = TableCases(env, caseNames);
+            int count = caseNames.Count;
             var runs = new RunN[count];
             for (int c = 0; c < count; c++)
             {
-                var fn = (LuaFunction)env.DoString("local T = CS.XLuaBench.BenchTarget\nlocal V = CS.XLuaBench.BenchVec3\n"
-                    + "local VB = CS.XLuaBench.BenchVec3Boxed\n" + Cases[c, 1], Cases[c, 0])[0];
-                runs[c] = fn.Cast<RunN>();
-                fn.Dispose();
+                if (c < luaCount)
+                {
+                    var fn = (LuaFunction)env.DoString("local T = CS.XLuaBench.BenchTarget\nlocal V = CS.XLuaBench.BenchVec3\n"
+                        + "local VB = CS.XLuaBench.BenchVec3Boxed\n" + Cases[c, 1], Cases[c, 0])[0];
+                    runs[c] = fn.Cast<RunN>();
+                    fn.Dispose();
+                }
+                else
+                {
+                    runs[c] = tableRuns[c - luaCount];
+                }
                 runs[c](N / 10);  // warm-up: lazy registration of the wrappers, Lua's caches
             }
             log("XLUA_PBENCH_META {\"mode\": \"" + Mode() + "\", \"lua\": \"" + env.DoString("return _VERSION")[0]
@@ -254,7 +310,7 @@ namespace XLuaBench
             if (request != null)
             {
                 var names = new string[count];
-                for (int c = 0; c < count; c++) names[c] = Cases[c, 0];
+                for (int c = 0; c < count; c++) names[c] = caseNames[c];
                 yield return Profile(request, names, runs, log);
             }
             var ns = new double[count, Rounds];
@@ -278,7 +334,7 @@ namespace XLuaBench
                 var parts = new string[Rounds];
                 for (int r = 0; r < Rounds; r++) { row[r] = ns[c, r]; parts[r] = Num(Math.Round(ns[c, r], 2)); }
                 Array.Sort(row);
-                log("XLUA_PBENCH {\"name\": \"" + Cases[c, 0] + "\", \"mode\": \"" + Mode() + "\", \"min\": " + Num(Math.Round(row[0], 2))
+                log("XLUA_PBENCH {\"name\": \"" + caseNames[c] + "\", \"mode\": \"" + Mode() + "\", \"min\": " + Num(Math.Round(row[0], 2))
                     + ", \"median\": " + Num(Math.Round(row[Rounds / 2], 2)) + ", \"runs\": [" + string.Join(", ", parts) + "]}");
             }
             log("XLUA_PBENCH_DONE " + Mode());
