@@ -29,6 +29,14 @@ namespace XLua
         {
         }
 
+        // Whether a value type T refuses nil (typeof(T).IsValueType()), tested
+        // once per type: a typeof costs a Type lookup under a lock in an IL2CPP
+        // player (ObjectTranslator.TypeOps).
+        static class NilRefused<T>
+        {
+            internal static readonly bool Value = typeof(T).IsValueType();
+        }
+
         // no boxing version get
         public void Get<TKey, TValue>(TKey key, out TValue value)
         {
@@ -50,11 +58,10 @@ namespace XLua
                 }
 
                 LuaTypes lua_type = LuaAPI.lua_type(L, -1);
-                Type type_of_value = typeof(TValue);
-                if (lua_type == LuaTypes.LUA_TNIL && type_of_value.IsValueType())
+                if (lua_type == LuaTypes.LUA_TNIL && NilRefused<TValue>.Value)
                 {
                     LuaAPI.lua_settop(L, oldTop);
-                    throw new InvalidCastException("can not assign nil to " + type_of_value.GetFriendlyName());
+                    throw new InvalidCastException("can not assign nil to " + typeof(TValue).GetFriendlyName());
                 }
 
                 try
@@ -146,7 +153,7 @@ namespace XLua
                     luaEnv.ThrowExceptionFromError(oldTop);
                 }
                 LuaTypes lua_type = LuaAPI.lua_type(L, -1);
-                if (lua_type == LuaTypes.LUA_TNIL && typeof(T).IsValueType())
+                if (lua_type == LuaTypes.LUA_TNIL && NilRefused<T>.Value)
                 {
                     LuaAPI.lua_settop(L, oldTop);
                     throw new InvalidCastException("can not assign nil to " + typeof(T).GetFriendlyName());

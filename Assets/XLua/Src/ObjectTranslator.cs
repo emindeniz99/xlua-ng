@@ -1132,10 +1132,27 @@ namespace XLua
         // The generated overload checks: TypeOf<T>, not a typeof lookup per call.
         public bool Assignable<T>(RealStatePtr L, int index)
 		{
-            return Assignable(L, index, TypeOf<T>.Value);
+            bool assignable;
+            if (UserdataAssignable(L, index, TypeOf<T>.Value, out assignable))
+            {
+                return assignable;
+            }
+            return Ops<T>().Checker(this)(L, index);
         }
 
         public bool Assignable(RealStatePtr L, int index, Type type)
+        {
+            bool assignable;
+            if (UserdataAssignable(L, index, type, out assignable))
+            {
+                return assignable;
+            }
+            return objectCheckers.GetChecker(type)(L, index);
+        }
+
+        // Assignable's answer for a C# object or a struct userdata; false
+        // when the type's checker decides.
+        bool UserdataAssignable(RealStatePtr L, int index, Type type, out bool assignable)
         {
             if (LuaAPI.lua_type(L, index) == LuaTypes.LUA_TUSERDATA) // Fast path
             {
@@ -1150,20 +1167,23 @@ namespace XLua
                     }
                     if (obj == null)
                     {
-                        return !type.IsValueType();
+                        assignable = !type.IsValueType();
+                        return true;
                     }
-                    return type.IsAssignableFrom(obj.GetType());
+                    assignable = type.IsAssignableFrom(obj.GetType());
+                    return true;
                 }
 
                 int type_id = LuaAPI.xlua_gettypeid(L, index);
                 Type type_of_struct;
                 if (type_id != -1 && typeMap.TryGetValue(type_id, out type_of_struct)) // is struct
                 {
-                    return type.IsAssignableFrom(type_of_struct);
+                    assignable = type.IsAssignableFrom(type_of_struct);
+                    return true;
                 }
             }
-
-            return objectCheckers.GetChecker(type)(L, index);
+            assignable = false;
+            return false;
         }
 
         public object GetObject(RealStatePtr L, int index, Type type)
@@ -1203,6 +1223,18 @@ namespace XLua
         // BindingApi.GetObject<T> calls it after its own check).
         internal object NonCSObject(RealStatePtr L, int index, Type type, bool argument)
         {
+            object obj;
+            if (UserdataValue(L, index, type, out obj))
+            {
+                return obj;
+            }
+            return ((argument ? objectCasters.GetArgCaster(type) : objectCasters.GetCaster(type))(L, index, null));
+        }
+
+        // NonCSObject's value for a decimal or a struct userdata with a get
+        // function of type; false when the type's caster decides.
+        bool UserdataValue(RealStatePtr L, int index, Type type, out object value)
+        {
             if (LuaAPI.lua_type(L, index) == LuaTypes.LUA_TUSERDATA)
             {
                 GetCSObject get;
@@ -1211,15 +1243,18 @@ namespace XLua
                 {
                     decimal d;
                     Get(L, index, out d);
-                    return d;
+                    value = d;
+                    return true;
                 }
                 Type type_of_struct;
                 if (type_id != -1 && typeMap.TryGetValue(type_id, out type_of_struct) && type.IsAssignableFrom(type_of_struct) && custom_get_funcs.TryGetValue(type, out get))
                 {
-                    return get(L, index);
+                    value = get(L, index);
+                    return true;
                 }
             }
-            return ((argument ? objectCasters.GetArgCaster(type) : objectCasters.GetCaster(type))(L, index, null));
+            value = null;
+            return false;
         }
 
         // A value Lua passes to a C# parameter or assigns to a field or
@@ -1378,34 +1413,123 @@ namespace XLua
         // with GetObject, as the other modes read it.
         public void Get<T>(RealStatePtr L, int index, out T v)
         {
-            Func<RealStatePtr, int, T> get_func;
-            if (tryGetGetFuncByType(typeof(T), out get_func))
+            TypeOps<T> ops = Ops<T>();
+            if (ops.hasGet)
             {
-                v = get_func(L, index);
+                v = ops.get(L, index);
             }
             else if (StrictStruct<T>.Value)
             {
-                object obj = GetStructResult(L, index, typeof(T));
+                object obj = GetStructResult(L, index, TypeOf<T>.Value);
                 v = obj == null ? default(T) : (T)obj;
             }
             else
             {
-                object obj = GetObject(L, index, typeof(T));
+                // GetObject(L, index, typeof(T)), with the caster found once
+                object obj;
+                int udata = LuaAPI.xlua_tocsobj_safe(L, index);
+                if (udata != -1)
+                {
+                    obj = objects.Get(udata);
+                    RawObject rawObject = obj as RawObject;
+                    obj = rawObject == null ? obj : rawObject.Target;
+                }
+                else if (!UserdataValue(L, index, TypeOf<T>.Value, out obj))
+                {
+                    obj = ops.Caster(this)(L, index, null);
+                }
                 v = obj == null ? default(T) : (T)obj;
             }
         }
 
         public void PushByType<T>(RealStatePtr L,  T v)
         {
-            Action<RealStatePtr, T> push_func;
-            if (tryGetPushFuncByType(typeof(T), out push_func))
+            TypeOps<T> ops = Ops<T>();
+            if (ops.hasPush)
             {
-                push_func(L, v);
+                ops.push(L, v);
             }
             else
             {
                 PushAny(L, v);
             }
+        }
+
+        // What Get<T>, PushByType<T> and Assignable<T> use for a type T, found
+        // once per translator and type instead of on every call: the get and
+        // push functions (get_func_with_type, push_func_with_type), the caster
+        // of GetObject's last step (ObjectCasters.GetCaster) and the checker
+        // (ObjectCheckers.GetChecker). In an IL2CPP player each typeof(T)
+        // looks its Type object up in a table under a lock, and each
+        // Dictionary<Type, ...> lookup calls RuntimeType's GetHashCode and
+        // Equals; LuaTable.Get made five of them per value, about 0.5 us on the
+        // test phone (docs/research/benchmark-vs-moonsharp-ng.md, 2026-10-30).
+        // Registering a get or push function, a caster or a checker clears the
+        // cache (ClearTypeOps), so every call still uses what the dictionaries
+        // hold at that time.
+        sealed class TypeOps<T>
+        {
+            internal bool hasGet, hasPush;
+            internal Func<RealStatePtr, int, T> get;
+            internal Action<RealStatePtr, T> push;
+            ObjectCast caster;
+            ObjectCheck checker;
+
+            internal ObjectCast Caster(ObjectTranslator translator)
+            {
+                return caster ?? (caster = translator.objectCasters.GetCaster(TypeOf<T>.Value));
+            }
+
+            internal ObjectCheck Checker(ObjectTranslator translator)
+            {
+                return checker ?? (checker = translator.objectCheckers.GetChecker(TypeOf<T>.Value));
+            }
+        }
+
+        // The index of T in typeOps, the same in every translator.
+        static int typeOpsSlots;
+
+        static class TypeOpsSlot<T>
+        {
+            internal static readonly int Index = System.Threading.Interlocked.Increment(ref typeOpsSlots) - 1;
+        }
+
+        object[] typeOps = new object[32];
+
+        TypeOps<T> Ops<T>()
+        {
+            int i = TypeOpsSlot<T>.Index;
+            object[] all = typeOps;
+            if (i < all.Length)
+            {
+                TypeOps<T> ops = all[i] as TypeOps<T>;
+                if (ops != null)
+                {
+                    return ops;
+                }
+            }
+            return NewOps<T>(i);
+        }
+
+        TypeOps<T> NewOps<T>(int i)
+        {
+            var ops = new TypeOps<T>();
+            Type type = TypeOf<T>.Value;
+            ops.hasGet = tryGetGetFuncByType(type, out ops.get);
+            ops.hasPush = tryGetPushFuncByType(type, out ops.push);
+            if (i >= typeOps.Length)
+            {
+                Array.Resize(ref typeOps, Math.Max(i + 1, typeOps.Length * 2));
+            }
+            typeOps[i] = ops;
+            return ops;
+        }
+
+        // After a registration that may change what a type's get or push
+        // function, caster or checker is.
+        internal void ClearTypeOps()
+        {
+            Array.Clear(typeOps, 0, typeOps.Length);
         }
 
         // How GetParams<T> reads an element of type T, chosen once per type: a
@@ -2262,6 +2386,7 @@ namespace XLua
             {
                 throw new InvalidOperationException("push or get of " + type + " has register!");
             }
+            ClearTypeOps();
             push_func_with_type.Add(type, push);
             get_func_with_type.Add(type, new Func<RealStatePtr, int, T>((L, idx) => {
                 T ret;
@@ -2295,6 +2420,7 @@ namespace XLua
             {
                 throw new InvalidOperationException("push or get of " + type + " has register!");
             }
+            ClearTypeOps();
             push_func_with_type.Add(type, push);
             get_func_with_type.Add(type, get);
             registerCustomOp(type, pushObject, getObject, updateObject);
