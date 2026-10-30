@@ -234,6 +234,11 @@ Reached only through reflection, where the linker sees no call:
 
 ## Engine code
 
+*Since 2026-10-29 the searcher reads Android's StreamingAssets through the
+`AssetManager`, and `WWW` is gone from Android players outside OBB builds
+([below](#the-streamingassets-searcher-through-the-assetmanager-2026-10-29)).
+This section describes the players before that.*
+
 On Android, `StaticLuaCallbacks.LoadFromStreamingAssetsPath` reads
 StreamingAssets with `UnityEngine.WWW`. That keeps UnityWebRequest in
 `libunity.so`: 544,070 bytes compressed, 1,101,520 uncompressed. The symbols the
@@ -1963,6 +1968,63 @@ sleeps 50 ms on the calling thread for each file. The options:
 Not measured: iOS (its web request code stays in `libiPhone-lib.a` either
 way, [above](#engine-code)), WebGL, Medium and High stripping, option (c),
 and the rebuilt players on a device.
+
+*Decided 2026-10-29: option (c), Q83; done, measured
+[below](#the-streamingassets-searcher-through-the-assetmanager-2026-10-29).*
+
+## The StreamingAssets searcher through the AssetManager (2026-10-29)
+
+Owner decision Q83, option (c) of the question above: the searcher stays,
+and on Android it reads through Android's `AssetManager` over `AndroidJNI`
+(`StreamingAssetsLoader.cs`; [presets.md](../docs/design/presets.md#the-streamingassets-searcher-owner-decision-q83-2026-10-29)).
+
+**How it was measured.** `size_report.py run --platforms android --configs
+sg-minimal` (Minimal stripping, engine code stripping on), Unity
+6000.3.21f1, release ARM64 IL2CPP APKs, the size probe, Lua 5.5.1 plugin
+`libxlua.so` 165,593 / 388,136 bytes. `ng-5.5` is this branch,
+`ng-5.5+at-4a7f341e` the same probe with `Assets/XLua` from main before the
+change. Every project has the AndroidJNI and Unity Web Request WWW built-in
+modules in its manifest (the baseline too). Bytes compressed in the APK /
+uncompressed:
+
+| player | APK | delta over the empty project | `libunity.so` | `libil2cpp.so` | `global-metadata.dat` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| empty project (baseline) | 12,281,320 | | | | |
+| legacy before (`+at-4a7f341e`, `WWW`) | 13,748,022 | +1,466,702 | +542,771 / +1,101,488 | +620,580 / +2,073,616 | +135,976 / +391,604 |
+| legacy after (`AssetManager`) | 13,188,102 | +906,782 | +4,290 / +11,984 | +604,030 / +2,006,576 | +131,037 / +357,980 |
+| legacy after with `XLUA_NO_STREAMING_ASSETS_LOADER` (`+nosa`) | 13,186,746 | +905,426 | +4,291 / +11,984 | +602,743 / +2,005,160 | +130,966 / +357,740 |
+
+- **The change saves 559,920 bytes of APK** (the estimate was about
+  540 KB): `libunity.so` 538,481 compressed / 1,089,504 uncompressed,
+  `libil2cpp.so` 16,550 / 67,040, metadata 4,939 / 33,624. The new reader
+  costs less C# than `WWW`'s class library code (`System.Uri` and the
+  UnityWebRequest wrappers) it replaces.
+- **Engine modules** (`UnityLinkerToEditorData.json`): before, legacy kept
+  UnityWebRequest and TLS ("Required by UnityWebRequest Module"); after, it
+  keeps the same six modules as the empty project. AndroidJNI is among them
+  in the empty project too.
+- **`XLUA_NO_STREAMING_ASSETS_LOADER` now saves 1,356 bytes** (it saved
+  569,964 before): the searcher's own code. `StreamingAssetsLoader` stays in
+  the player, since Minimal stripping keeps `XLua.dll` whole.
+- **A first build kept `WWW` anyway** (13,754,294 bytes, `libunity.so`
+  +543,520 / +1,101,904, also with `+nosa`). The OBB path looked `WWW` up with
+  `Type.GetType("UnityEngine.WWW, UnityEngine.UnityWebRequestWWWModule")`, and
+  UnityLinker reads a constant `Type.GetType` argument as a reference. The
+  name is now built at run time; `StreamingAssetsObbLinkXml` keeps `WWW` in
+  OBB builds, where the path needs it.
+- **OBB builds** (APK with Split Application Binary) keep `WWW` and its
+  modules, as every legacy Android player did before. The smoke player built
+  with Split Application Binary has a `libunity.so` 713,064 bytes compressed
+  / 1,457,952 uncompressed larger than the same player without it, and a
+  `libil2cpp.so` 55,423 / 196,456 larger; how much of that is Unity's own
+  OBB support was not separated. A minimal player with the setting does not
+  keep `WWW` (its APK is 43,311 bytes smaller than the plain one: the
+  StreamingAssets moved to the OBB).
+
+Not measured: Medium and High stripping, a project that uses
+`UnityWebRequest` itself (it keeps the modules either way; before, the
+searcher's C# part cost about 33 KB there), AAB sizes, iOS (no `WWW` there
+before either).
 
 ## Hotfix (`HOTFIX_ENABLE`, 2026-10-28)
 
