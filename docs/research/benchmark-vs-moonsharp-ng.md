@@ -33,7 +33,9 @@ Marks: **[C]** confirmed here by a build, a run or the binary;
   7.8, Vector3 and structs 7.6, objects 12.9). **[C]**
 - **One case is MoonSharp-ng's: C# reading a Lua table field** costs it 93 ns
   against xlua-ng's 1.29 µs (14 times faster): MoonSharp's tables are C#
-  objects, xlua-ng's take several P/Invoke calls. **[C]**
+  objects, xlua-ng's take several P/Invoke calls. **[C]** Since 2026-10-30
+  xlua-ng's costs 254 ns (2.7 times MoonSharp-ng's), and strings cross the
+  bridge 17 to 45% faster: [C# table access and strings](#c-table-access-and-strings-2026-10-30).
 - **Allocations:** MoonSharp-ng allocates managed memory where xlua-ng does
   not: about 27 bytes per property or field read, 97 bytes per Vector3 or
   struct value, 68 bytes per class result, and 340 to 430 bytes per C# → Lua
@@ -621,6 +623,455 @@ The raw logs are in `vs-moonsharp-2026-10-29/` on the build disk: `phone/`,
 `emu/`, `host/runs/`, the stopped first start (`phone-aborted1/`,
 `emu-aborted1/`, players built before the merge of main) and `logs/`.
 
+## C# table access and strings (2026-10-30)
+
+The tables above show the one bridge case where MoonSharp-ng was faster: C#
+reading a Lua table field (`cs.table.get`, `LuaTable.Get<string, int>`), 93
+ns against xlua-ng's 1.29 µs on the phone. This section finds where that
+time went, step by step, for `LuaTable.Get`, `ContainsKey`, `Set`,
+`GetInPath` and `ForEach`, measures five changes that take most of it
+off, and looks at the strings that cross the bridge, which allocate more
+managed memory in xlua-ng than in MoonSharp-ng. Behaviour does not change:
+the same values, errors, metamethods and stack (tests below).
+
+- **Where it went** **[C]**: in the managed code around the native calls.
+  On the emulator a third of a `Get<string, int>` was IL2CPP's Type lookups
+  (three `typeof` per read, each a hash map read under a mutex), a tenth
+  `Dictionary<Type, ...>` lookups for the key's push function and the
+  value's get function, a tenth the UTF-8 encoder for the key, and a
+  quarter Lua itself: seven P/Invokes and a `lua_pcall` per read, also on a
+  table without a metatable.
+- **After the changes** (phone, plain) **[C]**: a C# read of a number by
+  string key costs 240 to 256 ns instead of 1.24 µs (−79 to −81%),
+  `cs.table.get` 254 ns instead of 1.30 µs (−81%; 248 to 255 ns in all
+  three modes), a string read 396 ns instead of 1.57 µs, `ContainsKey` 189
+  instead of 761 ns, `Set` 252 to 303 ns instead of 1.08 to 1.30 µs, a
+  `ForEach` element 553 instead of 1374 ns, and `GetInPath` 471 ns instead
+  of 1.14 µs. Strings crossing the bridge cost 17 to 45% less (C# → Lua with
+  strings 0.55x). Calls without tables or strings do not move beyond the
+  scatter of a build. MoonSharp-ng's 93 ns is still 2.7 times faster for
+  `cs.table.get`; it was 14 times.
+- **Strings** **[C]**: a Lua string that reaches C# costs exactly one new C#
+  string, as before, and nothing else; encoding and decoding ASCII no longer
+  go through `Encoding.UTF8`. After the changes the collector is the largest
+  part of a string read (40% on the emulator). Fewer allocations would need a
+  cache of decoded strings, which changes their identity: a question for the
+  owner (What is left).
+
+### Method
+
+- **Players** **[C]**: the player bench (`Test/MobileSmoke/PlayerBench.cs`,
+  `size_report.py +pbench`), which now also times fifteen `LuaTable`
+  operations from C# (`TableCases`: `Get` of int, double, long, bool, string,
+  object and `LuaTable` values by string key, by integer key and through an
+  `__index` table, `GetInPath`, `ContainsKey`, `Set` of an int and a string,
+  `Length`, and `ForEach` per element), and the vs-bench (`+vsbench`). Unity
+  6000.3.21f1, release ARM64 IL2CPP, Minimal stripping, the Lua 5.5.1 plugin
+  built from the same tree with NDK r30, as on 2026-10-29. The base is main at
+  `4bc5dd6e` with the bench commit `d8b5f464`; each candidate tree adds one
+  change to the one before (c1 to c4 below), copies of the base with the
+  change's files, which equal the commits. Unity ran with
+  `ANDROID_ADB_SERVER_PORT=5038`, so that its adb 36.0.0 left the shared adb
+  37.0.1 server alone.
+- **Timing** **[C]**: 8 launches per APK in rotating order, 15 s apart,
+  Thermal Status 0 before and after every launch. The phone had about 3.5 GB
+  free, so each launch installed its APK, ran it once and uninstalled it; at
+  most one test package was installed at a time. From the 26th install on,
+  Google Play Protect asked on most installs whether to send the app for a
+  security check; it was answered "Don't send" 26 times, once by hand and
+  then by a watcher that looked only while an install waited
+  (`scripts/protect_watch.py`). All 120 launches gave their result on the
+  first try. The tables give the median of the per-launch medians in ns per
+  operation, the C# or Lua loop included.
+- **Profiler** **[C]**: `simpleperf record --app` on the `xlua16k` emulator
+  only (never on the phone), cpu-clock at 4000 Hz, the player bench's profile
+  mode with one case at a time for 8 s. The self samples of the main thread
+  are grouped by the step they belong to (`scripts/categories.py`) and given
+  as ns per operation of the case. The emulator shows where the time goes; it
+  does not predict the phone's costs.
+- **Reading** **[C]**: the players' IL2CPP C++ (`LuaTable.Get`, `Fetch`,
+  `ObjectTranslator.Get<int>`) and their `libil2cpp.so` with symbols.
+
+### Where the time went
+
+The emulator's profile of each case, its main thread's self samples grouped
+by step, in ns per operation of the case (base → after C1 to C4) **[C]**:
+
+| step | `Get<string, int>` | `ContainsKey` | `Set` (int) | `GetInPath<int>` | `Get<string, string>` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Type lookups | 94 → 0 | 32 → 0 | 60 → 0 | 31 → 0 | 124 → 0 |
+| `Dictionary<Type, ...>` lookups | 32 → 0 | 16 → 0 | 30 → 0 | 15 → 0 | 43 → 0 |
+| UTF-8 encoder and decoder | 27 → 0 | 27 → 0 | 25 → 0 | 1 → 0 | 66 → 11 |
+| Lua (`libxlua.so`, `lua_pcall`) | 73 → 56 | 62 → 41 | 92 → 53 | 91 → 83 | 86 → 102 |
+| P/Invoke wrappers | 19 → 17 | 15 → 10 | 14 → 10 | 13 → 13 | 24 → 32 |
+| casts, shared generics, write barriers | 18 → 0 | 8 → 0 | 15 → 0 | 7 → 0 | 22 → 4 |
+| atomics | 9 → 0 | 4 → 0 | 7 → 0 | 8 → 5 | 14 → 7 |
+| bridge code (`LuaTable`, translator, delegates) | 14 → 26 | 6 → 9 | 10 → 16 | 10 → 13 | 16 → 42 |
+| allocation and collector | 1 → 0 | 0 → 0 | 1 → 0 | 0 → 0 | 32 → 80 |
+| other (marshaling, `tgkill`, PLT) | 21 → 6 | 13 → 5 | 14 → 5 | 65 → 63 | 97 → 151 |
+| **total** | **307 → 104** | **184 → 65** | **268 → 84** | **241 → 177** | **525 → 429** |
+
+`GetInPath`'s "other" is the path's marshaling, which C5 removes (below).
+
+What each step was, in the base **[C]**:
+
+- **Type lookups.** Three per `Get<string, int>`: `typeof(TValue)` for the
+  nil check (`LuaTable.cs:53` at `4bc5dd6e`), and `typeof(T)` in
+  `ObjectTranslator.PushByType<T>` and `Get<T>` (`ObjectTranslator.cs:1401`
+  and `:1382`), each compiled by IL2CPP to `Type_GetTypeFromHandle`, which
+  looks the `Type` object up in a hash map under a mutex
+  (`il2cpp::vm::Reflection::GetTypeObject`, as found on 2026-10-29). `TKey`
+  and the reference-type `TValue`s are shared generics in IL2CPP, so their
+  `typeof` also goes through the method's runtime generic context first.
+- **`Dictionary<Type, Delegate>` lookups.** Two per read
+  (`tryGetPushFuncByType` and `tryGetGetFuncByType`): `EqualityComparer<Type>.Default`,
+  `RuntimeType.GetHashCode` and `Type.op_Inequality`, then a cast of the
+  delegate to `Action<IntPtr, T>` or `Func<IntPtr, int, T>`. A `LuaTable` or
+  `object` result added `ObjectCasters.GetCaster`'s lookups
+  (`Nullable.GetUnderlyingType`, `IsByRef`, `castersMap`), and `ForEach`'s
+  key check `ObjectCheckers.GetChecker`'s.
+- **The UTF-8 encoder.** `lua_pushstring` (`LuaDLLBridge.cs:527`) called
+  `Encoding.UTF8.GetByteCount` and then `GetBytes` for every key; each reads
+  `Encoding.UTF8`, which IL2CPP compiles to a load and a full memory barrier
+  (`il2cpp::vm::Thread::FullMemoryBarrier`, 6 ns of the 27).
+- **Lua and the protected call.** Seven P/Invokes per read (`lua_gettop`,
+  `xlua_rawgeti` of the reference, `xlua_pushlstring`, `xlua_pgettable`,
+  `lua_type`, `xlua_tointeger64`, `lua_settop`), and in `xlua_pgettable`
+  (`xlua.c:566`) a `lua_pcall` of a C helper: `sigsetjmp`, the call
+  machinery and the helper's `lua_gettable`. The key's interning
+  (`internshrstr`) and the table lookup (`luaH_get`) are a few ns each.
+- **`GetInPath`'s path** (the "other" of its column): IL2CPP's marshaling of
+  the `string` parameter (`LuaDLLBridge.cs:896`), a UTF-16 to UTF-8
+  conversion into a `std::string`, `malloc` and `free` per call.
+- **A string result**: a new C# string per read (the decoder's `GetString`,
+  after `Marshal.Copy` into the shared buffer), and the collections it brings:
+  32 ns of allocation and collector code and 46 ns in `tgkill`, Boehm stopping
+  the other threads for a collection.
+
+Not the cost **[C]**: the env lock (compiled only with `THREAD_SAFE` or
+`HOTFIX_ENABLE`); the owner thread check (only with the bridge checks, which
+release players leave out); `LuaBase.State` and `LuaEnv.L` (two loads and a
+compare); the registry index (no memory barrier since 2026-10-29); and the
+stack balance (one `lua_settop`).
+
+After C1 to C4 a `Get<string, int>` on the emulator is half Lua (56 of 104
+ns: the key's interning, the table lookup, the three P/Invokes' entries, and
+10.9 ns in `libxlua.so`'s PLT stubs) and a quarter bridge code (the type's
+operations, `Fetch`, `Get<T>`); no Type lookup is left. A string read now
+spends 172 of its 429 ns in the collector (92 ns in `tgkill`, 80 ns marking
+and allocating).
+
+### The changes
+
+| | commit | what |
+| --- | --- | --- |
+| C1 | `perf(runtime): find a type's get, push, cast and check functions once` | `ObjectTranslator` keeps, per translator and type, what `Get<T>`, `PushByType<T>` and `Assignable<T>` looked up on every call (the get and push functions, `GetObject`'s caster, the checker), in an array indexed by a per-type slot; registering a get or push function, caster or checker clears it. `LuaTable`'s nil check reads `IsValueType` from a static field per type |
+| C2 | `perf(native): read and write a referenced table raw when no metamethod runs`, `perf(runtime): LuaTable.Get, ContainsKey and Set in one native call` | `xlua_getref_get`, `_getfield`, `_set` and `_setfield` (`build/xlua.c`): the reference, the key (a string key as bytes) and `lua_gettable`'s or `lua_settable`'s result in one P/Invoke, raw where no metamethod can run (the raw value is not nil, or a read from a table without a metatable), through `lua_pcall` otherwise |
+| C3 | `perf(runtime): copy ASCII strings to Lua without the UTF-8 encoder` | `lua_pushstring` (every C# string the bridge pushes, table keys included) copies an ASCII string into the shared buffer in one pass; other strings go to the encoder as before |
+| C4 | `perf(runtime): decode ASCII Lua strings without the UTF-8 decoder` | `lua_tostring` widens a Lua string of up to 256 ASCII bytes on the stack into the new C# string; other strings go to the decoder as before |
+| C5 | `perf(runtime): pass an ASCII GetInPath path without the string marshaler` | `GetInPath` and `SetInPath` pass an ASCII path as a C string from the shared buffer; other paths go through the marshaler as before |
+
+**Why the raw read is the same.** In Lua 5.1 to 5.5 and LuaJIT,
+`lua_gettable` on a table returns the raw value when it is not nil and
+consults `__index` only when it is, and `lua_settable` stores into a present key
+without `__newindex`; a table without a metatable has no metamethod at all.
+`lua_rawget` and `lua_rawset` on a present key allocate nothing and raise
+nothing, so they need no protection. A missing key of a table with a
+metatable, a value that is not a table (a `LuaTable` made from a reference
+to a string, say) and a write of a new key (which can allocate) go through
+`lua_pcall` as before. The key is pushed outside the protected call, as it
+was. What can differ is internal: a `debug.sethook` hook with "c" no longer
+sees the call and return of the protected call's helper for a raw access,
+and a key or value whose push threw used to leave the table on the Lua
+stack; both are in [MIGRATING.md](../MIGRATING.md).
+
+**Why the caches are the same.** The get and push functions of a type can
+only be added (`RegisterPushAndGetAndUpdate` and `RegisterStruct` throw for
+a type that has one), casters and checkers only replaced through
+`AddCaster` and `AddChecker`; each of these clears the cache, so a type's
+next call looks everything up again. The caster and checker are still
+resolved only where the old code resolved them (after the C# object and
+struct tests), and `ObjectCasters.GetCaster` caches what it creates itself.
+
+### Player bench on the phone **[C]**
+
+**The changes in turn** (pb1; plain, each change added to the one before;
+8 launches each). The table cases, the two string cases of the Lua → C#
+list, and the controls (ns per operation, the median of the per-launch
+medians; the last columns are differences):
+
+| case | base | +C1 | +C2 | +C3 | +C4 | Δ +C1 | Δ +C2 | Δ +C3 | Δ +C4 | Δ all |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `table_get_int` | 1242.7 | 508.5 | 375.0 | 254.5 | 256.3 | -734.2 | -133.4 | -120.5 | +1.8 | -986.4 (-79%) |
+| `table_get_double` | 1236.9 | 497.1 | 357.1 | 243.9 | 247.5 | -739.9 | -139.9 | -113.2 | +3.6 | -989.4 (-80%) |
+| `table_get_long` | 1257.7 | 507.0 | 362.4 | 253.5 | 253.5 | -750.6 | -144.7 | -108.9 | +0.0 | -1004.2 (-80%) |
+| `table_get_bool` | 1239.1 | 488.8 | 348.4 | 241.5 | 240.3 | -750.3 | -140.4 | -106.9 | -1.3 | -998.9 (-81%) |
+| `table_get_string` | 1570.5 | 805.1 | 605.7 | 496.1 | 395.5 | -765.4 | -199.4 | -109.6 | -100.6 | -1175.0 (-75%) |
+| `table_get_object` | 1753.6 | 797.1 | 656.3 | 501.3 | 498.0 | -956.4 | -140.9 | -155.0 | -3.2 | -1255.5 (-72%) |
+| `table_get_table` | 2414.2 | 1206.1 | 1126.7 | 917.1 | 949.1 | -1208.1 | -79.4 | -209.6 | +32.0 | -1465.1 (-61%) |
+| `table_get_index` | 1005.6 | 331.8 | 230.9 | 230.7 | 230.7 | -673.7 | -100.9 | -0.2 | +0.0 | -774.8 (-77%) |
+| `table_get_via_index` | 1286.9 | 562.0 | 603.6 | 454.8 | 455.4 | -724.8 | +41.6 | -148.8 | +0.6 | -831.4 (-65%) |
+| `table_get_in_path` | 1135.8 | 822.6 | 867.8 | 846.8 | 850.0 | -313.2 | +45.2 | -21.0 | +3.3 | -285.8 (-25%) |
+| `table_contains_key` | 761.1 | 437.4 | 304.8 | 188.1 | 189.2 | -323.8 | -132.5 | -116.7 | +1.0 | -572.0 (-75%) |
+| `table_set_int` | 1078.4 | 488.2 | 355.3 | 247.6 | 252.1 | -590.1 | -132.9 | -107.7 | +4.5 | -826.3 (-77%) |
+| `table_set_string` | 1303.8 | 652.8 | 514.7 | 303.3 | 302.8 | -651.0 | -138.1 | -211.4 | -0.6 | -1001.1 (-77%) |
+| `table_length` | 78.4 | 78.5 | 78.5 | 78.8 | 78.3 | +0.1 | +0.0 | +0.3 | -0.6 | -0.1 (-0%) |
+| `table_for_each` | 1373.5 | 688.3 | 664.9 | 665.1 | 552.5 | -685.2 | -23.5 | +0.2 | -112.6 | -821.0 (-60%) |
+| `string_arg` | 406.4 | 429.5 | 411.2 | 411.8 | 313.3 | +23.1 | -18.3 | +0.6 | -98.4 | -93.0 (-23%) |
+| `string_return` | 292.6 | 290.7 | 292.6 | 181.8 | 184.4 | -1.9 | +1.9 | -110.8 | +2.6 | -108.2 (-37%) |
+| `struct_boxed_field_get` | 993.8 | 573.3 | 564.0 | 568.5 | 566.1 | -420.4 | -9.3 | +4.5 | -2.4 | -427.7 (-43%) |
+| `instance_call` | 332.7 | 334.8 | 342.1 | 343.5 | 335.0 | +2.1 | +7.3 | +1.4 | -8.5 | +2.3 (+1%) |
+| `unity_instance_method` | 3843.3 | 4050.9 | 3964.4 | 3929.7 | 4031.3 | +207.6 | -86.5 | -34.7 | +101.6 | +188.0 (+5%) |
+
+- **C1** (the per-type caches) takes 313 to 1208 ns off every table
+  operation but `Length` (−28 to −67%): the Type and dictionary lookups of
+  the key's push and the value's read. It also takes 420 ns (−43%) off
+  `struct_boxed_field_get`, a reflection wrapper's struct field, which reads
+  and pushes through the same `Get<T>` and `PushByType<T>`.
+- **C2** (one native call, raw where no metamethod runs) takes 101 to 199 ns
+  off each `Get`, `ContainsKey` and `Set` of a number, a boolean, a string or
+  an object (−18 to −30%), and 79 ns off a `LuaTable` value (−7%). A key
+  missing from a table whose metatable's `__index` answers
+  (`table_get_via_index`) costs 42 ns more: the raw read and the metatable
+  test come before the protected call. `GetInPath`, which C2 does not
+  touch, moved by +45 ns between these two builds.
+- **C3** (the ASCII encoder) takes 107 to 211 ns off every operation with a
+  string key (−18 to −41%) and 111 ns (−38%) off `string_return`, a C# method
+  that returns a string to Lua.
+- **C4** (the ASCII decoder) takes 101 ns (−20%) off reading a string value,
+  113 ns (−17%) off `ForEach` (its keys are strings) and 98 ns (−24%) off
+  `string_arg`, a Lua string passed to C#.
+- **All four:** a numeric read by string key costs 240 to 256 ns instead of
+  1.24 to 1.26 µs (−79 to −81%), a string read 396 ns instead of 1.57 µs,
+  `ContainsKey` 189 instead of 761 ns, `Set` 252 to 303 instead of 1078 to
+  1304 ns, a `ForEach` element 553 instead of 1374 ns. The other 27 cases
+  move by −1.8 to +3.3% (hot-path mix 429.2 → 425.9 ns, −0.8%), except the
+  reflection wrapper `unity_instance_method` (+188 ns, +4.9%), which moved by
+  up to 300 ns between builds on 2026-10-29 too.
+
+**C5, the `GetInPath` path** (pb3; C4 and C5 in plain, 8 launches each):
+
+| case | C4 | +C5 | Δ all |
+| --- | ---: | ---: | ---: |
+| `table_get_in_path` | 847.4 | 470.8 | -376.6 (-44%) |
+| `table_get_int` | 255.2 | 253.6 | -1.7 (-1%) |
+| `table_get_string` | 394.9 | 392.3 | -2.6 (-1%) |
+| `table_contains_key` | 188.6 | 189.1 | +0.5 (+0%) |
+| `table_set_int` | 255.8 | 251.0 | -4.7 (-2%) |
+| `table_for_each` | 554.3 | 552.7 | -1.6 (-0%) |
+| `string_arg` | 318.5 | 314.5 | -4.0 (-1%) |
+| `string_return` | 184.5 | 184.6 | +0.1 (+0%) |
+| `instance_call` | 335.6 | 334.7 | -1.0 (-0%) |
+
+C5 takes 377 ns (−44%) off `GetInPath<int>("a.b")`, the marshaling of the
+path; with C1 to C4 it costs 471 ns instead of 1.14 µs (−59%). C5's emulator
+profile has no marshaling left (its total, 177 ns, is not comparable: the
+host was busy with the container checks during that run). The other
+cases move by −1.9 to +2.9% (hot-path mix 426.0 → 427.9 ns).
+
+**GCM, before and after** (pb2; the base and the C4 tree in GCM, 8 launches
+each):
+
+| case | GCM | GCM after | Δ all |
+| --- | ---: | ---: | ---: |
+| `table_get_int` | 1227.6 | 255.1 | -972.5 (-79%) |
+| `table_get_double` | 1499.0 | 243.4 | -1255.7 (-84%) |
+| `table_get_long` | 1240.1 | 252.4 | -987.6 (-80%) |
+| `table_get_bool` | 1294.7 | 238.3 | -1056.4 (-82%) |
+| `table_get_string` | 1510.1 | 388.1 | -1122.0 (-74%) |
+| `table_get_object` | 1770.0 | 499.2 | -1270.8 (-72%) |
+| `table_get_table` | 2359.1 | 933.3 | -1425.8 (-60%) |
+| `table_get_index` | 1019.5 | 230.4 | -789.0 (-77%) |
+| `table_get_via_index` | 1272.9 | 454.9 | -818.0 (-64%) |
+| `table_get_in_path` | 1153.1 | 844.8 | -308.2 (-27%) |
+| `table_contains_key` | 734.2 | 188.1 | -546.1 (-74%) |
+| `table_set_int` | 1045.8 | 251.9 | -794.0 (-76%) |
+| `table_set_string` | 1230.7 | 307.1 | -923.6 (-75%) |
+| `table_length` | 78.3 | 78.4 | +0.1 (+0%) |
+| `table_for_each` | 1439.4 | 559.0 | -880.4 (-61%) |
+| `string_arg` | 458.3 | 354.8 | -103.5 (-23%) |
+| `string_return` | 355.0 | 224.1 | -130.9 (-37%) |
+| `struct_boxed_field_get` | 1015.4 | 596.9 | -418.5 (-41%) |
+| `instance_call` | 343.2 | 346.8 | +3.6 (+1%) |
+| `unity_instance_method` | 3933.8 | 3830.9 | -102.9 (-3%) |
+
+GCM gains what plain gains: −72 to −84% on reads of numbers, strings and
+objects by string key, −60 to −77% on the other reads (`GetInPath` −27%,
+without C5), −74 to −76% on `ContainsKey` and `Set`, −61% per `ForEach`
+element. The other 27 cases move by −2.6 to +4.5% (the largest,
+`struct_boxed_pass`, takes a path these changes do not touch), the hot-path
+mix 450.9 → 446.9 ns (−0.9%).
+
+### vs-bench on the phone **[C]**
+
+**Before and after, every mode** (vs1; the base players and the C4 tree's,
+plain, GCM and strict minimal, 8 launches each, one APK installed at a time).
+The string cases, `cs.table.get` and the two Vector3 cases that moved (the
+last three columns are differences):
+
+| case | plain | plain after | GCM | GCM after | minimal | minimal after | Δ plain | Δ GCM | Δ minimal |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `lua2cs.instance.method.string.3arg.ret` | 1185.1 | 775.7 | 1252.8 | 812.1 | 1248.0 | 788.8 | -409.3 (-35%) | -440.7 (-35%) | -459.2 (-37%) |
+| `lua2cs.instance.prop.get.string` | 571.3 | 451.9 | 664.7 | 498.0 | 603.0 | 485.7 | -119.4 (-21%) | -166.7 (-25%) | -117.4 (-19%) |
+| `lua2cs.instance.prop.set.string` | 584.5 | 484.7 | 620.5 | 510.7 | 592.4 | 492.1 | -99.7 (-17%) | -109.9 (-18%) | -100.3 (-17%) |
+| `lua2cs.instance.method.Vector3.3arg.ret` | 1225.9 | 1296.3 | 1284.8 | 1381.8 | 1256.9 | 1305.4 | +70.4 (+6%) | +97.0 (+8%) | +48.5 (+4%) |
+| `lua2cs.instance.prop.set.Vector3` | 485.4 | 515.9 | 513.8 | 553.7 | 502.0 | 487.1 | +30.5 (+6%) | +39.9 (+8%) | -14.9 (-3%) |
+| `cs2lua.string.3arg.ret` | 981.9 | 548.4 | 987.7 | 546.2 | 990.6 | 542.5 | -433.6 (-44%) | -441.5 (-45%) | -448.1 (-45%) |
+| `cs.table.get` | 1303.6 | 254.1 | 1314.2 | 254.5 | 1230.0 | 247.5 | -1049.5 (-81%) | -1059.8 (-81%) | -982.6 (-80%) |
+
+The groups (geometric mean of the cases' medians):
+
+| group | plain | plain after | GCM | GCM after | minimal | minimal after | Δ plain | Δ GCM | Δ minimal |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Lua → C#: static calls, property and field (int) | 136 | 136 | 183 | 183 | 178 | 179 | 1.00x | 1.00x | 1.01x |
+| Lua → C#: instance calls (int, long, double) | 367 | 363 | 413 | 386 | 371 | 374 | 0.99x | 0.93x | 1.01x |
+| Lua → C#: instance properties and fields (int, enum) | 365 | 366 | 410 | 403 | 381 | 387 | 1.00x | 0.98x | 1.02x |
+| Lua → C#: strings | 734 | 554 | 802 | 591 | 764 | 573 | 0.75x | 0.74x | 0.75x |
+| Lua → C#: Vector3 and struct | 812 | 828 | 847 | 864 | 818 | 830 | 1.02x | 1.02x | 1.01x |
+| Lua → C#: objects (new class, object and class arguments) | 1009 | 1031 | 1079 | 1039 | 1023 | 1016 | 1.02x | 0.96x | 0.99x |
+| C# → Lua: int, long, double | 221 | 218 | 220 | 222 | 216 | 217 | 0.99x | 1.01x | 1.00x |
+| C# → Lua: string | 982 | 548 | 988 | 546 | 991 | 542 | 0.56x | 0.55x | 0.55x |
+| C# → Lua: Vector3 and struct | 1611 | 1609 | 1616 | 1611 | 1630 | 1657 | 1.00x | 1.00x | 1.02x |
+| C# → Lua: object and class | 709 | 717 | 705 | 709 | 685 | 696 | 1.01x | 1.01x | 1.02x |
+| Lua alone (loop, table) | 16 | 16 | 16 | 16 | 16 | 16 | 1.00x | 1.00x | 1.01x |
+
+- **`cs.table.get`** (`LuaTable.Get<string, int>` from C#) costs 248 to 255 ns
+  instead of 1.23 to 1.31 µs in all three modes (−80 to −81%).
+- **Strings across the bridge** cost 17 to 45% less in every mode: three
+  string arguments and a string result −409 to −459 ns (−35 to −37%), a
+  string property −117 to −167 ns, setting one −100 to −110 ns, and a C# →
+  Lua call with three strings and a string result −434 to −448 ns (−44 to
+  −45%). The groups: Lua → C# strings 0.74x to 0.75x, C# → Lua strings
+  0.55x to 0.56x.
+- **Allocations do not change** (the allocation pass, every case and mode
+  within 2 bytes): 45 bytes per Lua string that reaches C# (the C# string
+  itself), 141 for three; none for `cs.table.get` or a string pushed to Lua.
+- **Without strings or tables** the groups stay within 0.93x to 1.02x. Two
+  Vector3 cases read +4 to +8% (`lua2cs.instance.method.Vector3.3arg.ret`
+  +48 to +97 ns, `lua2cs.instance.prop.set.Vector3` −15 to +40 ns); their
+  wrappers compile to the same C++ in both plain players (compared, the
+  hashed names aside) and call nothing these changes touch, so this is code
+  placement between builds, the same case that moved by up to 69 ns between
+  two builds of one tree on 2026-10-29. GCM's instance calls read −5 to −10%,
+  likewise without a code change.
+
+### Tests
+
+- **New cases** (`test(runtime): LuaTable's raw and protected paths, and type
+  caches`, `test(runtime): GetInPath and SetInPath with ASCII and other
+  paths`): `CaseLuaTableRawPaths` (`Get`, `ContainsKey` and `Set` with string
+  and integer keys on present and missing keys, with and without a
+  metatable, through `__index` and `__newindex`, a metatable without them, a
+  key with a NUL and one that is not ASCII, a `LuaTable` whose value is a
+  string, failing metamethods; `GetInPath` and `SetInPath` with ASCII, other,
+  NUL-cut and long paths; the stack after each) and
+  `CaseTypeOpsFollowRegistrations` (a caster, a checker, and get and push
+  functions registered after a type was read, walked or written are used
+  from then on). Both passed on the unchanged runtime first (Lua 5.5.1,
+  legacy, all four suite passes; the path cases on the tree before C5)
+  **[C]**. `EXPECTED_TESTS` is 530. `native_regression.py`'s new
+  `ref_table_access` checks the four exports against `lua_gettable` and
+  `lua_settable` (results, errors, stack) on every path.
+- `Test/Native/run_managed.py --source-gen --source-gen-minimize
+  --source-gen-fallback` on macOS arm64 (Mono 6.14.1), plugins built from
+  this tree: Lua 5.5.1 and LuaJIT 2.1, each legacy and minimal (`--define
+  XLUA_PRESET_MINIMAL`), 530 tests in each of two modes in every pass; and
+  the same four with `--define THREAD_SAFE`. After C4, after C5, and after
+  merging main (`95c58c28`) **[C]**. In the last round one `THREAD_SAFE` run
+  (Lua 5.5.1, legacy, the GCM pass's coroutine mode) failed
+  `CaseBridgeAfterDisposeThrows` with "the holder was not finalized", and the
+  same run passed twice afterwards: the test makes an object on a thread
+  that ends and expects one `GC.Collect` to finalize it, the race that
+  Test/README.md describes for `CaseOwnerThreadCheck` (Mono can still scan
+  the ended thread). It is main's test and these changes do not touch its
+  path **[U]** for the cause.
+- `native_regression.py` and `check_exports.py` on the four host libraries;
+  `check_pinvoke_abi.py` (153 imports) **[C]**.
+- `sanitize.sh` in `xlua-analysis:26.04` (`--memory 6g`, Linux arm64, with
+  the image's .NET SDK): legacy and `XLUA_PRESET=minimal`, each on 5.3.6,
+  5.4.9, 5.5.1 and LuaJIT, the suite with reflection and both source
+  generator modes (530 tests each) **[C]**.
+- `coverage.sh` in the same image, default `VERSIONS`: every gate passes;
+  `xlua.c` 432 of 432 branches on 5.3.6 and 446 of 446 on 5.4.9 and 5.5.1
+  (420, 434 and 434 before: the new functions' branches are all reached)
+  **[C]**.
+- `Test/UnityMatrix/il2cpp_suite.py all` on `xlua16k` (Unity 6000.3.21f1,
+  arm64), after C4, after C5 and after the merge: plain and gcm 530/530 in both modes
+  with no difference from the host; strict 530/530 with the 8 differences per
+  mode that [il2cpp-suite.md](il2cpp-suite.md) expects (cases that need
+  reflection on one side only) **[C]**.
+- The Unity editor suite (`Test/UnityMatrix/prepare.py --editor-tools` and
+  `editor_tests.py run`, 6000.3.21f1, macOS arm64) after the merge: mode
+  sourcegen 48/48 (LuaLS: `good.lua` 0 and `bad.lua` 10 expected
+  diagnostics; the log checks pass), mode reflection 41/41 **[C]**. The first
+  sourcegen launch passed its tests but stopped at LuaLS, which was given a
+  mise shim without a version; the second was given the binary.
+- Every phone player of every session ran all its cases; the vs-bench
+  players printed the same check line **[C]**.
+- Not run: Lua 5.4.9 and 5.3.6 on the host and in players (the container's
+  `sanitize.sh` and `coverage.sh` ran them), `NATIVE_LUA_PUSHSTRING` (the
+  Windows workflow's .NET Framework pass), `HOTFIX_ENABLE`, iOS, WebGL,
+  `fuzz_bridge.c`.
+
+### What is left
+
+After the changes, on the emulator **[C]**:
+
+- **A numeric `Get`** is half Lua: the string key's interning
+  (`internshrstr`) and the table lookup, the three P/Invokes' entries, and
+  10.9 of 104 ns in `libxlua.so`'s PLT stubs, which its calls to its own
+  exported `lua_*` functions go through **[U]** (`-fno-semantic-interposition`
+  or hidden aliases would remove them for every bridge call; not tried).
+  A `Get` of a number or a boolean in one P/Invoke that also converts and pops
+  the value would save two more P/Invokes and the generic `Get<T>`; not tried
+  **[U]**.
+- **A string read** spends 40% in the collector. Each read makes one C#
+  string (as it must, unless strings are shared): a per-env cache of
+  decoded short strings, keyed by the Lua string's address and checked by
+  content, would return the same C# string for the same Lua string. That
+  changes what `ReferenceEquals` says about two reads, which nothing in xLua
+  relies on but user code could: **owner's decision** (not built).
+- **`GetInPath`** keeps its `lua_pcall`: its path segments are new Lua
+  strings, which a raw walk would allocate outside the protected call.
+- **`ForEach`** keeps a `lua_pcall` per element (`xlua_pnext`): the action may
+  change the table between two steps.
+- **`Get<string, LuaTable>`** is a new `LuaTable` per read (a reference and a
+  finalizer); unchanged.
+- **`ObjectTranslator.GetStructArg<T>`** (a struct argument without a
+  generated reader, such as the player bench's `struct_boxed_pass`, 1.76 µs)
+  still makes a `typeof(T)` and a dictionary lookup per call
+  (`ObjectTranslator.cs:1356` at `4bc5dd6e`); C1's cache would apply as it
+  does to `Get<T>`. Not done here: outside the table path.
+
+The size of the changes **[C]**: `libxlua.so` (arm64) +1,456 bytes (+506
+compressed), the minimal variant +1,472 (+424); `libil2cpp.so` +26 KB in each
+vs-bench player (the per-type caches' generic code); APKs +5.8 KB (plain),
++9.5 KB (GCM), +7.4 KB (strict minimal).
+
+### Reproducing
+
+Scripts, raw logs and the kept binaries are in `tablepath-2026-10-29/` on the
+build disk: `scripts/` (`build_players.sh` with `mktree.py` for the candidate
+trees, `unity_port.sh` for Unity's adb port, `bench_run.py` with
+`phone_session.py` and `devlib.py` for the launches, one APK installed at a
+time, `phone_all.sh` and `phone_pb3.sh` for the sessions, `aggregate.py`,
+`pb_table.py` and `vs_tables.py` for the tables, `emu_prof.py`,
+`categories.py` and `steps_table.py` for the emulator profiles,
+`host_tests.sh`, `il2cpp_suite.sh`, `container.sh` and `editor_suite.sh` for
+the tests); `pb1/`, `vs1/`, `pb2/`, `pb3/` (launches and results);
+`prof-base/`, `prof-c4/`, `prof-c5/` (simpleperf records) with the
+`symfs-*` directories; `base/`, `c1/` to `c5/`, `final/` (`il2cpp/` keeps each
+player's `libil2cpp.so`, its symbols and the IL2CPP C++ of the bridge and the
+generic methods); `phone/` (the device command log and four snapshots);
+`host-tests/`, `il2cpp-suite/` to `il2cpp-suite3/`, `container-out/`,
+`editor-*/` and `editor2-*/`; `protect_watch.py` answered the Play Protect
+prompts. The candidate trees were copies of `d8b5f464` (main
+`4bc5dd6e` with the bench commit) with each change's files; they match the
+commits: C1 `1ec6e19c`, C2 `85b29942` and `51ffab62`, C3 `810cd03a`, C4
+`5a3cb3bb`, C5 `32554010`. The `final` players (vs-bench in three modes,
+player bench in GCM) were built from the C4 tree: C5 changes only
+`GetInPath` and `SetInPath`, which no vs-bench case calls.
+
 ## Summary for MoonSharp-ng's comparison doc
 
 The owner may copy this section into the fork's `docs/comparison-xlua-ng.md`.
@@ -642,7 +1093,9 @@ The owner may copy this section into the fork's `docs/comparison-xlua-ng.md`.
 > - **C# → Lua:** 2.1 times slower with strings, 7.6 to 7.8 with numbers,
 >   Vector3 and structs, 12.9 with class and object arguments.
 > - **C# reading a Lua table field:** MoonSharp-ng is 14 times faster (93 ns
->   against 1.29 µs; no P/Invoke).
+>   against 1.29 µs; no P/Invoke). After xLua-NG's changes of 2026-10-30,
+>   2.7 times (93 against 254 ns), and xLua-NG's string calls are 17 to 45%
+>   faster than in the tables above.
 > - **Allocations:** a property or field read allocates about 27 bytes (the
 >   result `DynValue`), a Vector3 or struct value about 97, a class result
 >   68, and a C# → Lua call with three struct or class arguments 340 to 430;

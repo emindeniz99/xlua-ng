@@ -462,6 +462,13 @@
      ]
     },
     {
+     "name": "LuaTableRawPaths",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::LuaTableRawPaths()"
+     ]
+    },
+    {
      "name": "NarrowConversions",
      "static": true,
      "overloads": [
@@ -487,6 +494,13 @@
      "static": true,
      "overloads": [
       "Coverage.CSharpApi::ObjectPoolApi()"
+     ]
+    },
+    {
+     "name": "TypeOpsFollowRegistrations",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::TypeOpsFollowRegistrations()"
      ]
     }
    ],

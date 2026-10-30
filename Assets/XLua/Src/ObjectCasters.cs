@@ -240,6 +240,7 @@ namespace XLua
                 defaultObjectCheck = false;
             }
             checkersMap[type] = oc;
+            translator.ClearTypeOps();
         }
 
         // Whether the number types still have the checkers above, whose result
@@ -1218,6 +1219,7 @@ namespace XLua
         public void AddCaster(Type type, ObjectCast oc)
         {
             castersMap[type] = oc;
+            translator.ClearTypeOps();
         }
 
         private ObjectCast genCaster(Type type)

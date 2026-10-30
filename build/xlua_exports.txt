@@ -90,6 +90,10 @@ xlua_get_lib_version
 xlua_get_registry_index
 xlua_getglobal
 xlua_getloaders
+xlua_getref_get
+xlua_getref_getfield
+xlua_getref_set
+xlua_getref_setfield
 xlua_gettypeid
 xlua_gl
 xlua_is_eq_str

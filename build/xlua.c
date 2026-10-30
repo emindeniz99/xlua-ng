@@ -624,6 +624,97 @@ LUA_API int xlua_psettable(lua_State* L, int idx) {
     return lua_pcall(L, 3, 0, 0);
 }
 
+/* LuaTable.Get, ContainsKey and Set (Assets/XLua/Src/LuaTable.cs), on the
+ * value of the registry reference ref. lua_gettable and lua_settable run a
+ * metamethod only for a key whose raw value is nil (__index, __newindex) or
+ * for a value that is not a table, and only then need lua_pcall's protection
+ * (xlua_pgettable, xlua_psettable). Where the raw value is not nil, and for a
+ * read from a table without a metatable, they give or change the raw value,
+ * so these read and write it raw: no protected call, and one P/Invoke where
+ * the bridge made four or five (docs/research/benchmark-vs-moonsharp-ng.md,
+ * 2026-10-30). Anything else goes through lua_pcall as before. */
+
+/* t[k] in place of the key on the top, as lua_gettable gives it. Returns the
+ * type of the value, or -1 when lua_pcall failed, with the error object in
+ * place of the key. */
+static int getref_gettable(lua_State *L, int ref) {
+	int status;
+	lua_rawgeti(L, LUA_REGISTRYINDEX, ref);           /* k t */
+	if (lua_type(L, -1) == LUA_TTABLE) {
+		lua_pushvalue(L, -2);
+		lua_rawget(L, -2);                            /* k t v */
+		if (!lua_isnil(L, -1) || !lua_getmetatable(L, -2)) {
+			lua_replace(L, -3);                       /* v t */
+			lua_pop(L, 1);
+			return lua_type(L, -1);
+		}
+		lua_pop(L, 2);                                /* k t */
+	}
+	push_helper(L, c_lua_gettable);
+	lua_pushvalue(L, -2);
+	lua_pushvalue(L, -4);                             /* k t f t k */
+	status = lua_pcall(L, 2, 1, 0);                   /* k t v-or-error */
+	lua_replace(L, -3);
+	lua_pop(L, 1);
+	return status == 0 ? lua_type(L, -1) : -1;
+}
+
+/* t[k] = v for the key and the value on the top, which it pops, as
+ * lua_settable does. Returns 0, or the status of the failed lua_pcall with
+ * the error object pushed in their place. */
+static int getref_settable(lua_State *L, int ref) {
+	lua_rawgeti(L, LUA_REGISTRYINDEX, ref);           /* k v t */
+	if (lua_type(L, -1) == LUA_TTABLE) {
+		lua_pushvalue(L, -3);
+		lua_rawget(L, -2);                            /* k v t old */
+		if (!lua_isnil(L, -1)) {
+			lua_pop(L, 1);
+			lua_insert(L, -3);                        /* t k v */
+			lua_rawset(L, -3);
+			lua_pop(L, 1);
+			return 0;
+		}
+		lua_pop(L, 1);
+	}
+	push_helper(L, c_lua_settable);                   /* k v t f */
+	lua_insert(L, -4);
+	lua_insert(L, -3);                                /* f t k v */
+	return lua_pcall(L, 3, 0, 0);
+}
+
+/* LuaTable.Get and ContainsKey: t[k] in place of the key on the top, with *top
+ * the stack top below the key. Returns the value's type, or -1 with the error
+ * object in place of the key. */
+LUA_API int xlua_getref_get(lua_State *L, int ref, int *top) {
+	*top = lua_gettop(L) - 1;
+	return getref_gettable(L, ref);
+}
+
+/* xlua_getref_get for a key of len bytes at key (a C# string key, as UTF-8),
+ * which it pushes; *top is the stack top before the call. */
+LUA_API int xlua_getref_getfield(lua_State *L, int ref, const char *key, int len, int *top) {
+	*top = lua_gettop(L);
+	lua_pushlstring(L, key, (size_t)len);
+	return getref_gettable(L, ref);
+}
+
+/* LuaTable.Set: t[k] = v for the key and the value on the top, with *top the
+ * stack top below them, where the stack is again after a success. Returns 0,
+ * or the status of the failed lua_pcall with the error object on the top. */
+LUA_API int xlua_getref_set(lua_State *L, int ref, int *top) {
+	*top = lua_gettop(L) - 2;
+	return getref_settable(L, ref);
+}
+
+/* xlua_getref_set for the value on the top and a key of len bytes at key (a
+ * C# string key, as UTF-8); *top is the stack top below the value. */
+LUA_API int xlua_getref_setfield(lua_State *L, int ref, const char *key, int len, int *top) {
+	*top = lua_gettop(L) - 1;
+	lua_pushlstring(L, key, (size_t)len);
+	lua_insert(L, -2);                                /* k v */
+	return getref_settable(L, ref);
+}
+
 static int c_lua_settable_bypath(lua_State* L) {
     size_t len = 0;
 	const char * pos = NULL;

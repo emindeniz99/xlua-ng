@@ -456,11 +456,30 @@ namespace XLua.LuaDLL
         // U+FFFD instead of throwing, and embedded NULs are kept.
         // Marshal.PtrToStringAnsi threw ArgumentException for invalid UTF-8
         // in Unity's Mono (https://github.com/Tencent/xLua/issues/1203).
-        static string DecodeLuaString(IntPtr str, int len)
+        static unsafe string DecodeLuaString(IntPtr str, int len)
         {
             if (len == 0)
             {
                 return string.Empty;
+            }
+            // ASCII, the usual case, is one char per byte: widened on the stack
+            // and copied into the new string, without the copy into the buffer
+            // and the decoder (docs/research/benchmark-vs-moonsharp-ng.md,
+            // 2026-10-30). Any other byte goes to the decoder below.
+            if (len <= AsciiDecodeMax)
+            {
+                byte* p = (byte*)str;
+                char* c = stackalloc char[len];
+                int i = 0;
+                while (i < len && p[i] < 0x80)
+                {
+                    c[i] = (char)p[i];
+                    i++;
+                }
+                if (i == len)
+                {
+                    return new string(c, 0, len);
+                }
             }
 #if !THREAD_SAFE && !HOTFIX_ENABLE
             // Short strings reuse the buffer that lua_pushstring encodes into.
@@ -473,6 +492,9 @@ namespace XLua.LuaDLL
             Marshal.Copy(str, buffer, 0, len);
             return Encoding.UTF8.GetString(buffer, 0, len);
         }
+
+        // The longest string DecodeLuaString widens on the stack (512 bytes).
+        const int AsciiDecodeMax = 256;
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
 		public static extern IntPtr lua_atpanic(IntPtr L, lua_CSFunction panicf);
@@ -523,32 +545,78 @@ namespace XLua.LuaDLL
             }
             else
             {
-#if !THREAD_SAFE && !HOTFIX_ENABLE
-                if (Encoding.UTF8.GetByteCount(str) > CoreGlobals.strBuff.Length)
-                {
-                    byte[] bytes = Encoding.UTF8.GetBytes(str);
-                    xlua_pushlstring(L, bytes, bytes.Length);
-                }
-                else
-                {
-                    int bytes_len = Encoding.UTF8.GetBytes(str, 0, str.Length, CoreGlobals.strBuff, 0);
-                    xlua_pushlstring(L, CoreGlobals.strBuff, bytes_len);
-                }
-#else
-                // This thread's buffer, as lua_tostring reads into.
-                byte[] buffer = CoreGlobals.ThreadStrBuff();
-                if (Encoding.UTF8.GetByteCount(str) > buffer.Length)
-                {
-                    byte[] bytes = Encoding.UTF8.GetBytes(str);
-                    xlua_pushlstring(L, bytes, bytes.Length);
-                }
-                else
-                {
-                    int bytes_len = Encoding.UTF8.GetBytes(str, 0, str.Length, buffer, 0);
-                    xlua_pushlstring(L, buffer, bytes_len);
-                }
-#endif
+                int len;
+                byte[] bytes = utf8Bytes(str, out len);
+                xlua_pushlstring(L, bytes, len);
             }
+        }
+
+        // The UTF-8 bytes of a string that is not null, for a P/Invoke that takes
+        // them with their length: in the shared buffer when they fit (this
+        // thread's with THREAD_SAFE and HOTFIX_ENABLE, as lua_tostring reads
+        // into), else in a new array.
+        static unsafe byte[] utf8Bytes(string str, out int len)
+        {
+#if !THREAD_SAFE && !HOTFIX_ENABLE
+            byte[] buffer = CoreGlobals.strBuff;
+#else
+            byte[] buffer = CoreGlobals.ThreadStrBuff();
+#endif
+            // ASCII, the usual table key, field or member name, is its own
+            // UTF-8: one byte per char, copied without the encoder, which took
+            // two passes and a read of Encoding.UTF8 with a memory barrier
+            // (docs/research/benchmark-vs-moonsharp-ng.md, 2026-10-30).
+            int n = str.Length;
+            if (n <= buffer.Length)
+            {
+                fixed (char* s = str)
+                fixed (byte* b = buffer)
+                {
+                    int i = 0;
+                    while (i < n && s[i] < 0x80)
+                    {
+                        b[i] = (byte)s[i];
+                        i++;
+                    }
+                    if (i == n)
+                    {
+                        len = n;
+                        return buffer;
+                    }
+                }
+            }
+            if (Encoding.UTF8.GetByteCount(str) > buffer.Length)
+            {
+                byte[] bytes = Encoding.UTF8.GetBytes(str);
+                len = bytes.Length;
+                return bytes;
+            }
+            len = Encoding.UTF8.GetBytes(str, 0, str.Length, buffer, 0);
+            return buffer;
+        }
+
+        [DllImport(LUADLL, EntryPoint = "xlua_getref_getfield", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int xlua_getref_getfield_utf8(IntPtr L, int reference, byte[] key, int len, out int top);
+
+        // xlua_getref_get with a string key that is not null, which it pushes
+        // as lua_pushstring would (LuaTable.Get, ContainsKey).
+        public static int xlua_getref_getfield(IntPtr L, int reference, string key, out int top)
+        {
+            int len;
+            byte[] bytes = utf8Bytes(key, out len);
+            return xlua_getref_getfield_utf8(L, reference, bytes, len, out top);
+        }
+
+        [DllImport(LUADLL, EntryPoint = "xlua_getref_setfield", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int xlua_getref_setfield_utf8(IntPtr L, int reference, byte[] key, int len, out int top);
+
+        // xlua_getref_set with the value on the top and a string key that is
+        // not null, which it pushes as lua_pushstring would (LuaTable.Set).
+        public static int xlua_getref_setfield(IntPtr L, int reference, string key, out int top)
+        {
+            int len;
+            byte[] bytes = utf8Bytes(key, out len);
+            return xlua_getref_setfield_utf8(L, reference, bytes, len, out top);
         }
 #endif
 
@@ -620,6 +688,21 @@ namespace XLua.LuaDLL
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_psettable(IntPtr L, int idx);
+
+        // LuaTable.Get and ContainsKey (build/xlua.c): t[k] for the table of the
+        // registry reference and the key on the top, which it replaces, as
+        // lua_gettable gives it (__index included), without lua_pcall when no
+        // metamethod can run. Returns the value's type, or -1 with the error in
+        // place of the key; top is the stack top below the key.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_getref_get(IntPtr L, int reference, out int top);
+
+        // LuaTable.Set: t[k] = v for the key and the value on the top, as
+        // lua_settable does (__newindex included), without lua_pcall when no
+        // metamethod can run. Returns 0 with the stack at top, the stack top
+        // below the key, or the status with the error on the top.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_getref_set(IntPtr L, int reference, out int top);
 
         // lua_next under lua_pcall, the key on top: 1 with the key and value
         // pushed, 0 at the end, -1 with the error in place of the key ("invalid
@@ -875,28 +958,85 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_get_registry_index();
 
+        // The path of GetInPath and SetInPath as a C string in the shared
+        // buffer (this thread's with THREAD_SAFE and HOTFIX_ENABLE), when it
+        // is ASCII and fits: the bytes every string marshaler gives for it,
+        // without the marshaler's copy into native memory and back (IL2CPP:
+        // a UTF-16 to UTF-8 conversion into a std::string, malloc and free;
+        // docs/research/benchmark-vs-moonsharp-ng.md, 2026-10-30). Null for
+        // any other path, which goes as before.
+        static unsafe byte[] asciiz(string str)
+        {
+            if (str == null)
+            {
+                return null;
+            }
+#if !THREAD_SAFE && !HOTFIX_ENABLE
+            byte[] buffer = CoreGlobals.strBuff;
+#else
+            byte[] buffer = CoreGlobals.ThreadStrBuff();
+#endif
+            int n = str.Length;
+            if (n >= buffer.Length)
+            {
+                return null;
+            }
+            fixed (char* s = str)
+            fixed (byte* b = buffer)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    if (s[i] >= 0x80)
+                    {
+                        return null;
+                    }
+                    b[i] = (byte)s[i];
+                }
+                b[n] = 0;
+            }
+            return buffer;
+        }
+
 #if XLUA_GENERAL
         [DllImport(LUADLL, EntryPoint = "xlua_pgettable_bypath", CallingConvention = CallingConvention.Cdecl)]
-        static extern int xlua_pgettable_bypath_utf8(IntPtr L, int idx, byte[] path);
+        internal static extern int xlua_pgettable_bypath_utf8(IntPtr L, int idx, byte[] path);
 
         public static int xlua_pgettable_bypath(IntPtr L, int idx, string path)
         {
-            return xlua_pgettable_bypath_utf8(L, idx, utf8z(path));
+            return xlua_pgettable_bypath_utf8(L, idx, asciiz(path) ?? utf8z(path));
         }
 
         [DllImport(LUADLL, EntryPoint = "xlua_psettable_bypath", CallingConvention = CallingConvention.Cdecl)]
-        static extern int xlua_psettable_bypath_utf8(IntPtr L, int idx, byte[] path);
+        internal static extern int xlua_psettable_bypath_utf8(IntPtr L, int idx, byte[] path);
 
         public static int xlua_psettable_bypath(IntPtr L, int idx, string path)
         {
-            return xlua_psettable_bypath_utf8(L, idx, utf8z(path));
+            return xlua_psettable_bypath_utf8(L, idx, asciiz(path) ?? utf8z(path));
         }
 #else
-        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlua_pgettable_bypath(IntPtr L, int idx, string path);
+        [DllImport(LUADLL, EntryPoint = "xlua_pgettable_bypath", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int xlua_pgettable_bypath_marshaled(IntPtr L, int idx, string path);
 
-        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlua_psettable_bypath(IntPtr L, int idx, string path);
+        [DllImport(LUADLL, EntryPoint = "xlua_pgettable_bypath", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int xlua_pgettable_bypath_ascii(IntPtr L, int idx, byte[] path);
+
+        public static int xlua_pgettable_bypath(IntPtr L, int idx, string path)
+        {
+            byte[] bytes = asciiz(path);
+            return bytes != null ? xlua_pgettable_bypath_ascii(L, idx, bytes) : xlua_pgettable_bypath_marshaled(L, idx, path);
+        }
+
+        [DllImport(LUADLL, EntryPoint = "xlua_psettable_bypath", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int xlua_psettable_bypath_marshaled(IntPtr L, int idx, string path);
+
+        [DllImport(LUADLL, EntryPoint = "xlua_psettable_bypath", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int xlua_psettable_bypath_ascii(IntPtr L, int idx, byte[] path);
+
+        public static int xlua_psettable_bypath(IntPtr L, int idx, string path)
+        {
+            byte[] bytes = asciiz(path);
+            return bytes != null ? xlua_psettable_bypath_ascii(L, idx, bytes) : xlua_psettable_bypath_marshaled(L, idx, path);
+        }
 #endif
 
         //[DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
