@@ -456,11 +456,30 @@ namespace XLua.LuaDLL
         // U+FFFD instead of throwing, and embedded NULs are kept.
         // Marshal.PtrToStringAnsi threw ArgumentException for invalid UTF-8
         // in Unity's Mono (https://github.com/Tencent/xLua/issues/1203).
-        static string DecodeLuaString(IntPtr str, int len)
+        static unsafe string DecodeLuaString(IntPtr str, int len)
         {
             if (len == 0)
             {
                 return string.Empty;
+            }
+            // ASCII, the usual case, is one char per byte: widened on the stack
+            // and copied into the new string, without the copy into the buffer
+            // and the decoder (docs/research/benchmark-vs-moonsharp-ng.md,
+            // 2026-10-30). Any other byte goes to the decoder below.
+            if (len <= AsciiDecodeMax)
+            {
+                byte* p = (byte*)str;
+                char* c = stackalloc char[len];
+                int i = 0;
+                while (i < len && p[i] < 0x80)
+                {
+                    c[i] = (char)p[i];
+                    i++;
+                }
+                if (i == len)
+                {
+                    return new string(c, 0, len);
+                }
             }
 #if !THREAD_SAFE && !HOTFIX_ENABLE
             // Short strings reuse the buffer that lua_pushstring encodes into.
@@ -473,6 +492,9 @@ namespace XLua.LuaDLL
             Marshal.Copy(str, buffer, 0, len);
             return Encoding.UTF8.GetString(buffer, 0, len);
         }
+
+        // The longest string DecodeLuaString widens on the stack (512 bytes).
+        const int AsciiDecodeMax = 256;
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
 		public static extern IntPtr lua_atpanic(IntPtr L, lua_CSFunction panicf);
