@@ -678,6 +678,23 @@ alike:
   warning but with the wrong settings (the Editor off for the macOS
   library). `Tools/check_meta.py` requires version 2 (Test/README.md, "Unity
   .meta files").
+- **Calls inside `libxlua.so` bound at link time (2026-10-31):** the
+  Android and Linux libraries link with `-Wl,-Bsymbolic-functions`, so the
+  library's calls to its own exported functions (`xlua.c` to `lua_*`, the
+  auxiliary library to the core API) go straight to its own code instead of
+  through the PLT. The exported functions, their names and versions are
+  unchanged, and native plugins and C modules that call them link as before.
+  What changes is interposition: a library loaded before `libxlua.so` (a
+  preloaded library, or one loaded with `RTLD_GLOBAL`) that defines functions
+  of the same names, such as another Lua runtime in the same process, no
+  longer replaces them for the calls `libxlua.so` makes; before, those calls
+  went to the other library's functions with `libxlua.so`'s `lua_State`. A
+  tool that hooks `lua_*` functions by interposition sees only the calls from
+  outside the library (C#'s P/Invokes are resolved inside the library and were
+  never interposed). Faster `LuaTable` reads and calls into Lua, and a smaller
+  library (Lua 5.5.1 arm64-v8a: 7,504 bytes stripped). macOS, Windows, iOS
+  and WebGL are unchanged; OpenHarmony was not tested and keeps the PLT. See
+  [build/README.md](../build/README.md#calls-to-the-librarys-own-exports).
 - **Reproducible native builds (2026-10-28):** `build/CMakeLists.txt` maps
   the checkout's `build/` folder to `build` and the build directory to `.`
   in debug information and `__FILE__` (`-ffile-prefix-map`; MSVC `/pathmap`

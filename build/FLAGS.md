@@ -745,6 +745,69 @@ Other linker options:
   defines `LUA_API` as plain `extern`. With the version script it adds nothing
   to the size.
 
+## Calls to the library's own exports (2026-10-31)
+
+Every exported function of an ELF shared library can be interposed: a library
+loaded earlier that defines the same name wins, unless the library was linked
+to bind its own references. So `libxlua.so` called its own exports through the
+PLT (an `adrp`/`ldr`/`br` stub that loads the target from the GOT): `xlua.c`
+calling `lua_gettop`, `lua_rawgeti` or `lua_pushlstring`, `lauxlib.c` calling
+the core API, LuaSocket calling `luaL_*`. The version script of
+`XLUA_EXPORTS=managed` removes the PLT for the functions it makes local, not
+for the ones C# imports. `-Wl,-Bsymbolic-functions` binds every reference to a
+function the library defines to that definition at link time; lld then emits a
+direct `bl` and no PLT entry. Since 2026-10-31 the Android and Linux libraries
+link with it (`build/CMakeLists.txt`).
+
+The Lua 5.5.1 arm64-v8a library (NDK r30, `llvm-readelf -r`) **[C]**:
+
+| build | `JUMP_SLOT` relocations | of them to its own functions | stripped | APK (deflate) |
+| --- | ---: | ---: | ---: | ---: |
+| release, `XLUA_EXPORTS=all` | 265 | 144 | 389,592 | 166,116 |
+| the same with `-Bsymbolic-functions` | 121 | 0 | 382,088 (-7,504) | 165,217 (-899) |
+| `XLUA_EXPORTS=managed` (minimal) | 101 | 36 | 313,648 | 137,688 |
+| the same with `-Bsymbolic-functions` | 65 | 0 | 311,552 (-2,096) | 137,286 (-402) |
+
+The saving is the PLT entries (16 bytes each), their GOT slots (8) and
+`JUMP_SLOT` relocations (24), and 224 bytes of `.text`. The dynamic symbol
+table is the same (names, types, bindings, visibility, versions: compared
+entry by entry), no `DF_SYMBOLIC` flag is set, and references to data are
+unchanged.
+
+Speed on the `xlua16k` emulator (arm64, 4 cores of an Apple M2 Pro; the
+phone was not used) **[C]**:
+
+- **`flag_bench.c`**, the release library without and with the flag
+  (`flag_sweep.py android --variants real23`, the base tree and the same
+  with the flag), 5 interleaved rounds of 5 runs: geomean -2.3% over the 26
+  cases. The cases whose library code calls the API: `table_sort` -15.3%
+  (`ltablib.c`'s `lua_geti`, `lua_seti` and `lua_compare`), `table_concat`
+  -11.3%, `string_format` -6.1%, `string_pattern` -4.1%, and the bridge's
+  `c_table_pgettable` -5.8%, `c_push_csobj` -5.8%, `c_lua_calls_c` -4.6%.
+  Pure VM cases move by -1.9 to +2.3%.
+- **The player bench** (release IL2CPP players, the previous tree's C# with
+  the two plugins): geomean -5.9% over its 45 cases in one session (42
+  faster) and -3.4% in a second (35 faster); a C# `LuaTable` read of a number
+  -6 to -12%, a call from Lua to C# -3 to -9%. Details and the other changes
+  of the day in
+  [benchmark-vs-moonsharp-ng.md](../docs/research/benchmark-vs-moonsharp-ng.md#three-follow-ups-struct-arguments-the-plt-and-one-call-reads-2026-10-31).
+
+Interposition changes for a library loaded before `libxlua.so` that defines
+functions of the same names: they no longer replace the calls `libxlua.so`
+makes to its own functions. C#'s P/Invokes resolve inside the library and
+were never interposed. On Android such a library is the main executable
+(`app_process`, which defines no `lua_*`), a `wrap.sh` preload of a
+debuggable app, or one loaded with `RTLD_GLOBAL`; another Lua runtime in the
+same process (a second Lua plugin) used to take over the calls inside
+`libxlua.so`, with `libxlua.so`'s `lua_State`.
+
+Other platforms: Apple's ld64 binds a call to a function of the same image
+directly (the macOS arm64 `libxlua.dylib` calls `_lua_gettop` with a direct
+`bl`; its 124 stubs are libc's), and so does the MSVC linker for a DLL; iOS,
+WebGL and the consoles link a static library into the player. OpenHarmony
+links an ELF library with the same clang and lld and would gain the same, but
+nothing ran there, so it keeps the PLT for now.
+
 ## iOS arm64
 
 `libxlua.a` compiled with the flags of the Xcode project `make_ios_lua55.sh`

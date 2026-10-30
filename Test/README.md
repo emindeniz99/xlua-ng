@@ -648,6 +648,13 @@ than their owners, and from a C function with a full stack
 it under `sanitize.sh` (crash-inventory.md, item 11). `check_exports.py` also fails when `build/xlua_exports.txt`, the export
 list of `-DXLUA_EXPORTS=managed`, no longer matches `LuaDLL.cs`;
 `python3 Test/Native/managed_imports.py --write` regenerates it.
+Since 2026-10-31 `check_exports.py` (with `readelf` on the path) and
+`check_android_elf.py` also fail an ELF library that calls one of its own
+exported functions through the PLT, a `JUMP_SLOT` relocation that names a
+function the library defines: one linked without `-Wl,-Bsymbolic-functions`
+([build/README.md](../build/README.md#calls-to-the-librarys-own-exports)).
+The Lua 5.5.1 arm64-v8a library of main `102b059b` failed it with 144 such
+slots (36 with `XLUA_EXPORTS=managed`).
 `native_regression.py` also calls exports that `LuaDLL.cs` does not import
 (`check_exported_helpers`, `print_top`), so it needs an `XLUA_EXPORTS=all`
 library. Its `global_state_key` check (2026-10-28) requires `xlua_gl`, the

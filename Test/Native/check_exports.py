@@ -18,6 +18,11 @@ xlua_core_debug_state, built with -DXLUA_LIMITS_TEST_POINTS) fail any library
 unless XLUA_EXPECT_TEST_POINTS=ON, which requires them (coverage.sh's core-tp
 runtime); with --preset core too.
 
+An ELF library (Linux) must not call its own exported functions through the
+PLT: a JUMP_SLOT relocation that names a function the library defines means it
+was linked without -Wl,-Bsymbolic-functions (build/CMakeLists.txt). Read with
+readelf (binutils or LLVM); without one the check is skipped and says so.
+
 --preset core checks a library built with XLUA_PRESET=core instead
 (docs/design/core-luascript.md, section 6): it exports the functions of
 build/xlua_core_exports.txt, and with XLUA_EXPORTS=managed nothing else (listed
@@ -78,6 +83,30 @@ def imported_symbols(path):
     return names
 
 
+def plt_calls_to_itself(path):
+    """The functions an ELF library defines and calls through its PLT (JUMP_SLOT relocations, the
+    symbol name in the fifth column), or None for another format or without readelf."""
+    if path.read_bytes()[:4] != b"\x7fELF":
+        return None
+    defined = exported_symbols(path)
+    for tool in ("readelf", "llvm-readelf"):
+        try:
+            out = subprocess.run([tool, "-r", "-W", str(path)], check=True, capture_output=True, text=True).stdout
+            break
+        except (OSError, subprocess.CalledProcessError):
+            continue
+    else:
+        return None
+    if defined is None:
+        return None
+    names = set()
+    for line in out.splitlines():
+        cols = line.split()
+        if len(cols) >= 5 and cols[2].endswith("_JUMP_SLOT") and cols[4].split("@")[0] in defined:
+            names.add(cols[4].split("@")[0])
+    return sorted(names)
+
+
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--preset", choices=["legacy", "minimal", "core"], default="legacy",
                     help="the preset the library was built with; only core changes the checks")
@@ -88,6 +117,13 @@ lib = ctypes.CDLL(str(path))
 
 problem = export_list_problem()
 assert not problem, problem
+plt_self = plt_calls_to_itself(path)
+assert not plt_self, ("calls to the library's own functions through the PLT (link with -Wl,-Bsymbolic-functions)",
+                      len(plt_self), plt_self[:10])
+if plt_self is not None:
+    print("XLUA_EXPORTS: no PLT calls to the library's own functions")
+elif path.read_bytes()[:4] == b"\x7fELF":
+    print("XLUA_EXPORTS: no readelf; PLT calls not checked")
 if args.preset == "core":
     problems, summary = check_core_library(lambda name: hasattr(lib, name), exported_symbols(path),
                                            path.read_bytes())

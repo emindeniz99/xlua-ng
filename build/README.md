@@ -1162,8 +1162,30 @@ macOS only. The removed `make_android_lua53_arm64.sh` and
 
 Check the result with `python3 Test/Native/check_android_elf.py
 <libxlua.so files>`: it uses the NDK's `llvm-readelf` to verify the machine
-for the ABI, that every ELF LOAD segment is aligned to at least 16 KB, and that
-the dynamic symbol table defines every function the C# imports.
+for the ABI, that every ELF LOAD segment is aligned to at least 16 KB, that
+the dynamic symbol table defines every function the C# imports, and that the
+library calls none of its own functions through the PLT (below).
+
+### Calls to the library's own exports
+
+An ELF shared library lets every exported function be replaced by one of the
+same name in a library loaded before it, so a call from `libxlua.so` to its
+own export (`xlua.c` calling `lua_gettop`, `lauxlib.c` calling `lua_settop`)
+went through the PLT: a load from the GOT and an indirect branch, about a
+tenth of a C# `LuaTable` read on the `xlua16k` emulator. Since 2026-10-31 the
+Android and Linux libraries link with `-Wl,-Bsymbolic-functions`, which binds
+those calls to the library's own functions at link time. The exports are the
+same; a library loaded first that defines `lua_*` or `xlua_*` functions no
+longer replaces them for the calls inside `libxlua.so`
+([MIGRATING.md](../docs/MIGRATING.md#native-plugins)). The Lua 5.5.1 arm64-v8a
+library loses 144 of its 265 PLT entries (36 of 101 with
+`XLUA_EXPORTS=managed`) and 7,504 bytes stripped (2,096); see
+[FLAGS.md](FLAGS.md#calls-to-the-librarys-own-exports-2026-10-31) for the
+speed. `check_android_elf.py` and, for Linux, `check_exports.py` fail a
+library with a `JUMP_SLOT` relocation that names a function the library
+defines. macOS and Windows bind such calls directly already; iOS, WebGL and
+the consoles link a static library. OpenHarmony also links an ELF library with
+the same toolchain but was not tested, so it keeps the PLT.
 
 Validation (2026-10-15, NDK r30 in a linux/amd64 container): Lua 5.3.6, 5.4.9,
 5.5.1 and LuaJIT build for all four ABIs, and every library passes the check
