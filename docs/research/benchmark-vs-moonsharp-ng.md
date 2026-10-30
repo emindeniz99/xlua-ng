@@ -1024,7 +1024,8 @@ After the changes, on the emulator **[C]**:
   or hidden aliases would remove them for every bridge call; not tried).
   A `Get` of a number or a boolean in one P/Invoke that also converts and pops
   the value would save two more P/Invokes and the generic `Get<T>`; not tried
-  **[U]**.
+  **[U]**. Both done on 2026-10-31 (F2 and F3 in
+  "[Three follow-ups](#three-follow-ups-struct-arguments-the-plt-and-one-call-reads-2026-10-31)").
 - **A string read** spends 40% in the collector. Each read makes one C#
   string (as it must, unless strings are shared): a per-env cache of
   decoded short strings, keyed by the Lua string's address and checked by
@@ -1041,7 +1042,8 @@ After the changes, on the emulator **[C]**:
   generated reader, such as the player bench's `struct_boxed_pass`, 1.76 µs)
   still makes a `typeof(T)` and a dictionary lookup per call
   (`ObjectTranslator.cs:1356` at `4bc5dd6e`); C1's cache would apply as it
-  does to `Get<T>`. Not done here: outside the table path.
+  does to `Get<T>`. Not done here: outside the table path. Done on
+  2026-10-31 (F1, below).
 
 The size of the changes **[C]**: `libxlua.so` (arm64) +1,456 bytes (+506
 compressed), the minimal variant +1,472 (+424); `libil2cpp.so` +26 KB in each
@@ -1072,6 +1074,375 @@ commits: C1 `1ec6e19c`, C2 `85b29942` and `51ffab62`, C3 `810cd03a`, C4
 player bench in GCM) were built from the C4 tree: C5 changes only
 `GetInPath` and `SetInPath`, which no vs-bench case calls.
 
+## Three follow-ups: struct arguments, the PLT and one-call reads (2026-10-31)
+
+The section above left three changes untried ("What is left"): the per-type
+cache for `GetStructArg<T>`, calls from `libxlua.so` to its own exports
+through the PLT, and a number or boolean read from a `LuaTable` in one
+P/Invoke. This section measures each and keeps what the numbers support.
+Measured on the `xlua16k` emulator only; the phone was not used.
+
+- **F1, struct arguments** **[C]**: `GetStructArg<T>` takes the get
+  function from the type's cache and recognises a C# object holding a `T` by
+  `obj is T`, without a Type lookup. A struct passed to C# and returned
+  (`struct_boxed_pass`) costs 227 ns instead of 339 on the emulator (-33%,
+  -35% in GCM); its Type and `Dictionary<Type, ...>` lookups fell from 15.7%
+  to 5.2% of the case, the one left being `Push`'s `GetType()` of the
+  returned struct.
+- **F2, the PLT** **[C]**: confirmed with `llvm-readelf`: the Lua 5.5.1
+  arm64-v8a library had 144 `JUMP_SLOT` relocations for its own functions
+  (36 with `XLUA_EXPORTS=managed`), and the PLT stubs were 7.9 of the 81 ns
+  of a profiled `Get<string, int>`. Linking with `-Wl,-Bsymbolic-functions`
+  removes all of them and 7,504 bytes of the stripped library (899
+  deflated); the exported surface is identical. The player bench's 45 cases
+  are 3.4 to 5.9% faster (geomean of two sessions), `flag_bench.c` 2.3%
+  (`table_sort` -15%, `table_concat` -11%, `string_format` -6%).
+- **F3, a number or boolean in one P/Invoke** **[C]**: `LuaTable.Get` of an
+  `int`, `long`, `uint`, `ulong`, `double`, `float` or `bool` reads,
+  converts and pops the value in one native call instead of three, and
+  skips `ObjectTranslator.Get<T>`: -4 to -10% per read on top of F2 (1.9 to
+  4.1 ns). The same one-call form for `ContainsKey` measured 2 to 3 ns
+  slower and was not kept.
+- **All three** **[C]**: the player bench's `table_get_int` (the vs-bench's
+  `cs.table.get`) costs 42.4 instead of 48.9 ns (-13%; GCM -20%), and the 45
+  cases are 8.9% faster (geomean; GCM 10.3%, 44 of 45 faster in both); the
+  vs-bench's `cs.table.get` 41.1 instead of 50.5 ns (-19%), its bridge cases
+  4.0% faster. `libxlua.so` is 6,688 bytes smaller (584 deflated); the
+  players' `libil2cpp.so` grows by 20 to 28 KB and their APKs by about 7 KB
+  (Sizes below).
+
+### Method
+
+- **Trees** **[C]**: `base` is main at `102b059b`; F1, F2 and F3 are added
+  in that order (F1 `954d1188`; F2 and F3 as committed after it). F2 changes
+  only the plugin, so the F2 players are F1's C# with the F2 plugin. The
+  players are the player bench (`size_report.py +pbench`, plain and GCM) and
+  the vs-bench (`+vsbench`, plain), built as on 2026-10-30 (Unity
+  6000.3.21f1, release ARM64 IL2CPP, Minimal stripping, Lua 5.5.1 plugin
+  built with NDK r30 from the same tree, `ANDROID_ADB_SERVER_PORT=5038`).
+  `f3` was F3's first form (separate per-type statics, `ContainsKey` in one
+  call); `f3b` merges the statics into one class (`ValueOf<T>`, -3 KB of
+  `libil2cpp.so`) and is the form timed in sessions 2 and 3; the committed
+  form also reads `ContainsKey` as before (below).
+- **Timing** **[C]**: `bench_emu.py`: every APK installed once on the
+  emulator, launches in rotating order, 5 s apart, the median of the
+  per-launch medians in ns per operation (each launch's median of 7 rounds of
+  100,000). Session 1: base, F1, F2, F3 (plain), base and F3 (GCM), base and
+  F3 (vs-bench), 8 launches each. Session 2: base and F3b in the same three
+  players, 8 launches each. Session 3: F1, F2 and F3b (plain), 10 launches
+  each, for the steps of F2 and F3 alone. The emulator runs about five times
+  faster than the phone and is noisier: one APK's case moves by 5 to 10%
+  between launches, and builds that differ only in unrelated code read 2 to
+  4% apart in a session. A change counts here when it shows in every session
+  and in nearly all of the cases it touches.
+- **Profiles** **[C]**: `simpleperf record` on the emulator, the player
+  bench's profile mode, one case at a time (16 s, recording 8), the main
+  thread's self samples grouped by step (`categories.py`), in ns per
+  operation of the profile-mode run.
+- **`flag_bench.c`** **[C]**: the release library of the base tree and the
+  same with `-Bsymbolic-functions` (`flag_sweep.py android --variants
+  real23`), pushed to the emulator's `/data/local/tmp`, 5 interleaved rounds
+  of 5 runs (`flagbench_emu.py`).
+- **Sizes** **[C]**: `llvm-readelf -r` and `--dyn-syms` of the linked
+  libraries, stripped size, raw deflate at level 6 as in an APK, and the
+  players' `libil2cpp.so` and APKs.
+
+### F1: struct arguments
+
+A struct without a generated reader (not `[GCOptimize]`) reaches a
+generated wrapper's parameter through `BindingApi.GetStructArg<T>`, which
+called `ObjectTranslator.GetStructArg<T>`: `typeof(T)` and a
+`Dictionary<Type, Delegate>` lookup for a get function, then, as there was
+none, `GetStructArg(L, index, typeof(T))`: another `typeof(T)`,
+`Nullable.GetUnderlyingType` and `Type.IsInstanceOfType`. The emulator's
+profile of `struct_boxed_pass` (`v = T.ScaleVecBoxed(v, 1)`) at main: 69.5 ns
+of Type lookups and 19.9 ns of dictionary lookups in a 570 ns operation
+(profile mode), and 149 ns in Boehm's collector **[C]**.
+
+Now `GetStructArg<T>` takes the get function from `TypeOps<T>` (the cache of
+`Get<T>` since 2026-10-30) and tests a C# object with `obj is T`: `T` is a
+struct or an enum, which has no subclasses, so the class test decides what
+`IsInstanceOfType` decided; IL2CPP compiles it to a comparison of the
+object's class. Nil, other values, tables and objects of another class take
+the old path with its errors. `GetParams<T>` finds its integer reader once
+per type (a static of `IntegerArgFunc<T>`; the table never changes), and
+`GetParams<T>` and `GetDelegate<T>` read `typeof(T)` from `TypeOf<T>`.
+
+| case | base | F1 | Δ | GCM base | GCM after all |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `struct_boxed_pass` (session 1) | 343.3 | 228.7 | -114.6 (-33%) | 335.8 | 224.9 (-33%) |
+| `struct_boxed_pass` (session 2, base and all three) | 338.6 | 227.4 | -111.2 (-33%) | 333.8 | 215.4 (-35%) |
+
+The other cases of session 1 move by -9 to +6% between base and F1 (noise
+of the emulator; geomean of the 44 others -1.9%). The profile after the
+change (F3b, 9 s): Type lookups 4.6% and dictionary lookups 0.6% of the case
+(12.2% and 3.5% before); the rest of the Type lookups is
+`ObjectTranslator.Push(object)`'s `GetType()` of the returned struct, which
+the generated wrapper boxes and pushes as an object (What is left). The
+collector's share rose from 26% to 36%.
+
+F1's 16 s profile-mode run was killed by the emulator's low-memory killer at
+1.5 GB of resident memory and 1.45 GB of swap: Lua runs the userdata
+finalizers more slowly than the case creates userdata, so the object pool
+and the boxed structs pile up, as `object_new` did on 2026-10-29
+([benchmark-vs-puerts-zlua.md](benchmark-vs-puerts-zlua.md#what-is-left)).
+At main the same run survived with fewer objects in the same 16 s. The timed
+rounds, with a full collection before each, do not show it **[C]**.
+
+### F2: the library's calls to its own exports
+
+**The cause** **[C]**. `llvm-readelf -r` of the Lua 5.5.1 arm64-v8a library
+at main: 265 `JUMP_SLOT` relocations, 144 of them for functions the library
+defines (`lua_gettop`, `lua_rawgeti`, `lua_pushlstring`, `luaL_checkstack`
+...). In an ELF shared library every exported function can be interposed,
+so the linker routes the library's own calls to them through the PLT: an
+`adrp`, a load of the target from the GOT and an indirect branch. The
+minimal variant's version script keeps only the C# imports global, which
+leaves 36 such slots. The profiles at main put 6.6 to 7.9 ns of each
+`LuaTable` read in `libxlua.so`'s `@plt` (10 to 12% of the read), and 10.9 ns
+of `struct_boxed_pass`.
+
+**The fix** **[C]**. `-Wl,-Bsymbolic-functions` (Android and Linux,
+`build/CMakeLists.txt`) binds every reference to a function the library
+defines at link time; lld then emits direct calls. `-fno-semantic-interposition`
+alone would not do: it lets clang bind calls inside one source file, but
+`xlua.c` calls `lapi.c`'s functions. Hidden visibility with explicit
+exports would have needed an alias per exported function. The result:
+
+| library | `JUMP_SLOT` | to its own functions | stripped | deflated |
+| --- | ---: | ---: | ---: | ---: |
+| legacy (`XLUA_EXPORTS=all`), main | 265 | 144 | 389,592 | 166,116 |
+| legacy with the flag | 121 | 0 | 382,088 (-7,504) | 165,217 (-899) |
+| minimal (`XLUA_EXPORTS=managed`), main | 101 | 36 | 313,648 | 137,688 |
+| minimal with the flag | 65 | 0 | 311,552 (-2,096) | 137,286 (-402) |
+
+The dynamic symbol tables are identical entry by entry (432 and 211
+entries: name, type, binding, visibility, defined or not), `DT_FLAGS`
+keeps `BIND_NOW` and gains no `SYMBOLIC`, and the AArch64 property notes are
+unchanged. `check_exports.py`, `check_pinvoke_abi.py` and
+`check_android_elf.py` pass; `check_android_elf.py` and, for an ELF
+library, `check_exports.py` now fail a library with a `JUMP_SLOT` for one of
+its own functions, which main's libraries do.
+
+**Speed** **[C]**. Player bench, plain, F1 → F2 (only the plugin differs):
+
+| case | session 1 F1 | F2 | Δ | session 3 F1 | F2 | Δ |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `table_get_int` | 52.3 | 45.8 | -6.5 (-12%) | 48.5 | 45.4 | -3.1 (-6%) |
+| `table_get_index` | 44.6 | 40.4 | -4.1 (-9%) | 43.5 | 39.9 | -3.6 (-8%) |
+| `table_get_via_index` | 91.1 | 81.2 | -10.0 (-11%) | 92.2 | 81.3 | -11.0 (-12%) |
+| `static_call` | 36.1 | 32.7 | -3.4 (-10%) | 35.8 | 33.5 | -2.3 (-7%) |
+| `instance_call` | 76.5 | 73.0 | -3.5 (-5%) | 76.2 | 69.3 | -6.9 (-9%) |
+| hot-path mix (18 cases) | 84.8 | 79.6 | -6.2% | 82.0 | 80.3 | -2.0% |
+| geomean of the 45 cases | | | -5.9% (42 faster) | | | -3.4% (35 faster) |
+
+`flag_bench.c` on the emulator, the release library without and with the
+flag: geomean -2.3% over 26 cases; `table_sort` -15.3% (`ltablib.c` calls
+`lua_geti`, `lua_seti` and `lua_compare` per step), `table_concat` -11.3%,
+`string_format` -6.1%, `string_pattern` -4.1%, `c_table_pgettable` -5.8%,
+`c_push_csobj` -5.8%, `c_lua_calls_c` -4.6%; the VM-only cases -1.9 to
++2.3%. The vs-bench's pure Lua set agrees (`table_sort` -15 to -18%,
+`table_concat` -10 to -12%, both sessions).
+
+**Interposition** **[C]** for what the linker does, **[S]** for the loaders.
+The flag changes one thing beyond speed: a library loaded before
+`libxlua.so` that defines functions of the same names no longer replaces
+them for the calls `libxlua.so` makes to itself. On Android that is a
+`wrap.sh` preload of a debuggable app or a library loaded with
+`RTLD_GLOBAL`; on Linux also `LD_PRELOAD`. Before, another Lua runtime in the
+same process with exported `lua_*` functions could take over those calls,
+with `libxlua.so`'s `lua_State`. A tool that hooks `lua_*` by interposition
+still sees calls from outside the library. C#'s P/Invokes were never
+interposed: they resolve through the library's own handle. Recorded in
+[MIGRATING.md](../MIGRATING.md#native-plugins).
+
+**Other platforms** **[C]**. The macOS arm64 `libxlua.dylib` calls
+`_lua_gettop` with a direct `bl` (`objdump -d`; its 124 stubs are libc's):
+Apple's ld64 binds a call inside one image directly, as the MSVC linker does
+in a DLL, and iOS, WebGL and the consoles link a static library. OpenHarmony
+links an ELF library with the same clang and lld and should gain the same;
+nothing ran there, so it keeps the PLT **[U]**.
+
+### F3: a number or boolean in one P/Invoke
+
+`LuaTable.Get<TKey, int>` made three P/Invokes for the value
+(`xlua_getref_getfield`, the get function's `xlua_tointeger64`, and
+`lua_settop`) and ran `ObjectTranslator.Get<int>` and its `Ops<int>` cache
+read in between (8.4 of 81 ns in the profile at main). Now
+`xlua_getref_getvalue` and `xlua_getref_getfieldvalue` (`build/xlua.c`) do
+the read of `xlua_getref_get` and `_getfield`, convert the value with the
+same functions as before (`value_to_integer` with its validity for the
+integer types, `lua_tonumber` for `double` and `float`, `lua_toboolean`) and
+pop it; the value comes back in an `out long` (a double as its bits), and
+C# applies the get function's rule and exceptions
+(`LuaDLL.Bridge.int32Value` and the others: "number has no integer
+representation", `XLUA_STRICT_INT_RANGE`). The types are the seven whose get
+functions are the bridge's own and cannot be replaced
+(`RegisterPushAndGetAndUpdate` refuses a type that has one); every other
+type reads as before. 64-bit integers keep their bits, LuaJIT's int64 and
+uint64 userdata included. Errors and the stack are as before.
+
+| case | session 3 F2 | F3b | Δ | session 1 F2 | F3 | Δ |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `table_get_int` | 45.4 | 41.8 | -3.6 (-8%) | 45.8 | 45.1 | -0.7 (-2%) |
+| `table_get_double` | 42.0 | 40.1 | -1.9 (-5%) | 42.0 | 40.9 | -1.1 (-3%) |
+| `table_get_long` | 44.9 | 41.8 | -3.1 (-7%) | 44.7 | 41.2 | -3.5 (-8%) |
+| `table_get_bool` | 45.0 | 41.4 | -3.6 (-8%) | 44.8 | 41.0 | -3.9 (-9%) |
+| `table_get_index` | 39.9 | 35.8 | -4.1 (-10%) | 40.4 | 36.7 | -3.8 (-9%) |
+| `table_get_via_index` | 81.3 | 76.4 | -4.9 (-6%) | 81.2 | 82.1 | +0.9 (+1%) |
+| `table_contains_key` (one call) | 34.2 | 36.3 | +2.1 (+6%) | 33.5 | 36.9 | +3.3 (+10%) |
+
+In session 1 the whole F3 player read 2% slower than F2's in the cases F3
+does not touch (geomean +2.0%), against -2.6% in session 3; the number reads
+gained in both. The profile of `Get<string, int>` after all three changes
+(65 ns in profile mode against 81 at main): `Ops<int>`, `Get<int>`, the
+`xlua_getint32` and `xlua_tointeger64` wrappers and `lua_settop`'s wrapper
+are gone, and `getref_value` adds 4.2 ns.
+
+`ContainsKey` in one call (the type only, `conv` 0) was 2 to 3 ns slower
+than `xlua_getref_getfield` and `lua_settop` in both sessions; its profile
+shows why: the second P/Invoke's wrapper costs 1.6 ns, `getref_value` with its
+out values 2.9 ns. `ContainsKey` stays as it was; the native functions keep
+`conv` 0 for the type alone.
+
+### All three
+
+Session 2, base against F3b, every player (ns; GCM in the last columns):
+
+| case | base | after | Δ | GCM base | GCM after | Δ |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `struct_boxed_pass` | 338.6 | 227.4 | -111.2 (-33%) | 333.8 | 215.4 | -118.4 (-35%) |
+| `table_get_int` | 48.9 | 42.4 | -6.5 (-13%) | 52.1 | 41.6 | -10.5 (-20%) |
+| `table_get_double` | 47.3 | 40.0 | -7.2 (-15%) | 47.2 | 40.4 | -6.9 (-15%) |
+| `table_get_long` | 46.8 | 41.5 | -5.3 (-11%) | 47.7 | 40.7 | -7.0 (-15%) |
+| `table_get_bool` | 45.9 | 41.1 | -4.7 (-10%) | 46.6 | 40.7 | -5.9 (-13%) |
+| `table_get_index` | 44.0 | 36.2 | -7.8 (-18%) | 42.8 | 35.7 | -7.1 (-17%) |
+| `table_get_via_index` | 91.4 | 76.6 | -14.8 (-16%) | 93.0 | 77.0 | -16.0 (-17%) |
+| `table_get_string` | 103.7 | 98.4 | -5.4 (-5%) | 105.3 | 95.1 | -10.2 (-10%) |
+| `table_set_int` | 49.0 | 44.8 | -4.3 (-9%) | 47.4 | 45.1 | -2.3 (-5%) |
+| `table_for_each` | 136.0 | 124.9 | -11.0 (-8%) | 133.2 | 124.5 | -8.7 (-7%) |
+| `static_call` | 35.9 | 33.8 | -2.1 (-6%) | 46.5 | 42.2 | -4.3 (-9%) |
+| `unity_instance_method` | 777.1 | 683.2 | -93.9 (-12%) | 708.0 | 682.3 | -25.7 (-4%) |
+| hot-path mix (18 cases) | 85.9 | 79.4 | -7.5% | 88.3 | 79.8 | -9.7% |
+| geomean of the 45 cases | | | -8.9% (44 faster) | | | -10.3% (44 faster) |
+
+The vs-bench, plain: `cs.table.get` 50.5 → 41.1 ns (-19%; session 1: 47.5 →
+41.2, -13%), the 38 bridge cases -4.0% (geomean; session 1 -5.8%), the 20
+pure Lua cases -1.9% (-1.6%), with `table_sort` -15% and `table_concat`
+-10%.
+
+### Sizes **[C]**
+
+The plugin (Lua 5.5.1, arm64-v8a, NDK r30) and the players; "final" is the
+committed tree, built again after the timing:
+
+| | base | F1 | F2 | final | Δ |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `libxlua.so` legacy, stripped | 389,592 | 389,592 | 382,088 | 382,904 | -6,688 |
+| deflated | 166,116 | 166,116 | 165,217 | 165,532 | -584 |
+| `libxlua.so` minimal, stripped | 313,648 | 313,648 | 311,552 | 312,416 | -1,232 |
+| deflated | 137,688 | 137,688 | 137,286 | 137,542 | -146 |
+| player bench `libil2cpp.so` | 11,513,192 | 11,522,064 | 11,522,064 | 11,541,472 | +28,280 |
+| player bench APK | 13,482,622 | 13,485,102 | 13,484,210 | 13,489,398 | +6,776 |
+| player bench GCM `libil2cpp.so` | 11,344,280 | | | 11,371,824 | +27,544 |
+| player bench GCM APK | 13,438,262 | | | 13,445,918 | +7,656 |
+| vs-bench `libil2cpp.so` | 11,137,728 | | | 11,157,664 | +19,936 |
+| vs-bench APK | 13,345,102 | | | 13,352,026 | +6,924 |
+
+`libxlua.so`: F2 takes off the PLT entries, GOT slots and `JUMP_SLOT`
+relocations (above), F3 adds its two functions (+816 bytes stripped). In
+`libil2cpp.so` (functions, `llvm-nm --print-size`, +19.7 KB of the player
+bench's +28.3 KB; the rest is metadata and tables): F1 adds about 400 bytes
+of `GetStructArg<T>` per struct type that reaches it (ten in the player
+bench) and a type initializer per params element type (`IntegerArgFunc<T>`,
+1.9 KB in all); F3 the seven readers, `ValueOf<T>`'s type initializers
+(3.2 KB, against 1.0 KB for the class it replaces), and the scalar branch of
+every `Get<TKey, TValue>` (about 240 bytes per instantiation; the player
+bench has 15 `LuaTable` cases). F3's first form, with two classes of
+per-type statics, was 3 KB larger.
+
+### Tests
+
+- **New** **[C]**: `CaseLuaTableNumberReads` (in F3's runtime commit):
+  `LuaTable.Get` of the seven types against `GetInPath`,
+  which still reads through `ObjectTranslator.Get<T>`, for 22 values (NaN,
+  the infinities, 2^63, 1e300, numeric and other strings, booleans, a
+  table, a function, `long.MinValue`, `long.MaxValue`, `ulong.MaxValue`,
+  2^53 + 1 and a missing key), by string and integer key, raw and through
+  `__index`: the same values and the same exception types and messages,
+  `ContainsKey` likewise, the 64-bit values exact and the stack unchanged. It
+  passed on the runtime before F3 (Lua 5.5.1 and LuaJIT, the four suite
+  passes) **[C]**. `EXPECTED_TESTS` is 531. `native_regression.py`'s
+  `ref_table_values` compares the two native functions with the separate
+  calls for every value kind and conversion, raw, through `__index` and with
+  a failing `__index`. `check_android_elf.py` and `check_exports.py` (ELF)
+  fail a library with a PLT call to itself: main's Android libraries fail
+  it (144 and 36 slots), F2's pass. F1 changes no behaviour; the struct and
+  enum argument cases (`CaseParityStructArgs`, `CaseParityEnumArgs`, the
+  `ParityStruct` cases of other classes) cover its paths.
+- `Test/Native/run_managed.py --source-gen --source-gen-minimize
+  --source-gen-fallback` on macOS arm64 (Mono 6.14.1): Lua 5.5.1 and LuaJIT
+  2.1, legacy and minimal, each also with `--define THREAD_SAFE`, 531 tests
+  in each of two modes in every pass: after F1 alone (530 tests; its
+  `THREAD_SAFE` LuaJIT minimal run once more after a run that had
+  compiled an unfinished F3 test file), after F3, and on the committed tree
+  **[C]**. Again after the merge (below).
+- `native_regression.py` (all checks) and `profiler_smoke.py` on the Lua
+  5.5.1 and LuaJIT legacy host libraries, `check_exports.py` on all four,
+  `check_pinvoke_abi.py` (155 imports) **[C]**.
+- `check_android_elf.py` on the committed tree's Android libraries: Lua
+  5.5.1 for armeabi-v7a, arm64-v8a, x86 and x86_64, and arm64-v8a of 5.4.9,
+  5.3.6 and LuaJIT: all pass, with no PLT call to the library itself (121 to
+  138 `JUMP_SLOT`s, all to libc, libm and libdl) **[C]**. Built only; only
+  arm64-v8a Lua 5.5.1 ran (the emulator).
+- `sanitize.sh` in `xlua-analysis:26.04` (`--memory 6g`, Linux arm64, so the
+  libraries link with `-Bsymbolic-functions` too): legacy and
+  `XLUA_PRESET=minimal`, each on 5.3.6, 5.4.9, 5.5.1 and LuaJIT, the suite
+  with reflection and both source generator modes (531 tests each), and
+  `check_exports.py`'s PLT check on every library **[C]**.
+- `coverage.sh` in the same image, default `VERSIONS`: every gate passes;
+  `xlua.c` 440 of 440 branches on 5.3.6 and 454 of 454 on 5.4.9 and 5.5.1
+  (432, 446 and 446 before: the new branches are all reached) **[C]**.
+- `Test/UnityMatrix/il2cpp_suite.py all` on `xlua16k` (Unity 6000.3.21f1,
+  arm64), the committed tree: plain and gcm 531/531 in both modes with no
+  difference from the host; strict 531/531 with the 8 differences per mode
+  that [il2cpp-suite.md](il2cpp-suite.md) expects **[C]**.
+- Not run: the phone; Lua 5.4.9 and 5.3.6 in players and on the macOS host
+  (the container ran them); `HOTFIX_ENABLE`; `NATIVE_LUA_PUSHSTRING`; the
+  Unity editor suite (no editor code changed); iOS, WebGL, Windows,
+  OpenHarmony; the 32-bit and x86 Android libraries ran nothing.
+
+### What is left
+
+- **A struct returned to Lua** (`translator.Push(L, object)` in the
+  generated wrapper) still boxes it and looks its `Type` up with
+  `GetType()`: 4.6% of `struct_boxed_pass` after F1. A generic push with a
+  per-type type id would need a source generator change; not done.
+- **Lua's finalizers fall behind** a loop that creates userdata as fast as
+  it can (F1's profile run, `object_new` on 2026-10-29): memory grows until
+  a full collection. Not looked into.
+- **OpenHarmony** keeps the PLT until someone runs its tests with
+  `-Bsymbolic-functions` (`Test/Native/ohos_check.sh`).
+- **The phone**: these changes were measured on the emulator only.
+
+### Reproducing
+
+Scripts, raw logs and kept binaries are in `followups-2026-10-31/` on the
+build disk: `scripts/` (`build_plugin.sh`, `build_players.sh`,
+`tree_from_worktree.py` for the candidate trees, `bench_emu.py` and
+`timing.sh`, `after_timing.sh`, `timing3.sh` for the sessions,
+`aggregate.py`, `pb_table.py`, `pb_geo.py` and `vs_geo.py` for the tables,
+`emu_prof.py`, `cat_all.sh`, `categories.py` and `slice_prof.py` for the
+profiles, `plt_count.sh`, `dynsym_diff.sh`, `symdiff.py` and `sizes.py` for
+the libraries, `flagbench_emu.py`, `host_plugins.sh`, `host_tests.sh`,
+`native_checks.sh`, `container.sh` and `il2cpp_suite.sh` for the tests);
+`emu1/` to `emu3/` (launches and results), `prof-base/`, `prof-f1/`,
+`prof-f3b/`, `prof-f3b-struct/` with the `symfs-*` directories,
+`flagbench-emu/`, `plugins-*/` (the plugins with symbols), `base/`, `f1/`,
+`f2/`, `f3/`, `f3b/` (`il2cpp/` keeps each player's `libil2cpp.so`, its
+symbols and the IL2CPP C++), `host-tests/`, `container-out/` and
+`il2cpp-suite/`.
+
 ## Summary for MoonSharp-ng's comparison doc
 
 The owner may copy this section into the fork's `docs/comparison-xlua-ng.md`.
@@ -1095,7 +1466,9 @@ The owner may copy this section into the fork's `docs/comparison-xlua-ng.md`.
 > - **C# reading a Lua table field:** MoonSharp-ng is 14 times faster (93 ns
 >   against 1.29 µs; no P/Invoke). After xLua-NG's changes of 2026-10-30,
 >   2.7 times (93 against 254 ns), and xLua-NG's string calls are 17 to 45%
->   faster than in the tables above.
+>   faster than in the tables above. The changes of 2026-10-31 took another
+>   19% off `cs.table.get` and 4% off the bridge cases on the emulator; the
+>   phone was not measured again.
 > - **Allocations:** a property or field read allocates about 27 bytes (the
 >   result `DynValue`), a Vector3 or struct value about 97, a class result
 >   68, and a C# → Lua call with three struct or class arguments 340 to 430;
