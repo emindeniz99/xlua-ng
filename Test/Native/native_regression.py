@@ -1077,6 +1077,104 @@ def check_path_access(state):
     lib.lua_settop(state, 0)
 
 
+def check_ref_table_access(state):
+    """xlua_getref_get, _getfield, _set and _setfield (LuaTable.Get, ContainsKey and Set): t[k] for the
+    registry reference of t, raw where lua_gettable and lua_settable run no metamethod (a present key, a
+    missing key of a table without a metatable), through lua_pcall otherwise; the same results, errors
+    and stack as lua_gettable and lua_settable."""
+    I = C.POINTER(C.c_int)
+    lib.luaL_unref.argtypes = [P, C.c_int, C.c_int]
+    for name, args in [("xlua_getref_get", [P, C.c_int, I]), ("xlua_getref_set", [P, C.c_int, I]),
+                       ("xlua_getref_getfield", [P, C.c_int, C.c_char_p, C.c_int, I]),
+                       ("xlua_getref_setfield", [P, C.c_int, C.c_char_p, C.c_int, I])]:
+        getattr(lib, name).argtypes = args
+        getattr(lib, name).restype = C.c_int
+    TNIL, TBOOLEAN, TNUMBER, TSTRING, TFUNCTION = 0, 1, 3, 4, 6
+    run(state, """
+        log = {}
+        plain = {a = 1, f = false, [2] = 'two', ['n\\0ul'] = 'nul key'}
+        base = {b = 'from base'}
+        child = setmetatable({a = 'own'}, {__index = base,
+            __newindex = function(t, k, v) log[#log + 1] = tostring(k) rawset(t, k, v) end})
+        nometa = setmetatable({}, {})
+        bad = setmetatable({x = 'raw'}, {__index = function(t, k) error('no ' .. k) end,
+            __newindex = function(t, k, v) error('ro ' .. k) end})""")
+    refs = {}
+    for name in ["plain", "child", "nometa", "bad"]:
+        push_results(state, "return " + name, 1)
+        refs[name] = lib.luaL_ref(state, REGISTRY)
+    lib.lua_pushstring(state, b"text")  # not a table: a string's __index is the string library
+    refs["text"] = lib.luaL_ref(state, REGISTRY)
+    top = C.c_int(-1)
+    lib.lua_pushboolean(state, 1)  # something below, which every call leaves alone
+
+    def get(table, key):
+        """(type, text) of t[key] for a str key (getfield) or a pushed int key (get); the stack as before."""
+        if isinstance(key, bytes):
+            t = lib.xlua_getref_getfield(state, refs[table], key, len(key), C.byref(top))
+        else:
+            lib.xlua_pushinteger(state, key)
+            t = lib.xlua_getref_get(state, refs[table], C.byref(top))
+        assert top.value == 1 and lib.lua_gettop(state) == 2, (table, key, top.value)
+        assert t == -1 or t == lib.lua_type(state, -1), (table, key, t)
+        value = t, lib.lua_tolstring(state, -1, None) if t in (-1, TNUMBER, TSTRING) else None
+        lib.lua_settop(state, 1)
+        return value
+
+    def set_value(table, key, text):
+        """The status of t[key] = text (nil for None); the stack as before, or with the error on the top."""
+        if isinstance(key, bytes):
+            lib.lua_pushstring(state, text)
+            status = lib.xlua_getref_setfield(state, refs[table], key, len(key), C.byref(top))
+        else:
+            lib.xlua_pushinteger(state, key)
+            lib.lua_pushstring(state, text)
+            status = lib.xlua_getref_set(state, refs[table], C.byref(top))
+        assert top.value == 1 and lib.lua_gettop(state) == (2 if status else 1), (table, key, top.value)
+        message = lib.lua_tolstring(state, -1, None) if status else None
+        lib.lua_settop(state, 1)
+        return status, message
+
+    assert get("plain", b"a") == (TNUMBER, b"1")  # present: raw
+    assert get("plain", b"f") == (TBOOLEAN, None)  # false is present
+    assert get("plain", 2) == (TSTRING, b"two")
+    assert get("plain", b"n\0ul") == (TSTRING, b"nul key")  # the length, not a C string
+    assert get("plain", b"missing") == (TNIL, None)  # missing, no metatable: raw
+    assert get("plain", 3) == (TNIL, None)
+    assert get("child", b"a") == (TSTRING, b"own")  # present with a metatable: raw
+    assert get("child", b"b") == (TSTRING, b"from base")  # missing: __index
+    assert get("child", b"c") == (TNIL, None)
+    assert get("nometa", b"x") == (TNIL, None)  # a metatable without __index
+    assert get("bad", b"x") == (TSTRING, b"raw")
+    status, message = get("bad", b"y")
+    assert status == -1 and b"no y" in message, message
+    assert get("text", b"upper")[0] == TFUNCTION  # not a table: lua_gettable
+    assert get("text", b"nothere") == (TNIL, None)
+
+    assert set_value("child", b"a", b"changed") == (0, None)  # present: raw, no __newindex
+    assert set_value("child", b"n", b"new") == (0, None)  # missing: __newindex
+    assert set_value("child", 5, b"five") == (0, None)
+    assert set_value("child", b"a", None) == (0, None)  # present, set to nil: raw
+    assert set_value("child", b"a", b"again") == (0, None)  # missing now: __newindex
+    assert get("child", b"a") == (TSTRING, b"again") and get("child", 5) == (TSTRING, b"five")
+    run(state, "assert(table.concat(log, ',') == 'n,5,a', table.concat(log, ','))")
+    assert set_value("plain", b"new", b"x") == (0, None)  # missing, no metatable: lua_settable
+    assert set_value("plain", 2, b"deux") == (0, None)
+    assert get("plain", b"new") == (TSTRING, b"x") and get("plain", 2) == (TSTRING, b"deux")
+    assert set_value("bad", b"x", b"raw2") == (0, None)
+    for key in [b"y", 7]:
+        status, message = set_value("bad", key, b"v")
+        assert status == LUA_ERRRUN and b"ro " in message, (key, status, message)
+    status, message = set_value("text", b"x", b"v")
+    assert status == LUA_ERRRUN and b"index" in message, message
+    status, message = set_value("plain", b"\0", None)  # a missing key set to nil: lua_settable, no error
+    assert status == 0, message
+    lib.lua_settop(state, 0)
+    for ref in refs.values():
+        lib.luaL_unref(state, REGISTRY, ref)
+    run(state, "log, plain, base, child, nometa, bad = nil")
+
+
 def check_protected_helpers(state):
     """xlua_pnext, xlua_plen and xlua_running (crash-inventory.md): table traversal
     and length for C#, which raised without a handler, and the running-call check
@@ -3620,7 +3718,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "struct_bounds", "indexers", "indexer_base_walk", "path_access", "protected_helpers", "error_handler", "weak_table_metatable", "traceback_levels", "shift_overflow", "gc_errors", "call_chain", "csharp_functions", "csharp_wrapper_error", "open_selected_libs", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "struct_bounds", "indexers", "indexer_base_walk", "path_access", "ref_table_access", "protected_helpers", "error_handler", "weak_table_metatable", "traceback_levels", "shift_overflow", "gc_errors", "call_chain", "csharp_functions", "csharp_wrapper_error", "open_selected_libs", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "registry_checks", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",
