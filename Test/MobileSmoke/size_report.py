@@ -71,7 +71,7 @@ Variants:
                $XLUA_PBENCH_SUFFIX) so they can be installed side by side; needs +sg (docs/research/descriptor-wrappers.md, 2026-10-28). The
                APK is profileable from the shell (PbenchProfileable.cs), and a launch with the string extra
                pbench_profile "CASE[,CASE...][;SECONDS]" runs only those cases, for simpleperf (2026-10-29;
-               the project gets com.unity.modules.androidjni to read the extra)
+               it reads the extra through com.unity.modules.androidjni, which every project has)
   NAME+vsbench  VsBench/VsBench.cs and VsBench/VsBenchXLua.cs in Assembly-CSharp, run by the probe
                (XLUA_SIZE_VS_BENCH): the cross-library bench of vs_bench.py, a subset of zlua-benchmark's case list,
                XLUA_VSBENCH lines in the log; one package per mode (org.xluang.vs.plain, .gcm, .minimal, plus
