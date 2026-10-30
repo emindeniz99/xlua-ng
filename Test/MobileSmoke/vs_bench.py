@@ -37,6 +37,9 @@ import time
 import zipfile
 
 here = Path(__file__).resolve().parent
+sys.path.insert(0, str(here.parent / "UnityMatrix"))
+from unity_adb import unity_env  # noqa: E402
+
 ACTIVITY = "com.unity3d.player.UnityPlayerGameActivity"
 EMU_SERIAL = "emulator-5554"
 # Players: name, package, APK path below WORK.
@@ -97,7 +100,7 @@ def prepare(a, lib, project):
     version = re.search(r"/(\d+\.\d+\.\d+[abfp]\d+)/", str(a.unity))
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: " + version.group(1) + "\n")
     # The same module list as size_report.py's projects, plus what the library's package needs.
-    deps = {"com.unity.modules.unitywebrequestwww": "1.0.0"}
+    deps = {"com.unity.modules.unitywebrequestwww": "1.0.0", "com.unity.modules.androidjni": "1.0.0"}
     if lib == "puerts":
         for name, archive in [("com.tencent.puerts.core", a.puerts_core), ("com.tencent.puerts.lua", a.puerts_lua)]:
             extract(archive, project / "Packages" / name)
@@ -135,7 +138,7 @@ def unity(a, project, method, log, env):
         while unity_runs():
             print("  another Unity editor runs; waiting", flush=True)
             time.sleep(30)
-        proc = subprocess.Popen([str(c) for c in cmd], env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        proc = subprocess.Popen([str(c) for c in cmd], env=unity_env(env), stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             rc = proc.wait(timeout=a.timeout)
         except subprocess.TimeoutExpired:

@@ -42,6 +42,8 @@ import subprocess
 import sys
 import time
 
+from unity_adb import unity_env
+
 repo = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(repo / "Test/Native"))
 from roslyn_fixtures import roslyn_sources  # noqa: E402
@@ -157,7 +159,7 @@ else:
            "-executeMethod", "LuaCATSStep.Run"]
     print("+", " ".join(cmd), flush=True)
     start = time.time()
-    proc = subprocess.Popen(cmd, start_new_session=True)
+    proc = subprocess.Popen(cmd, start_new_session=True, env=unity_env())
     try:
         code = proc.wait(timeout=a.timeout)
     except subprocess.TimeoutExpired:

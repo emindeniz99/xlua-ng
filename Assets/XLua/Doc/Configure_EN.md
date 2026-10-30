@@ -169,7 +169,9 @@ options of the native build. A preset sets many of them at once.
 
 * **legacy** (the default) needs no setting. It behaves like upstream xLua, with
   every part included.
-* **minimal** leaves out the StreamingAssets loader, `SignatureLoader`, the
+* **minimal** leaves out the StreamingAssets loader (one line adds the same
+  lookup back: `luaenv.AddLoader(StreamingAssetsLoader.Load)`, see
+  [Loading Lua sources](Lua_Loaders.md#streamingassets)), `SignatureLoader`, the
   `template` library in players, `xlua.util`, `perf.profiler` in release
   players, `xlua.load_assembly`, LuaSocket and the `io` library, turns on
   the [opt-in bridge hardening](Security.md#opt-in-bridge-hardening), and

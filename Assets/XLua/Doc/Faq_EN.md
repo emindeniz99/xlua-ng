@@ -30,6 +30,20 @@ No. xLua can load files with any extension. Unity does not import `.lua` files a
 
 Files downloaded or otherwise stored outside Unity's text asset import pipeline have no such extension restriction. Load them through a `CustomLoader` or an appropriate `package.path`; [Loading Lua sources](Lua_Loaders.md) has loaders for each location. xLua is a library and does not provide a download system; text assets make the bundled examples easy to run.
 
+## How do I load Lua on each platform?
+
+`require` is synchronous, so the loader must have the bytes when Lua asks for them. Where the files live decides how:
+
+| Platform | `Resources` (`.lua.txt`) | StreamingAssets | `persistentDataPath` (downloads) |
+| --- | --- | --- | --- |
+| Editor, Windows, macOS, Linux | xLua's searcher | the searcher (legacy), or `luaenv.AddLoader(StreamingAssetsLoader.Load)` | a loader with `File.ReadAllBytes` |
+| iOS | xLua's searcher | the same | the same |
+| Android, APK or AAB | xLua's searcher | the same; read through Android's `AssetManager` | the same |
+| Android, APK with "Split Application Binary" (OBB) | xLua's searcher | the same; read with `UnityEngine.WWW` from the OBB | the same |
+| WebGL | xLua's searcher | not synchronously: download the files with `UnityWebRequest` first and serve them with a loader | the same as elsewhere, once the files are there (Unity keeps the folder in the browser's IndexedDB) |
+
+The minimal preset has no StreamingAssets searcher; `StreamingAssetsLoader.Load` gives the same lookup (`a.b` is `StreamingAssets/a/b.lua`). On WebGL the searcher says "StreamingAssets cannot be read synchronously on WebGL" in `require`'s error message, and `StreamingAssetsLoader` throws `NotSupportedException`. For WebGL, ship the Lua in `Resources` or in an AssetBundle, or preload the files (`LuaLoaders.PreloadStreamingAssets` and `LuaLoaders.FromDictionary` in [Examples/15_LuaLoaders](../Examples/15_LuaLoaders/)) before the first `require`. [Loading Lua sources](Lua_Loaders.md#where-the-sources-can-live) has the details and loaders for AssetBundles and Addressables.
+
 ## Why is a C# member nil in an IL2CPP player when the Editor has it?
 
 (Upstream asked it as: why does iOS report "attempt to call a nil value" when the editor works?)

@@ -95,6 +95,15 @@ Parameter:
 
 Custom loaders run after xLua's built-in libraries and before Resources. See Loading Lua sources (Lua_Loaders.md) for loaders for each storage location.
 
+`StreamingAssetsLoader.Load` is such a loader for `Application.streamingAssetsPath`: `luaenv.AddLoader(StreamingAssetsLoader.Load)` makes `require 'a.b'` read `StreamingAssets/a/b.lua`, as the legacy preset's StreamingAssets searcher does, also in the minimal preset, which has no searcher.
+
+#### StreamingAssetsLoader (static class)
+
+- `byte[] Load(ref string filepath)`: a `CustomLoader`. Reads the module `a.b` from `StreamingAssets/a/b.lua` and sets `filepath` to `a/b.lua`; returns `null`, with `filepath` unchanged, when there is no such file.
+- `byte[] ReadAllBytes(string path)`: the bytes of the file at `path` below StreamingAssets (`/` between folders), or `null` when there is none.
+
+Both read synchronously and work on any thread: with `File` in the Editor, on desktop and iOS, through Android's `AssetManager` on Android, and with `UnityEngine.WWW` from the OBB of an Android APK built with "Split Application Binary". On WebGL they throw `NotSupportedException`, because a synchronous call cannot wait for a download. See [Loading Lua sources](Lua_Loaders.md#streamingassets).
+
 #### void Dispose()
 
 Description:
@@ -564,7 +573,7 @@ Generates code in a way that minimizes the code segments. The source generator f
 
 #### XLUA_NO_STREAMING_ASSETS_LOADER
 
-Leaves out the StreamingAssets searcher, so `require` no longer looks in `Application.streamingAssetsPath`. On Android this drops xLua's only `UnityEngine.WWW` reference and with it the UnityWebRequest engine modules, unless the project uses them itself. See [Loading Lua sources](Lua_Loaders.md#xlua_no_streaming_assets_loader).
+Leaves out the StreamingAssets searcher, so `require` no longer looks in `Application.streamingAssetsPath`. The minimal preset defines it. `luaenv.AddLoader(StreamingAssetsLoader.Load)` gives the same lookup back. Until 2026-10-29 the searcher read Android's StreamingAssets with `UnityEngine.WWW`, and the define dropped the UnityWebRequest engine modules with it; since then it reads them through Android's `AssetManager`, and the define saves only the searcher's own code. See [Loading Lua sources](Lua_Loaders.md#xlua_no_streaming_assets_loader).
 
 #### XLUA_LOCK_METATABLES
 

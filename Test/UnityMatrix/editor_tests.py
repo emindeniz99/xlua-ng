@@ -59,6 +59,8 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
+from unity_adb import unity_env
+
 here = Path(__file__).resolve().parent
 sys.path.insert(0, str(here.parent / "Native"))
 import luals as luals_tools  # noqa: E402
@@ -69,6 +71,7 @@ MODES = ["sourcegen", "reflection"]
 REQUIRED = [
     "XluaSmokeTests.Lua55BridgeRunsInTheEditor",
     "XluaSmokeTests.StreamingAssetsSearcherFollowsTheDefine",
+    "XluaSmokeTests.StreamingAssetsLoaderLoadsNestedModules",
     "XluaSmokeTests.FeatureDefinesInTheEditor",
     "XluaSmokeTests.UnboundTypesFollowTheReflectionDefine",
     "XluaEditorToolsTests.LuaCATSDefinitionsAreGenerated",
@@ -81,6 +84,7 @@ REQUIRED = [
     "XluaEditorToolsTests.MigrationMenuLeavesTypeAttributesWhereTheGeneratorRuns",
     "XluaEditorToolsTests.HotfixToolsAreCheckedAgainstTheManifest",
     "XluaEditorToolsTests.BuildDefinesCheckComparesTheDefinesBuildStepsRead",
+    "XluaEditorToolsTests.StreamingAssetsKeepWwwOnlyForSplitApks",
     "XluaGeneratedCodeTests.GeneratedCodeMatchesMode",
     "XluaGeneratedCodeTests.GeneratedWrappersFollowGenCodeMinimize",
     "XluaGeneratedCodeTests.CodeEmitIsCompiledIntoTheEditor",
@@ -261,7 +265,7 @@ def unity(editor, project, log, args, timeout):
            + build_target_args + args)
     print("+", " ".join(cmd), flush=True)
     start = time.time()
-    proc = subprocess.Popen(cmd, start_new_session=True)
+    proc = subprocess.Popen(cmd, start_new_session=True, env=unity_env())
     try:
         code = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:

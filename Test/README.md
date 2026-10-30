@@ -2374,6 +2374,16 @@ settings. The 5 that were already on version 2 are unchanged.
 
 ## Unity players and upstream examples
 
+Every script that starts a Unity editor gives it the environment of
+`Test/UnityMatrix/unity_adb.py`. That environment sets
+`ANDROID_ADB_SERVER_PORT=5038` and `ADB_MDNS_AUTO_CONNECT=0`. Unity starts its
+bundled adb (version 36.0.0 in 6000.3.21f1), and before this change that adb
+killed the shared adb server on port 5037 whenever the versions differed. That
+dropped the phone connection of benchmarks and of other tools on the machine
+(2026-10-17, 2026-10-30). The scripts install and run players with their own
+adb, so Unity's server is not needed. A new launcher of Unity uses
+`unity_env()` too.
+
 - [Mobile smoke checks](MobileSmoke/README.md): runtime initialization, GC,
   coroutines, close semantics and disposal in Unity/IL2CPP, plus the integer
   rule, Lua functions cast to C# delegates (the source generator's static

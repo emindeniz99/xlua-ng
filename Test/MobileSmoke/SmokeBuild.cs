@@ -28,6 +28,14 @@ public static class SmokeBuild {
  public static void BuildIos() { Build(BuildTarget.iOS,Output("unity-ios-smoke")); }
  public static void BuildAndroid() {
   EditorUserBuildSettings.buildAppBundle=Env("XLUA_SMOKE_AAB")=="1";
+  // Split Application Binary: an APK puts StreamingAssets into an OBB file next to it, an AAB into an asset pack.
+#if UNITY_6000_0_OR_NEWER
+  PlayerSettings.Android.splitApplicationBinary=Env("XLUA_SMOKE_SPLIT_BINARY")=="1";
+  Debug.Log("XLUA_NG_SPLIT_BINARY: "+PlayerSettings.Android.splitApplicationBinary);
+#else
+  PlayerSettings.Android.useAPKExpansionFiles=Env("XLUA_SMOKE_SPLIT_BINARY")=="1";
+  Debug.Log("XLUA_NG_SPLIT_BINARY: "+PlayerSettings.Android.useAPKExpansionFiles);
+#endif
   Build(BuildTarget.Android,Output(EditorUserBuildSettings.buildAppBundle?"unity-android-smoke.aab":"unity-android-smoke.apk"));
  }
  // An ARM64 macOS Mono player (the editors here have no macOS IL2CPP module), for the plugin

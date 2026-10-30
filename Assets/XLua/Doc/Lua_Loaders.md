@@ -3,9 +3,9 @@
 `require 'a.b'` asks each searcher in `package.searchers` for module `a.b`
 and stops at the first one that returns a chunk. `require` is synchronous: a
 loader has to return the source bytes when Lua calls it. Sources that you can
-only read asynchronously (StreamingAssets on Android and WebGL, remote
-AssetBundles, Addressables) have to be in memory before the first `require`
-that needs them.
+only read asynchronously (StreamingAssets on WebGL, remote AssetBundles,
+Addressables) have to be in memory before the first `require` that needs
+them.
 
 `LuaEnv` sets up the searchers in this order:
 
@@ -22,10 +22,12 @@ that needs them.
    [`XLUA_NO_UTIL`](XLua_API_EN.md#xlua_no_util) and
    [`XLUA_NO_PROFILER`](XLua_API_EN.md#xlua_no_profiler) defines leave them out.
 6. Lua's own file and C library searchers (`package.path`, `package.cpath`).
-7. StreamingAssets: `Application.streamingAssetsPath + "/a/b.lua"`. Upstream
-   marks it obsolete and logs a warning on every file it loads. The
+7. StreamingAssets: `Application.streamingAssetsPath + "/a/b.lua"`, read by
+   `StreamingAssetsLoader` ([below](#streamingassets)). Upstream marked it
+   obsolete and logged a warning on every file it loaded; xlua-ng keeps it and
+   logs nothing. The
    [`XLUA_NO_STREAMING_ASSETS_LOADER`](#xlua_no_streaming_assets_loader)
-   define removes it.
+   define removes it, and the minimal preset leaves it out.
 
 A loader is a `LuaEnv.CustomLoader`:
 
@@ -67,7 +69,7 @@ it.
 | --- | --- | --- | --- |
 | `Resources` | `Resources.Load<TextAsset>` | yes | xLua's default searcher; files need `.lua.txt` or `.bytes` |
 | StreamingAssets, Editor, desktop, iOS | `File.ReadAllBytes` | yes | a real directory (`Data/Raw` on iOS) |
-| StreamingAssets, Android | `UnityWebRequest`, or `AssetManager` through Java | preload, or block | inside the APK; `File` cannot open it |
+| StreamingAssets, Android | `StreamingAssetsLoader` (Android's `AssetManager`), or `UnityWebRequest` | yes | inside the APK; `File` cannot open it. In the OBB of a "Split Application Binary" APK, `WWW` (below) |
 | StreamingAssets, WebGL | `UnityWebRequest` | preload only | a URL; the browser cannot block on it |
 | `persistentDataPath` | `File.ReadAllBytes` | yes | downloaded files, hot update |
 | AssetBundle | `AssetBundle.LoadAsset<TextAsset>` | yes, once the bundle is loaded | load the bundle first |
@@ -85,25 +87,59 @@ new build.
 
 ### StreamingAssets
 
-Unity copies `Assets/StreamingAssets` into the player as plain files. How you
-read them depends on the platform:
+Unity copies `Assets/StreamingAssets` into the player as plain files.
+`XLua.StreamingAssetsLoader` reads them synchronously wherever that is
+possible. The legacy preset's StreamingAssets searcher uses it, and a project
+without the searcher (the minimal preset, or
+[`XLUA_NO_STREAMING_ASSETS_LOADER`](#xlua_no_streaming_assets_loader)) adds
+it with one line:
+
+```csharp
+luaenv.AddLoader(StreamingAssetsLoader.Load);   // require 'a.b' reads StreamingAssets/a/b.lua
+```
+
+`Load` is a `CustomLoader`: it returns `null` when there is no such file and
+sets `filepath` to the path below StreamingAssets (`a/b.lua`).
+`StreamingAssetsLoader.ReadAllBytes("data/x.json")` reads any other file
+there, or returns `null`. Both work on any thread. By platform:
 
 - Editor, Windows, macOS, Linux and iOS: `Application.streamingAssetsPath` is a
-  directory. `LuaLoaders.FromDirectory(Application.streamingAssetsPath)` reads
-  it with `File`.
-- Android: the files sit inside the APK (or an asset pack of the AAB), and
-  `streamingAssetsPath` is a `jar:file://` URL. Read them with
-  `UnityWebRequest` or through Android's `AssetManager` from a Java or Kotlin
-  plugin. xLua's own StreamingAssets searcher uses `UnityEngine.WWW` here and
-  blocks the main thread until the read finishes.
+  directory, read with `File.ReadAllBytes`.
+  `LuaLoaders.FromDirectory(Application.streamingAssetsPath)` does the same.
+- Android: the files sit inside the APK, the base module of an AAB or an
+  install-time asset pack, and `streamingAssetsPath` is a `jar:file://` URL
+  that `File` cannot open. `StreamingAssetsLoader` reads them through Android's
+  `AssetManager` over `AndroidJNI`, which every Android player has; the
+  project needs the AndroidJNI built-in package (`com.unity.modules.androidjni`,
+  in the Hub templates; xLua's UPM package depends on it). Before
+  2026-10-29 xLua's searcher read them with `UnityEngine.WWW`: it kept the
+  UnityWebRequest and TLS engine modules in every legacy Android player
+  (573,164 bytes of APK), spun until each request finished and then slept
+  50 ms.
+- Android with "Split Application Binary" (an APK with an OBB file; Google
+  Play no longer accepts OBB files for new apps): Unity puts StreamingAssets
+  into the OBB, which the `AssetManager` does not see, and
+  `Application.dataPath` names the OBB. There `StreamingAssetsLoader` reads with
+  `UnityEngine.WWW`, as xLua did before, and a build of an APK with the
+  setting on keeps `WWW` when the StreamingAssets searcher is compiled in
+  (`StreamingAssetsObbLinkXml`, Editor). A project without the searcher that
+  calls `StreamingAssetsLoader` in such a build keeps `WWW` with a link.xml:
+  `<assembly fullname="UnityEngine.UnityWebRequestWWWModule"><type fullname="UnityEngine.WWW" preserve="all"/></assembly>`.
+  Without it `Load` throws an exception that says so. An AAB with the setting
+  puts StreamingAssets into an install-time asset pack, which the
+  `AssetManager` reads.
 - WebGL: `streamingAssetsPath` is a URL on the server. Only `UnityWebRequest`
-  can read it, and only asynchronously. xLua's StreamingAssets searcher calls
-  `File.Exists` there and finds nothing.
+  can read it, and only asynchronously, which a synchronous `require` cannot
+  wait for. The searcher adds "StreamingAssets cannot be read synchronously on
+  WebGL" to `require`'s error message, and `StreamingAssetsLoader.Load` and
+  `ReadAllBytes` throw `NotSupportedException`. Upstream's searcher looked for
+  a file with `File.Exists` there and silently found nothing.
 
-For Android and WebGL, read the modules before the first `require` with
+For WebGL, read the modules before the first `require` with
 `LuaLoaders.PreloadStreamingAssets` and serve them with
-`LuaLoaders.FromDictionary`. You cannot list a folder inside an APK, so write
-the module list at build time (a text file next to the sources works):
+`LuaLoaders.FromDictionary`, or ship the Lua in `Resources`. You cannot list a
+folder inside a player, so write the module list at build time (a text file
+next to the sources works):
 
 ```csharp
 var sources = new Dictionary<string, byte[]>();
@@ -204,17 +240,19 @@ WebGL does not support it. Preloading by label suits WebGL and remote content.
 Add `XLUA_NO_STREAMING_ASSETS_LOADER` to the scripting define symbols (Player
 Settings, or `-define:` in `Assets/csc.rsp`) to leave out xLua's
 StreamingAssets searcher. `LuaEnv` then does not register
-`StaticLuaCallbacks.LoadFromStreamingAssetsPath`, and the method, with its
-`UnityEngine.WWW` code for Android, is not compiled. Without the define nothing
-changes.
+`StaticLuaCallbacks.LoadFromStreamingAssetsPath`. The minimal preset defines
+it. Without the define nothing changes.
 
-What you gain: on Android, that `WWW` reference is the only thing in xLua that
-makes Unity's engine code stripping keep the UnityWebRequest modules in
-`libunity.so`. In a release ARM64 APK built with Unity 6000.3.21f1 and Lua
-5.5.1, the define saved 569,964 bytes (`libunity.so` 539,624 bytes compressed in the APK, 1,090,800 uncompressed; IL2CPP code 22,905; metadata 7,433). If your project
-calls `UnityWebRequest` itself, Unity keeps those modules anyway and the define
-saves 15,116 bytes. iOS and WebGL builds have no `WWW` reference to drop.
-The numbers and the method are in [build/README.md](../../../build/README.md#player-size-2026-10-16).
+What you gain: since 2026-10-29 little. The searcher reads Android's
+StreamingAssets through the `AssetManager` (`StreamingAssetsLoader`), so it no
+longer keeps the UnityWebRequest engine modules in Android players. In a
+release ARM64 APK (Unity 6000.3.21f1, Lua 5.5.1, Minimal stripping) the
+define now saves 1,356 bytes, and the change saved 559,920 bytes of every
+legacy Android APK ([build/SIZE.md](../../../build/SIZE.md#the-streamingassets-searcher-through-the-assetmanager-2026-10-29)).
+Until then the define saved 569,964 bytes of a release ARM64 APK, the
+`UnityEngine.WWW` that the searcher used on Android
+([build/README.md](../../../build/README.md#player-size-2026-10-16)).
 
 What you lose: `require` no longer looks in StreamingAssets. If your Lua files
-are there, add a loader from the [StreamingAssets](#streamingassets) section.
+are there, add `luaenv.AddLoader(StreamingAssetsLoader.Load)`, or another
+loader from the [StreamingAssets](#streamingassets) section.

@@ -13,6 +13,9 @@ T=$1; shift
 LOCK=${SG_LOCK:-/Volumes/T7Data/ext-ai-projects/xlua-ng/native-test.lock}
 MIN_FREE_GB=${MIN_FREE_GB:-25}
 export TMPDIR=${SG_TMPDIR:-/Volumes/T7Data/ext-ai-projects/xlua-ng/sourcegen-spike/tmp}
+# Unity's bundled adb on its own port, without wireless auto-connect, so it
+# cannot kill the shared adb server (Test/UnityMatrix/unity_adb.py).
+export ANDROID_ADB_SERVER_PORT=5038 ADB_MDNS_AUTO_CONNECT=0
 mkdir -p "$TMPDIR"
 
 free_gb() { df -g / | awk 'NR==2 {print $4}'; }

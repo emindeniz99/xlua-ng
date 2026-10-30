@@ -72,7 +72,7 @@ Variants:
                $XLUA_PBENCH_SUFFIX) so they can be installed side by side; needs +sg (docs/research/descriptor-wrappers.md, 2026-10-28). The
                APK is profileable from the shell (PbenchProfileable.cs), and a launch with the string extra
                pbench_profile "CASE[,CASE...][;SECONDS]" runs only those cases, for simpleperf (2026-10-29;
-               the project gets com.unity.modules.androidjni to read the extra)
+               it reads the extra through com.unity.modules.androidjni, which every project has)
   NAME+vsbench  VsBench/VsBench.cs and VsBench/VsBenchXLua.cs in Assembly-CSharp, run by the probe
                (XLUA_SIZE_VS_BENCH): the cross-library bench of vs_bench.py, a subset of zlua-benchmark's case list,
                XLUA_VSBENCH lines in the log; one package per mode (org.xluang.vs.plain, .gcm, .minimal, plus
@@ -136,6 +136,8 @@ repo = here.parents[1]
 sys.path.insert(0, str(repo / "Test/Native"))
 import benchmark  # noqa: E402  (size_entry and player_entry)
 import check_apk_16k  # noqa: E402  (next to this file)
+sys.path.insert(0, str(repo / "Test/UnityMatrix"))
+from unity_adb import unity_env  # noqa: E402
 
 # Variant flags for the C# feature defines (docs/MIGRATING.md, "Opt-in defines").
 CS_FEATURE_FLAGS = {"nosig": "XLUA_NO_SIGNATURE_LOADER", "notemplate": "XLUA_NO_TEMPLATE",
@@ -404,14 +406,14 @@ def prepare(a, work, platform, variant, project):
     assets = project / "Assets"
     for d in ["Assets/Editor", "Packages", "ProjectSettings"]:
         (project / d).mkdir(parents=True, exist_ok=True)
-    # xLua's StaticLuaCallbacks uses UnityEngine.WWW. Every variant gets the module, so the baseline
-    # differs only by xLua; engine code stripping drops it where nothing uses it.
+    # xLua's StreamingAssets searcher reads Android's StreamingAssets through AndroidJNI (since
+    # 2026-10-29; with UnityEngine.WWW before, which +at-REF of older commits and upstream need). Every
+    # variant gets both modules, so the baseline differs only by xLua; engine code stripping drops a
+    # module nothing uses, and every Android player has AndroidJNI anyway.
     game = "game" in flags
-    deps = {"com.unity.modules.unitywebrequestwww": "1.0.0"}
+    deps = {"com.unity.modules.unitywebrequestwww": "1.0.0", "com.unity.modules.androidjni": "1.0.0"}
     if game:
         deps["com.unity.ugui"] = "2.0.0"  # UnityEngine.UI, which the game configuration binds
-    if "pbench" in flags:
-        deps["com.unity.modules.androidjni"] = "1.0.0"  # PlayerBench reads the launch's intent extras
     (project / "Packages/manifest.json").write_text(json.dumps({"dependencies": deps}) + "\n")
     unity = a.unity_webgl if platform == "webgl" else a.unity_mobile
     version = re.search(r"/(\d+\.\d+\.\d+[abfp]\d+)/", str(unity))
@@ -621,7 +623,7 @@ def run_tool(a, cmd, log, env):
             print("  another Unity editor runs; waiting", flush=True)
             time.sleep(30)
         started = time.time()
-        proc = subprocess.Popen([str(c) for c in cmd], env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        proc = subprocess.Popen([str(c) for c in cmd], env=unity_env(env), stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             rc = proc.wait(timeout=a.timeout)
         except subprocess.TimeoutExpired:

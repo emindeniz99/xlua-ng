@@ -85,7 +85,9 @@ namespace XLuaTest
 
         // Reads modules from StreamingAssets into sources with UnityWebRequest, which works
         // on every platform: on Android the folder is inside the APK and on WebGL it is a
-        // URL, so File cannot read it there. A folder inside the APK cannot be listed, so
+        // URL, so File cannot read it there. WebGL needs it: a synchronous require cannot
+        // wait for a download there. Elsewhere XLua.StreamingAssetsLoader.Load reads the
+        // files when require asks for them. A folder inside the APK cannot be listed, so
         // the caller names the modules (for example from a list file written at build
         // time). Run it as a coroutine and wait for it before the first require.
         public static IEnumerator PreloadStreamingAssets(IEnumerable<string> modules, IDictionary<string, byte[]> sources,

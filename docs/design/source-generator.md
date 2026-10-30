@@ -4212,7 +4212,10 @@ the owner, Q84 of 2026-10-29).**
     `nil`, as upstream did. Upstream code can depend on that
     (`if xlua.get_generic_method(T, 'M') then`), and the runtime cannot
     tell a typo from a stripped method, so raising in legacy, in the Editor
-    as in players, is a compatibility question for the owner. The define
+    as in players, was a compatibility question for the owner. *Decided
+    2026-10-29 (owner, Q85): legacy keeps returning `nil`. Since Q75 legacy
+    keeps bound types whole, so there `nil` means a wrong name, not
+    stripping, and scripts that probe with `if` keep working.* The define
     already narrows the same function to public methods, as it makes
     `xlua.tofunction` raise for a non-public one.
   - **Tests:** `CaseGetGenericMethodMissing` (the wrong name `Echoo` and the

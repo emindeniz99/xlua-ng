@@ -20,8 +20,9 @@ namespace XLuaTest
             File.WriteAllText(Path.Combine(downloads, "loaders_downloaded.lua"),
                 "return 'loaders_downloaded: read from persistentDataPath'");
 
-            // Android and WebGL can only read StreamingAssets asynchronously, so read the
-            // modules first. This example ships none in StreamingAssets; list yours here.
+            // WebGL can only read StreamingAssets asynchronously, so read the modules first
+            // (elsewhere luaenv.AddLoader(StreamingAssetsLoader.Load) reads them when required).
+            // This example ships none in StreamingAssets; list yours here.
             var preloaded = new Dictionary<string, byte[]>();
             yield return LuaLoaders.PreloadStreamingAssets(new string[0], preloaded);
 
