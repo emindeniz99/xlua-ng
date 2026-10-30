@@ -669,6 +669,12 @@ function CMyTestCaseLuaCallCSCoverage.CaseLuaTableRawPaths(self)
     CS.Coverage.CSharpApi.LuaTableRawPaths()
 end
 
+-- LuaTable.Get of a number or a boolean converts and pops the value in its native call; the same values and
+-- exceptions as GetInPath, which reads through ObjectTranslator.Get, and ContainsKey (2026-10-31).
+function CMyTestCaseLuaCallCSCoverage.CaseLuaTableNumberReads(self)
+    CS.Coverage.CSharpApi.LuaTableNumberReads()
+end
+
 -- The casters, checkers and get and push functions a translator keeps per type follow later registrations.
 function CMyTestCaseLuaCallCSCoverage.CaseTypeOpsFollowRegistrations(self)
     CS.Coverage.CSharpApi.TypeOpsFollowRegistrations()

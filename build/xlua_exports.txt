@@ -92,6 +92,8 @@ xlua_getglobal
 xlua_getloaders
 xlua_getref_get
 xlua_getref_getfield
+xlua_getref_getfieldvalue
+xlua_getref_getvalue
 xlua_getref_set
 xlua_getref_setfield
 xlua_gettypeid
