@@ -1025,6 +1025,20 @@ namespace Coverage
                     expect(throws(() => text.Set(1, 1)).Contains("index"), "Set of an int key on a string");
                 }
                 expectEqual(before, top(env), "stack after the string");
+
+                // GetInPath and SetInPath: an ASCII path as a C string from the shared buffer, any other through
+                // the string marshaler as before; both stop at a NUL.
+                env.DoString("paths = { a = { b = 'ab' }, [string.char(195, 169)] = { x = 'accent' } }");
+                LuaTable paths = env.Global.Get<LuaTable>("paths");
+                expectEqual("ab", paths.GetInPath<string>("a.b"), "an ASCII path");
+                expectEqual("accent", paths.GetInPath<string>("\u00e9.x"), "a path that is not ASCII");
+                expect(paths.GetInPath<LuaTable>("a\0.b") != null, "a path stops at a NUL");
+                expectEqual(null, paths.GetInPath<string>(new string('z', 300)), "a path longer than the buffer");
+                paths.SetInPath("a.c", "ac");
+                paths.SetInPath("\u00e9.y", "accent y");
+                expectEqual("ac", paths.GetInPath<string>("a.c"), "SetInPath of an ASCII path");
+                expectEqual("accent y", paths.GetInPath<string>("\u00e9.y"), "SetInPath of a path that is not ASCII");
+                expectEqual(before, top(env), "stack after the paths");
             });
         }
 
