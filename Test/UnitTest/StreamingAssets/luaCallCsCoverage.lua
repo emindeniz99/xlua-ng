@@ -243,12 +243,35 @@ function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethod(self)
     ASSERT_VALUE_TYPE_GENERIC("Int64:7", xlua.get_generic_method(G, "Echo", 0)(CS.System.Int64), 7)
     ASSERT_EQ(xlua.get_generic_method(typeof(G), "Wrap")(CS.System.String)(G(), "x"), "g<String>x")
     ASSERT_VALUE_TYPE_GENERIC("Int32,String", xlua.get_generic_method(G, "Pair")(CS.System.Int32, CS.System.String), 1, "x")
-    ASSERT_EQ(xlua.get_generic_method(G, "NotGeneric"), nil)
-    ASSERT_EQ(xlua.get_generic_method(G, "Missing"), nil)
+    -- Without a generic method of the name: CaseGetGenericMethodMissing.
     expectError("xlua.get_generic_method, can not find c# type", xlua.get_generic_method, nil, "Echo")
     expectError("xlua.get_generic_method, #2 param need a string", xlua.get_generic_method, G, "")
     expectError("param #1 is not a type", echo, 1)
     expectError("xlua.get_generic_method", xlua.get_generic_method, G, "Echo", 5)
+end
+
+-- A name without a generic method (a typo, a non-generic method, or in an
+-- IL2CPP player one that stripping removed): with XLUA_RESTRICT_PRIVATE_ACCESS
+-- (minimal) xlua.get_generic_method raises and names the type and the method,
+-- rather than returning nil for a later "attempt to call a nil value"
+-- (2026-10-29). Legacy still returns nil, as upstream did. The stripping hint
+-- is only in IL2CPP players, which the host is not.
+function CMyTestCaseLuaCallCSCoverage.CaseGetGenericMethodMissing(self)
+    local G = CS.Coverage.Generics
+    for _, name in ipairs({"Echoo", "NotGeneric"}) do
+        if CS.BridgeHardening.Defines.RestrictPrivateAccess() then
+            local ok, err = pcall(xlua.get_generic_method, G, name)
+            ASSERT_EQ(ok, false)
+            -- IL2CPP players append the stripping hint, so compare the start.
+            local expected = "xlua.get_generic_method: Coverage.Generics has no public generic method '" .. name .. "'."
+            local text = tostring(err)
+            ASSERT_EQ(string.sub(text, 1, #expected), expected)
+            local rest = string.sub(text, #expected + 1)
+            ASSERT_TRUE(rest == "" or string.find(rest, "^ In an IL2CPP player, stripping may have removed it") ~= nil)
+        else
+            ASSERT_EQ(xlua.get_generic_method(G, name), nil)
+        end
+    end
 end
 
 -- The third argument picks one of several generic methods with the name; the
@@ -1469,4 +1492,80 @@ function CMyTestCaseLuaCallCSCoverage.CaseParityNullableStructArgs(self)
     ASSERT_EQ(B.NulPair({ a = 1, b = 2 }), "12")
     ASSERT_EQ(firstLine(errorOf(B.NulPair, "s")), "c# exception:System.InvalidCastException: Coverage.MultiListedPair expected, got string")
     ASSERT_EQ(firstLine(errorOf(B.NulPair, a)), "c# exception:System.InvalidCastException: Coverage.MultiListedPair expected, got Coverage.MultiListedA")
+end
+
+-- The object path of 2026-10-29 (Coverage.ObjectPath): an object pushed again,
+-- by any route, is the same userdata; a boxed struct is a new one each time.
+function CMyTestCaseLuaCallCSCoverage.CaseObjectPathIdentity(self)
+    local P = CS.Coverage.ObjectPath
+    local k = P.Get()
+    ASSERT_TRUE(rawequal(k, P.Get()))
+    ASSERT_TRUE(rawequal(k, P.GetAsObject()))
+    ASSERT_TRUE(rawequal(k, P.Same(k)))
+    ASSERT_TRUE(rawequal(k, P.Echo(k)))
+    ASSERT_EQ(P.NameOf(k), "kept")
+    local m = P.Make("m")
+    ASSERT_TRUE(not rawequal(m, k))
+    ASSERT_TRUE(rawequal(m, P.Same(m)))
+    ASSERT_EQ(P.NameOf(P.Same(m)), "m")
+    -- An enum without bindings goes through Push's enum cache.
+    local e = P.BoxedEnum()
+    ASSERT_TRUE(rawequal(e, P.BoxedEnum()))
+    ASSERT_TRUE(rawequal(e, P.Echo(e)))
+    ASSERT_TRUE(P.IsOne(e))
+    ASSERT_EQ(P.KindOf(e), "Coverage.ObjectPathKind")
+    local p = P.BoxedPoint()
+    ASSERT_TRUE(not rawequal(p, P.BoxedPoint()))
+    ASSERT_EQ(P.KindOf(p), "Coverage.Point")
+end
+
+-- Class arguments: nil, and a C# object of another class, which generated
+-- code and reflection refuse; the emitted wrappers of the first suite pass
+-- read it as null.
+function CMyTestCaseLuaCallCSCoverage.CaseObjectPathClassArguments(self)
+    local P = CS.Coverage.ObjectPath
+    ASSERT_EQ(P.NameOf(nil), "null")
+    ASSERT_EQ(P.Same(nil), nil)
+    local ok, r = pcall(P.NameOf, P.BoxedPoint())
+    ASSERT_TRUE(not ok or r == "null")
+    ok, r = pcall(P.Same, P.BoxedEnum())
+    ASSERT_TRUE(not ok or r == nil)
+end
+
+-- object results and arguments: boxed values come back as Lua values.
+function CMyTestCaseLuaCallCSCoverage.CaseObjectPathBoxedValues(self)
+    local P = CS.Coverage.ObjectPath
+    ASSERT_EQ(P.BoxedInt(), 7)
+    ASSERT_EQ(tostring(P.BoxedLong()), "1099511627776")
+    ASSERT_EQ(P.BoxedDouble(), 0.5)
+    ASSERT_EQ(P.BoxedFloat(), 1.5)
+    ASSERT_EQ(P.BoxedBool(), true)
+    ASSERT_EQ(P.BoxedByte(), 200)
+    ASSERT_EQ(P.BoxedChar(), 65)
+    ASSERT_EQ(P.BoxedString(), "s")
+    ASSERT_EQ(P.Echo(42), 42)
+    ASSERT_EQ(P.Echo(2.5), 2.5)
+    ASSERT_EQ(P.Echo(false), false)
+    ASSERT_EQ(P.Echo("str"), "str")
+    ASSERT_EQ(P.Echo(nil), nil)
+    -- A Lua integer is a long (a double on LuaJIT), so no number's type here.
+    ASSERT_EQ(P.KindOf("str"), "System.String")
+    ASSERT_EQ(P.KindOf(true), "System.Boolean")
+    ASSERT_EQ(P.KindOf(nil), "null")
+end
+
+-- Objects whose userdata Lua collected are pushed again as new userdata, and
+-- the pool's reverse maps forget the collected ones (collectObject).
+function CMyTestCaseLuaCallCSCoverage.CaseObjectPathCollected(self)
+    local P = CS.Coverage.ObjectPath
+    local k = P.Get()
+    local e = P.BoxedEnum()
+    local m = P.Make("gone")
+    k, e, m = nil, nil, nil
+    collectgarbage()
+    collectgarbage()
+    ASSERT_EQ(P.NameOf(P.Get()), "kept")
+    ASSERT_TRUE(rawequal(P.Get(), P.Get()))
+    ASSERT_TRUE(P.IsOne(P.BoxedEnum()))
+    ASSERT_TRUE(rawequal(P.BoxedEnum(), P.BoxedEnum()))
 end

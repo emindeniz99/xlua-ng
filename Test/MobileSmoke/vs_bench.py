@@ -1,9 +1,11 @@
-"""Cross-library player bench: xlua-ng against PuerTS's Lua backend and zlua, with a subset of zlua-benchmark's
-case list (VsBench/VsBench.cs; docs/research/benchmark-vs-puerts-zlua.md).
+"""Cross-library player bench: xlua-ng against PuerTS's Lua backend, zlua and MoonSharp-ng, with a subset of
+zlua-benchmark's case list and the pure Lua workloads of Test/Native/flag_bench.c (VsBench/VsBench.cs;
+docs/research/benchmark-vs-puerts-zlua.md, docs/research/benchmark-vs-moonsharp-ng.md).
 
-  build   prepare and build the PuerTS and zlua players (Unity 6000.3, Android ARM64 IL2CPP, release, Minimal
-          stripping, SmokeBuild.cs as for xlua-ng's players) from official release archives the caller downloaded
-          and hash-checked; the xlua-ng players come from size_report.py --configs vsbench
+  build   prepare and build the PuerTS, zlua and MoonSharp-ng players (Unity 6000.3, Android ARM64 IL2CPP, release,
+          Minimal stripping, SmokeBuild.cs as for xlua-ng's players) from official release archives the caller
+          downloaded and hash-checked, or for MoonSharp-ng the UPM package staged from the fork's source
+          (tools/upm/stage-local-package.sh); the xlua-ng players come from size_report.py --configs vsbench
   device  install every player on the xlua16k emulator or the test phone and launch them in rotating order
   report  the median of the per-launch medians per case and library, and the APK sizes, as JSON and Markdown
 
@@ -14,7 +16,8 @@ this script extracts them and lets Unity import them; it runs none of their scri
 Device rules (playground projects/moto-g-play-2024): every adb command names its serial and is logged with a
 UTC timestamp to WORK/<target>/device-commands.log; a read-only snapshot comes first; Charge AOD is force-stopped
 during the runs and restarted afterwards; no setting is changed on the phone; the test packages are uninstalled at
-the end. The script stops when a Unity editor runs (Unity starts its own adb server).
+the end. The script stops when a Unity editor runs (Unity starts its own adb server). The adb server is left
+running unless --kill-adb-server is given: other jobs' emulator and phone sessions share it.
 """
 import argparse
 import datetime
@@ -43,6 +46,7 @@ PLAYERS = [
     ("xlua-ng strict-minimal", "org.xluang.vs.minimal", "work/players/android/vsbench/ng-5.5+minimal+strict+vsbench/unity-android-smoke.apk"),
     ("puerts-lua", "org.xluang.vs.puerts", "tp/players/puerts/unity-android-smoke.apk"),
     ("zlua", "org.xluang.vs.zlua", "tp/players/zlua/unity-android-smoke.apk"),
+    ("moonsharp-ng sourcegen", "org.xluang.vs.moonsharp", "tp/players/moonsharp/unity-android-smoke.apk"),
 ]
 BASELINE_APK = "work/players/android/vsbench/baseline/unity-android-smoke.apk"
 
@@ -97,6 +101,12 @@ def prepare(a, lib, project):
     if lib == "puerts":
         for name, archive in [("com.tencent.puerts.core", a.puerts_core), ("com.tencent.puerts.lua", a.puerts_lua)]:
             extract(archive, project / "Packages" / name)
+    elif lib == "moonsharp":
+        # The fork's own package layout (Runtime/ with the interpreter sources, link.xml and the source generator
+        # in Runtime/Analyzers), embedded as a local package.
+        if not a.moonsharp or not (a.moonsharp / "package.json").is_file():
+            sys.exit("--moonsharp must be a staged org.moonsharp.moonsharp folder: %s" % a.moonsharp)
+        shutil.copytree(a.moonsharp, project / "Packages/org.moonsharp.moonsharp")
     else:
         extract(a.zlua, project / "Packages/com.code-philosophy.zlua")
         # zlua's installer reuses LuaSrcCache/downloads/lua-X.Y.Z.tar.gz when it is there (LuaSourceCache.cs:241-243);
@@ -108,11 +118,11 @@ def prepare(a, lib, project):
     (project / "Packages/manifest.json").write_text(json.dumps({"dependencies": deps}, indent=1) + "\n")
     shutil.copy2(here / "SmokeBuild.cs", project / "Assets/Editor/SmokeBuild.cs")
     shutil.copy2(here / "VsBench/VsBench.cs", project / "Assets/VsBench.cs")
-    adapter = {"puerts": "VsBenchPuerts.cs", "zlua": "VsBenchZLua.cs"}[lib]
+    adapter = {"puerts": "VsBenchPuerts.cs", "zlua": "VsBenchZLua.cs", "moonsharp": "VsBenchMoonSharp.cs"}[lib]
     shutil.copy2(here / "VsBench" / adapter, project / "Assets" / adapter)
     (project / "Assets/csc.rsp").write_text("-define:VSBENCH_%s\n" % lib.upper())
     shutil.copy2(here / "VsBench/VsBenchHost.cs", project / "Assets/XluaSmoke.cs")
-    editor = here / "VsBench" / ("VsBench%sEditor.cs" % {"puerts": "Puerts", "zlua": "ZLua"}[lib])
+    editor = here / "VsBench" / ("VsBench%sEditor.cs" % {"puerts": "Puerts", "zlua": "ZLua", "moonsharp": "MoonSharp"}[lib])
     if editor.is_file():
         shutil.copy2(editor, project / "Assets/Editor" / editor.name)
 
@@ -146,6 +156,7 @@ def unity(a, project, method, log, env):
 STEPS = {
     "puerts": ["VsBenchPuertsEditor.Generate"],
     "zlua": ["VsBenchZLuaEditor.Install", "VsBenchZLuaEditor.Generate"],
+    "moonsharp": [],  # its source generator runs in the build's own compilation
 }
 
 
@@ -172,7 +183,8 @@ def build(a):
         (out / "build-info.json").write_text(json.dumps({
             "library": lib, "unity_settings": line.group(0) if line else None, "seconds": round(time.time() - started),
             "archives": {k: str(v) for k, v in [("puerts_core", a.puerts_core), ("puerts_lua", a.puerts_lua),
-                                                 ("zlua", a.zlua), ("lua", a.lua_tarball)] if v}}, indent=1) + "\n")
+                                                 ("zlua", a.zlua), ("lua", a.lua_tarball), ("moonsharp", a.moonsharp)]
+                         if v}}, indent=1) + "\n")
 
 
 # ---------------------------------------------------------------- device
@@ -224,13 +236,13 @@ def device(a):
     else:
         time.sleep(5)
         devices = run([adb_exe, "devices", "-l"])
-        serial = None
+        serial = a.serial
         for line in devices.splitlines()[1:]:
             parts = line.split()
-            if len(parts) >= 2 and parts[1] == "device" and not parts[0].startswith("emulator"):
+            if not a.serial and len(parts) >= 2 and parts[1] == "device" and not parts[0].startswith("emulator"):
                 serial = parts[0]
-        if not serial:
-            sys.exit("no phone in adb devices:\n" + devices)
+        if not serial or not any(l.split()[:2] == [serial, "device"] for l in devices.splitlines()[1:]):
+            sys.exit("no phone %s in adb devices:\n%s" % (serial or "", devices))
 
     def adb(*args, timeout=180):
         return run([adb_exe, "-s", serial] + list(args), timeout=timeout)
@@ -315,7 +327,7 @@ def device(a):
                         note("%s: system dialog in front (16 KB page size compatibility); tapping OK" % pkg)
                         adb("shell", "input", "tap", "891", "1509")
                 lines, done = [], False
-                for _ in range(120):  # up to 10 minutes
+                for _ in range(a.launch_timeout // 5):
                     time.sleep(5)
                     lines = [l for l in adb("logcat", "-d", "-s", "Unity:V").splitlines() if "XLUA_VSBENCH" in l]
                     if any("XLUA_VSBENCH_DONE" in l for l in lines):
@@ -361,7 +373,8 @@ def device(a):
                 emu_proc.wait(timeout=60)
             except subprocess.TimeoutExpired:
                 os.killpg(emu_proc.pid, signal.SIGKILL)
-        run([adb_exe, "kill-server"])
+        if a.kill_adb_server:
+            run([adb_exe, "kill-server"])
 
 
 # ---------------------------------------------------------------- report
@@ -415,6 +428,12 @@ GROUPS = [
     ("C# -> Lua: Vector3 and struct", ["cs2lua.Vector3.3arg.ret", "cs2lua.struct.3arg.ret"]),
     ("C# -> Lua: object and class", ["cs2lua.object.3arg.ret", "cs2lua.class.3arg.ret"]),
     ("Lua alone (loop, table)", ["lua.loop", "lua.table.rw"]),
+    ("Pure Lua workloads (flag_bench.c's 18)", ["pure.empty_loop", "pure.function_call", "pure.method_call",
+                                               "pure.table_array_insert", "pure.table_array_read", "pure.table_hash_set_get",
+                                               "pure.string_concat", "pure.string_format", "pure.closure_create_call",
+                                               "pure.int_math", "pure.fib_recursive", "pure.float_math", "pure.string_pattern",
+                                               "pure.table_sort", "pure.table_concat", "pure.coroutine_switch",
+                                               "pure.gc_small_tables", "pure.oop_inherit"]),
 ]
 
 
@@ -429,6 +448,8 @@ def report(a):
         meta = {}
         skips = {}
         checks = {}
+        allocs = {}
+        pure_checks = {}
         for f in sorted(folder.glob("result-*.txt")):
             lib = None
             for line in f.read_text().splitlines():
@@ -440,6 +461,13 @@ def report(a):
                 elif kind == "XLUA_VSBENCH" and lib:
                     d = json.loads(rest)
                     per.setdefault(lib, {}).setdefault(d["name"], []).append(d["median"])
+                    if "check" in d:
+                        pure_checks.setdefault(lib, {}).setdefault(d["name"], set()).add((d["check"], d["check_ok"]))
+                elif kind == "XLUA_VSBENCH_ALLOC" and lib:
+                    d = json.loads(rest)
+                    if not d["error"] and d["gcs"] == 0:
+                        allocs.setdefault(lib, {}).setdefault(d["name"], []).append(
+                            (d["managed_bytes_per_op"], d["lua_bytes_per_op"]))
                 elif kind == "XLUA_VSBENCH_SKIP":
                     d = json.loads(rest)
                     skips.setdefault(f.name.split("-", 2)[2][:-4], {})[d["name"]] = d["error"]
@@ -447,7 +475,11 @@ def report(a):
                     checks[lib] = json.loads(rest)
         table = {lib: {case: {"median": round(statistics.median(v), 1), "min": round(min(v), 1), "launches": len(v)}
                        for case, v in cases.items()} for lib, cases in per.items()}
-        results[target] = {"meta": meta, "cases": table, "skips": skips, "checks": checks}
+        alloc_table = {lib: {case: {"managed": statistics.median(m for m, _ in v), "lua": statistics.median(l for _, l in v),
+                                    "launches": len(v)} for case, v in cases.items()} for lib, cases in allocs.items()}
+        results[target] = {"meta": meta, "cases": table, "skips": skips, "checks": checks, "allocs": alloc_table,
+                           "pure_checks": {lib: {c: sorted([list(x) for x in v], key=str) for c, v in cs.items()}
+                                           for lib, cs in pure_checks.items()}}
     sizes = {n: apk_sizes(work / rel) for n, _, rel in PLAYERS if (work / rel).is_file()}
     if (work / BASELINE_APK).is_file():
         sizes["empty project"] = apk_sizes(work / BASELINE_APK)
@@ -485,6 +517,17 @@ def report(a):
             cells = ["%.0f (%.2fx)" % (m, m / means[0]) if m and means[0] else "n/a" for m in means]
             md.append("| %s | %s |" % (g, " | ".join(cells)))
         md.append("")
+        if r["allocs"]:
+            md.append("Bytes per operation with both collectors stopped (managed / Lua heap), the median of the launches:\n")
+            md.append("| case | " + " | ".join(libs) + " |")
+            md.append("| --- |" + " ---: |" * len(libs))
+            for c in cases:
+                cells = []
+                for l in libs:
+                    v = r["allocs"].get(l, {}).get(c)
+                    cells.append("%.0f / %.0f" % (v["managed"], v["lua"]) if v else "n/a")
+                md.append("| `%s` | %s |" % (c, " | ".join(cells)))
+            md.append("")
     md.append("### sizes\n")
     md.append("| player | APK | libil2cpp.so | global-metadata.dat | other native libraries |")
     md.append("| --- | ---: | ---: | ---: | --- |")
@@ -508,6 +551,8 @@ def main():
     b.add_argument("--puerts-lua", type=Path, help="PuerTS_Lua_<v>.tar.gz of the same release")
     b.add_argument("--zlua", type=Path, help="the source archive of a zlua release tag")
     b.add_argument("--lua-tarball", type=Path, help="lua-X.Y.Z.tar.gz from lua.org for zlua's installer cache")
+    b.add_argument("--moonsharp", type=Path, help="a staged org.moonsharp.moonsharp package folder (MoonSharp-ng's "
+                   "tools/upm/stage-local-package.sh)")
     b.add_argument("--tmpdir", default=os.environ.get("XLUA_SIZE_TMPDIR", "/tmp"),
                    help="a short TMPDIR: Unity's build IPC sockets need paths under 104 bytes")
     b.add_argument("--timeout", type=int, default=2400)
@@ -519,6 +564,9 @@ def main():
     d.add_argument("--rounds", type=int, default=8)
     d.add_argument("--cooldown", type=int, default=15)
     d.add_argument("--only", help="regex on the player names")
+    d.add_argument("--serial", help="the phone's adb serial (default: the only non-emulator device)")
+    d.add_argument("--launch-timeout", type=int, default=600, help="seconds one launch may take")
+    d.add_argument("--kill-adb-server", action="store_true", help="stop the adb server at the end")
     r = sub.add_parser("report")
     r.add_argument("--work", type=Path, required=True)
     a = p.parse_args()

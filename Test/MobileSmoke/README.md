@@ -68,7 +68,16 @@ bridge by signature. Where `xlua.private_accessible` exists (legacy, or
 `[LuaCallCSharp]` type `SgPrivate` and calls its private method through it
 (`private_accessible` in the pass line); no C# code uses them, so under High
 stripping only the generator's `preserve="all"` for the type keeps them
-(owner decision Q75 of 2026-10-29). A development player also logs the
+(owner decision Q75 of 2026-10-29). In every preset Lua calls the public
+generic method `NameOf<T>()` of two `[LuaCallCSharp]` types through
+`xlua.get_generic_method`; no wrapper and no C# code calls it. On
+`SgGeneric`, which also has `[ReflectionUse]`, it must work. On
+`SgGenericBare` it must work too, or, where strict minimal's narrow link.xml
+let High stripping remove it (owner decision Q84 of 2026-10-29), raise
+`xlua.get_generic_method: SgGenericBare has no public generic method
+'NameOf'.` with the IL2CPP stripping hint; the player then logs the error
+as `XLUA_NG_SMOKE_INFO` and the pass line says `get_generic_method (stripped
+one raised)`. A development player also logs the
 init-only setter's fallback warning once. Set `XLUA_SMOKE_STRIPPING=High`
 for the stripping check.
 To check the feature defines, set `XLUA_SMOKE_DEFINES` (below) to them, for

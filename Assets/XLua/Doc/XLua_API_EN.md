@@ -474,6 +474,14 @@ bar(2, nil)
 
 Generic methods must be available in the target runtime; on AOT platforms, ensure the required instantiations are compiled. See the `09_GenericMethod` example.
 
+When the type has no generic method of that name, `xlua.get_generic_method` returns `nil` in the legacy preset, as upstream did. With `XLUA_RESTRICT_PRIVATE_ACCESS` (part of the minimal preset) it raises instead:
+
+```text
+xlua.get_generic_method: UnityEngine.GameObject has no public generic method 'GetComponent'.
+```
+
+In an IL2CPP player the message goes on: stripping may have removed the method; add `[ReflectionUse]` to the type (or `[assembly: XLua.ReflectionUse(typeof(...))]`), or keep it in a link.xml. The minimal preset's generated link.xml does not keep a public generic method that only this function reaches.
+
 #### Cast Function
 
 Description:
@@ -613,7 +621,7 @@ The global `xlua` becomes a read-only proxy: `xlua.cast = f` raises, `getmetatab
 
 ##### XLUA_RESTRICT_PRIVATE_ACCESS
 
-Without `HOTFIX_ENABLE`, `xlua.access`, `xlua.private_accessible` and `xlua.hotfix` are not defined. With `HOTFIX_ENABLE` they are, but `xlua.access` only reaches the fields the hotfix injector adds (`__Hotfix...`). In both cases `xlua.tofunction` and `xlua.get_generic_method` only take public methods.
+Without `HOTFIX_ENABLE`, `xlua.access`, `xlua.private_accessible` and `xlua.hotfix` are not defined. With `HOTFIX_ENABLE` they are, but `xlua.access` only reaches the fields the hotfix injector adds (`__Hotfix...`). In both cases `xlua.tofunction` and `xlua.get_generic_method` only take public methods, and `xlua.get_generic_method` raises `xlua.get_generic_method: T has no public generic method 'M'.` when the type has none of that name (in an IL2CPP player with a hint about stripping) instead of returning `nil`.
 
 ##### XLUA_NO_LOAD_ASSEMBLY
 
