@@ -533,13 +533,36 @@ namespace XLua.LuaDLL
         // them with their length: in the shared buffer when they fit (this
         // thread's with THREAD_SAFE and HOTFIX_ENABLE, as lua_tostring reads
         // into), else in a new array.
-        static byte[] utf8Bytes(string str, out int len)
+        static unsafe byte[] utf8Bytes(string str, out int len)
         {
 #if !THREAD_SAFE && !HOTFIX_ENABLE
             byte[] buffer = CoreGlobals.strBuff;
 #else
             byte[] buffer = CoreGlobals.ThreadStrBuff();
 #endif
+            // ASCII, the usual table key, field or member name, is its own
+            // UTF-8: one byte per char, copied without the encoder, which took
+            // two passes and a read of Encoding.UTF8 with a memory barrier
+            // (docs/research/benchmark-vs-moonsharp-ng.md, 2026-10-30).
+            int n = str.Length;
+            if (n <= buffer.Length)
+            {
+                fixed (char* s = str)
+                fixed (byte* b = buffer)
+                {
+                    int i = 0;
+                    while (i < n && s[i] < 0x80)
+                    {
+                        b[i] = (byte)s[i];
+                        i++;
+                    }
+                    if (i == n)
+                    {
+                        len = n;
+                        return buffer;
+                    }
+                }
+            }
             if (Encoding.UTF8.GetByteCount(str) > buffer.Length)
             {
                 byte[] bytes = Encoding.UTF8.GetBytes(str);
