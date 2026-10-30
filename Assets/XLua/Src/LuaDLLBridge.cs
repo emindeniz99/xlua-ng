@@ -958,28 +958,85 @@ namespace XLua.LuaDLL
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_get_registry_index();
 
+        // The path of GetInPath and SetInPath as a C string in the shared
+        // buffer (this thread's with THREAD_SAFE and HOTFIX_ENABLE), when it
+        // is ASCII and fits: the bytes every string marshaler gives for it,
+        // without the marshaler's copy into native memory and back (IL2CPP:
+        // a UTF-16 to UTF-8 conversion into a std::string, malloc and free;
+        // docs/research/benchmark-vs-moonsharp-ng.md, 2026-10-30). Null for
+        // any other path, which goes as before.
+        static unsafe byte[] asciiz(string str)
+        {
+            if (str == null)
+            {
+                return null;
+            }
+#if !THREAD_SAFE && !HOTFIX_ENABLE
+            byte[] buffer = CoreGlobals.strBuff;
+#else
+            byte[] buffer = CoreGlobals.ThreadStrBuff();
+#endif
+            int n = str.Length;
+            if (n >= buffer.Length)
+            {
+                return null;
+            }
+            fixed (char* s = str)
+            fixed (byte* b = buffer)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    if (s[i] >= 0x80)
+                    {
+                        return null;
+                    }
+                    b[i] = (byte)s[i];
+                }
+                b[n] = 0;
+            }
+            return buffer;
+        }
+
 #if XLUA_GENERAL
         [DllImport(LUADLL, EntryPoint = "xlua_pgettable_bypath", CallingConvention = CallingConvention.Cdecl)]
-        static extern int xlua_pgettable_bypath_utf8(IntPtr L, int idx, byte[] path);
+        internal static extern int xlua_pgettable_bypath_utf8(IntPtr L, int idx, byte[] path);
 
         public static int xlua_pgettable_bypath(IntPtr L, int idx, string path)
         {
-            return xlua_pgettable_bypath_utf8(L, idx, utf8z(path));
+            return xlua_pgettable_bypath_utf8(L, idx, asciiz(path) ?? utf8z(path));
         }
 
         [DllImport(LUADLL, EntryPoint = "xlua_psettable_bypath", CallingConvention = CallingConvention.Cdecl)]
-        static extern int xlua_psettable_bypath_utf8(IntPtr L, int idx, byte[] path);
+        internal static extern int xlua_psettable_bypath_utf8(IntPtr L, int idx, byte[] path);
 
         public static int xlua_psettable_bypath(IntPtr L, int idx, string path)
         {
-            return xlua_psettable_bypath_utf8(L, idx, utf8z(path));
+            return xlua_psettable_bypath_utf8(L, idx, asciiz(path) ?? utf8z(path));
         }
 #else
-        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlua_pgettable_bypath(IntPtr L, int idx, string path);
+        [DllImport(LUADLL, EntryPoint = "xlua_pgettable_bypath", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int xlua_pgettable_bypath_marshaled(IntPtr L, int idx, string path);
 
-        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int xlua_psettable_bypath(IntPtr L, int idx, string path);
+        [DllImport(LUADLL, EntryPoint = "xlua_pgettable_bypath", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int xlua_pgettable_bypath_ascii(IntPtr L, int idx, byte[] path);
+
+        public static int xlua_pgettable_bypath(IntPtr L, int idx, string path)
+        {
+            byte[] bytes = asciiz(path);
+            return bytes != null ? xlua_pgettable_bypath_ascii(L, idx, bytes) : xlua_pgettable_bypath_marshaled(L, idx, path);
+        }
+
+        [DllImport(LUADLL, EntryPoint = "xlua_psettable_bypath", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int xlua_psettable_bypath_marshaled(IntPtr L, int idx, string path);
+
+        [DllImport(LUADLL, EntryPoint = "xlua_psettable_bypath", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int xlua_psettable_bypath_ascii(IntPtr L, int idx, byte[] path);
+
+        public static int xlua_psettable_bypath(IntPtr L, int idx, string path)
+        {
+            byte[] bytes = asciiz(path);
+            return bytes != null ? xlua_psettable_bypath_ascii(L, idx, bytes) : xlua_psettable_bypath_marshaled(L, idx, path);
+        }
 #endif
 
         //[DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
