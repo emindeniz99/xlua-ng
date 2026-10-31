@@ -1031,7 +1031,9 @@ After the changes, on the emulator **[C]**:
   decoded short strings, keyed by the Lua string's address and checked by
   content, would return the same C# string for the same Lua string. That
   changes what `ReferenceEquals` says about two reads, which nothing in xLua
-  relies on but user code could: **owner's decision** (not built).
+  relies on but user code could: **owner's decision** (not built). Decided
+  2026-10-31 (Q87, option b): not now; kept in ROADMAP.md's optional
+  features.
 - **`GetInPath`** keeps its `lua_pcall`: its path segments are new Lua
   strings, which a raw walk would allocate outside the protected call.
 - **`ForEach`** keeps a `lua_pcall` per element (`xlua_pnext`): the action may

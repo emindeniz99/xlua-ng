@@ -259,6 +259,17 @@ every action item from the 2026-10-17 research is in
 
 ## Optional features, after the above is stable
 
+- **A cache of decoded short strings**, per env: a Lua string that reaches
+  C# would come back as the same C# string while the Lua string lives,
+  keyed by its address and checked by content. After the 2026-10-30/31
+  table and string work, the collector is about 40% of a string read on the
+  emulator, and each read makes one new C# string
+  ([benchmark-vs-moonsharp-ng.md](docs/research/benchmark-vs-moonsharp-ng.md#what-is-left)).
+  It changes what `ReferenceEquals` says about two reads of the same Lua
+  string; nothing in xLua relies on that, user code could. **Owner's
+  decision of 2026-10-31 (Q87, option b): not now.** If it is built: a
+  MIGRATING.md row, a measurement of the hit rate and the memory it keeps,
+  and the phone numbers before and after.
 - **A descriptor wrapper mode**, an opt-in size mode next to GCM: about
   445 KB less APK than GCM at game size (264 types, 4,308 Lua functions),
   at about +50 ns per call over GCM on the moto g play 2024 (+11% over the
