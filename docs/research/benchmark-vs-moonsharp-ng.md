@@ -1386,7 +1386,8 @@ per-type statics, was 3 KB larger.
   in each of two modes in every pass: after F1 alone (530 tests; its
   `THREAD_SAFE` LuaJIT minimal run once more after a run that had
   compiled an unfinished F3 test file), after F3, and on the committed tree
-  **[C]**. Again after the merge (below).
+  `a268c2bf` with host libraries built from it (`origin/main` had no new
+  commit to merge) **[C]**.
 - `native_regression.py` (all checks) and `profiler_smoke.py` on the Lua
   5.5.1 and LuaJIT legacy host libraries, `check_exports.py` on all four,
   `check_pinvoke_abi.py` (155 imports) **[C]**.
