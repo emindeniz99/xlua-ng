@@ -143,11 +143,14 @@ ships Roslyn 4.10.0 (C# 12).
   - 6000.6.7f1 (Android, iOS, WebGL), installed 2026-10-31; CI moved from
     6000.6.6f1, and 6000.0.84f1 to 6000.0.85f1. 6000.6.4f1 and 6000.6.6f1
     are removed locally.
-  - 6000.3.27f2 (Android, iOS): released 2026-10-30, so it is installed on
-    2026-11-06 under the seven-day rule. Then CI moves from 6000.3.26f1, the
-    device scripts' default (`Test/MobileSmoke/prepare.py`,
-    `Test/Examples/prepare.py`) moves from 6000.3.21f1, and both old 6.3
-    editors are removed. Most size and phone measurements so far used
+  - 6000.3.27f2 (Android, iOS), installed 2026-10-31, the day after its
+    release: the owner waived the seven-day rule after reading its notes
+    (27f1 plus security fixes: the Brotli decoder in IL2CPP and Mono,
+    CVE-2026-111497, the Package Manager's Node.js, the eMudhra TLS
+    certificates, and an IL2CPP GC write barrier). CI moved from
+    6000.3.26f1 and the device scripts' default (`Test/MobileSmoke/prepare.py`,
+    `Test/Examples/prepare.py` and the others) from 6000.3.21f1; both old
+    6.3 editors are removed. Most size and phone measurements so far used
     6000.3.21f1, so the next measurement rebuilds its baseline too.
   - When 6.7 LTS ships, it replaces 6000.6 (it is then both the newest LTS
     and the newest release).
