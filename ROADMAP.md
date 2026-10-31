@@ -53,7 +53,10 @@ Each item says what is left and where the runs that passed are recorded.
 - **Player modules that are not installed locally**: Android for
   6000.3.26f1, and WebGL for 6000.6.6f1, 2022.3.62f3 and 2021.3.45f2. The
   2026-10-18 Android and WebGL players used 6000.3.21f1 and 6000.6.4f1.
-  Waits for the owner to install the modules (or for the Unity CI).
+  6000.6.6f1 has had its Android module since 2026-10-31 (SDK, NDK r27c and
+  OpenJDK shared with 6000.6.4f1, which has the same versions); its first
+  ARM64 IL2CPP smoke APK built, not yet run on a device. Waits for the owner
+  to install the modules (or for the Unity CI).
 - **Source generator in players**: Android ARM64 IL2CPP players from
   6000.3.21f1 passed on the emulator (release and Development, Minimal and
   High stripping, the GCM mode, from the UPM package, and after M11), and a
