@@ -135,6 +135,25 @@ Checked 2026-10-16, 6000.0 on 2026-10-18. Every local editor (2021.3,
 2021.3 to 6000.3 ship Roslyn 4.3.1 (C# 10 at most through `csc.rsp`), 6000.6
 ships Roslyn 4.10.0 (C# 12).
 
+- **Local and CI editors (owner's decision of 2026-10-31, Q89 option a):**
+  one editor per stream, each at its stream's newest public patch, with
+  nothing duplicated that the editors can share:
+  - 2021.3.45f2, 2022.3.62f3 and 6000.0.85f1: already their streams' last
+    free patches (6.0 LTS support ended 2026-10-16).
+  - 6000.6.7f1 (Android, iOS, WebGL), installed 2026-10-31; CI moved from
+    6000.6.6f1, and 6000.0.84f1 to 6000.0.85f1. 6000.6.4f1 and 6000.6.6f1
+    are removed locally.
+  - 6000.3.27f2 (Android, iOS): released 2026-10-30, so it is installed on
+    2026-11-06 under the seven-day rule. Then CI moves from 6000.3.26f1, the
+    device scripts' default (`Test/MobileSmoke/prepare.py`,
+    `Test/Examples/prepare.py`) moves from 6000.3.21f1, and both old 6.3
+    editors are removed. Most size and phone measurements so far used
+    6000.3.21f1, so the next measurement rebuilds its baseline too.
+  - When 6.7 LTS ships, it replaces 6000.6 (it is then both the newest LTS
+    and the newest release).
+  - The 6.x editors share one Android SDK, NDK r27c and OpenJDK 17
+    (`/Volumes/T7Data/Unity/Shared/Android-6000`); 2021.3 and 2022.3 bundle
+    other NDK and JDK versions.
 - Unity 6.7 LTS (not released yet; Mono, C# 9 by default): add it to
   `unity-matrix.yml` and the local editor runs when it ships, and note the
   Roslyn version it bundles. Try its experimental CoreCLR player and the
