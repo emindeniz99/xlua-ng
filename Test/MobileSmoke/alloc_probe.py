@@ -183,7 +183,7 @@ def main():
     e = sub.add_parser("editor")
     e.add_argument("--plugin", required=True, type=Path, help="macOS arm64 libxlua.dylib (Lua 5.5)")
     e.add_argument("--unity", required=True, type=Path)
-    e.add_argument("--unity-version", default="6000.3.21f1")
+    e.add_argument("--unity-version", default="6000.3.27f2")
     e.add_argument("--ref", help="take Assets/XLua/Src from this commit instead of the checkout")
     s = sub.add_parser("sim")
     s.add_argument("--app", required=True, type=Path, help="Simulator .app (size_report.py ios ...+alloc+sim)")

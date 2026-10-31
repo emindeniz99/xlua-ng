@@ -1,7 +1,7 @@
 """A player build whose defines differ from the Editor's compiled ones fails (BuildDefinesCheck.cs).
 
     python3 Test/UnityMatrix/defines_guard.py --unity /path/Unity.app/Contents/MacOS/Unity \\
-        --unity-version 6000.3.21f1 --plugin BUILD/libxlua.dylib --project P --out O
+        --unity-version 6000.3.27f2 --plugin BUILD/libxlua.dylib --project P --out O
 
 Prepares a project with prepare.py --platform macos --editor-tools --source-gen
 (the asmdef layout; the generator is built into <out>/source-generator), adds

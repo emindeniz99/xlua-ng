@@ -605,7 +605,7 @@ def main():
         s.add_argument("--android-plugins", type=Path, required=True,
                        help="the Plugins/Android folder of build/make_android_lua55.sh (plugin_lua55/Plugins/Android): "
                             "libs/<abi>/libxlua.so and, for strict, xlua-variants/minimal/libs/<abi>/libxlua.so")
-        s.add_argument("--unity-version", default="6000.3.21f1")
+        s.add_argument("--unity-version", default="6000.3.27f2")
         s.add_argument("--source-gen", type=Path, default=None,
                        help="where Tools/build_source_generator.py builds the generator (default: <out>/source-generator)")
 

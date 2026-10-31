@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", required=True, type=Path)
 parser.add_argument("--macos-plugin", required=True, type=Path)
 parser.add_argument("--android-plugin", required=True, type=Path)
-parser.add_argument("--unity-version", default="6000.3.21f1")
+parser.add_argument("--unity-version", default="6000.3.27f2")
 parser.add_argument("--source-gen", required=True, type=Path, metavar="BUILD_DIR",
                     help="where Tools/build_source_generator.py builds the source generator")
 args = parser.parse_args()

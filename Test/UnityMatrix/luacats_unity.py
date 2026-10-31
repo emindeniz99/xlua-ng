@@ -1,7 +1,7 @@
 """LuaCATS from a real Unity editor against Test/LuaCATS/expected (source generator milestone M10).
 
     python3 Test/UnityMatrix/luacats_unity.py --unity /path/Unity.app/Contents/MacOS/Unity \\
-        --unity-version 6000.3.21f1 --plugin BUILD/arm64/libxlua.dylib --output DIR [--no-ref-readonly]
+        --unity-version 6000.3.27f2 --plugin BUILD/arm64/libxlua.dylib --output DIR [--no-ref-readonly]
 
 Prepares an empty project in the asmdef layout (Assets/XLua/Core and Assets/XLua/Src with their Editor
 folders and asmdefs, the macOS ARM64 Editor plugin with the repository's .meta), builds the xLua source
