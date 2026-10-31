@@ -296,7 +296,8 @@ def parse_unity_matrix():
 
 
 # Per Android image: when its digest was compared with the Docker Hub tag, the job and the player it builds.
-ANDROID_IMAGES = {"6000.3.26f1": ("2026-10-28", "il2cpp-suite-build", "IL2CPP suite player builds")}
+ANDROID_IMAGES = {"6000.3.27f2": ("2026-10-31", "il2cpp-suite-build", "IL2CPP suite player builds"),
+                  "6000.6.7f1": ("2026-10-31", "hotfix-il2cpp", "hotfix IL2CPP player build")}
 ANDROID_IMAGE_DEFAULT = ("2026-10-18", "hotfix-il2cpp", "hotfix IL2CPP player build")
 
 

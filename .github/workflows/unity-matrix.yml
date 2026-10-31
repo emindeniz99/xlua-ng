@@ -93,7 +93,7 @@ jobs:
       max-parallel: ${{ fromJSON(vars.UNITY_MAX_PARALLEL || '2') }}
       # Free (Personal licence) releases only: 2021.3 and 2022.3 patches after
       # these are paid Extended LTS. Digests are the ubuntu-<version>-base-3.2.2
-      # tags, resolved 2026-10-15 (6000.0.85f1 and 6000.6.7f1: 2026-10-31).
+      # tags, resolved 2026-10-15 (6000.0.85f1, 6000.3.27f2 and 6000.6.7f1: 2026-10-31).
       # Every leg prepares the project with --fast-enter-play-mode (the play
       # mode tests) and --roslyn-sdk (XluaRefReadonlyLib.dll), and with
       # --source-gen (the generator built from General/SourceGenerator with the
@@ -132,9 +132,9 @@ jobs:
           - name: "Unity 6.3 LTS"
             variant: default
             mode: sourcegen
-            unity-version: 6000.3.26f1
+            unity-version: 6000.3.27f2
             test-framework: 1.4.6
-            editor-image: unityci/editor@sha256:cb752900380168fe2eab0a1aef7178f4dd00a0bf2febac59fab0bdff202a38ad
+            editor-image: unityci/editor@sha256:97350894ffcbeaea94034c95bef9111bcbe2179a668d867b405fed4222eb01eb
             prepare-args: ""
           - name: "Unity 6.6 latest"
             variant: default
@@ -495,13 +495,13 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: ${{ fromJSON(vars.UNITY_MAX_PARALLEL || '2') }}
-      # ubuntu-6000.3.26f1-android-3.2.2, resolved 2026-10-28.
+      # ubuntu-6000.3.27f2-android-3.2.2, resolved 2026-10-31.
       matrix:
         config: [plain, gcm, strict]
-        unity-version: [6000.3.26f1]
+        unity-version: [6000.3.27f2]
         include:
-          - unity-version: 6000.3.26f1
-            editor-image: unityci/editor@sha256:fd2641a484634dc6ef8aea4aa18e69cf1deeb233f6f7a56da4c24164b55d3fcd
+          - unity-version: 6000.3.27f2
+            editor-image: unityci/editor@sha256:d22a40ed8c497736059fe65d9859886d25cd8e188f2005f2da28c03144538148
     defaults:
       run:
         shell: bash
@@ -626,7 +626,7 @@ jobs:
       fail-fast: false
       matrix:
         config: [plain, gcm, strict]
-        unity-version: [6000.3.26f1]
+        unity-version: [6000.3.27f2]
     defaults:
       run:
         shell: bash
@@ -696,12 +696,12 @@ jobs:
         include:
           - variant: no-assembly-csharp
             args: "--no-assembly-csharp"
-            unity-version: 6000.3.26f1
-            editor-image: unityci/editor@sha256:cb752900380168fe2eab0a1aef7178f4dd00a0bf2febac59fab0bdff202a38ad
+            unity-version: 6000.3.27f2
+            editor-image: unityci/editor@sha256:97350894ffcbeaea94034c95bef9111bcbe2179a668d867b405fed4222eb01eb
           - variant: package
             args: "--package"
-            unity-version: 6000.3.26f1
-            editor-image: unityci/editor@sha256:cb752900380168fe2eab0a1aef7178f4dd00a0bf2febac59fab0bdff202a38ad
+            unity-version: 6000.3.27f2
+            editor-image: unityci/editor@sha256:97350894ffcbeaea94034c95bef9111bcbe2179a668d867b405fed4222eb01eb
     defaults:
       run:
         shell: bash

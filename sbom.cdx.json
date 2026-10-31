@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:5c1387cf-8617-51b1-acf8-d3d7f7030c00",
+  "serialNumber": "urn:uuid:3a3f8b60-7744-55d6-bc0b-c034bf13b5ab",
   "version": 1,
   "metadata": {
     "timestamp": "2026-10-15T00:00:00Z",
@@ -1597,9 +1597,9 @@
     },
     {
       "type": "application",
-      "bom-ref": "managed/Unity_Editor@6000.3.26f1",
+      "bom-ref": "managed/Unity_Editor@6000.3.27f2",
       "name": "Unity Editor",
-      "version": "6000.3.26f1",
+      "version": "6000.3.27f2",
       "licenses": [
         {
           "license": {
@@ -1628,7 +1628,7 @@
         },
         {
           "name": "xlua-ng:status",
-          "value": "behind"
+          "value": "current"
         }
       ]
     },
@@ -1671,9 +1671,9 @@
     },
     {
       "type": "application",
-      "bom-ref": "managed/Unity_Editor_(local_mobile_smoke_tests)@6000.3.21f1",
+      "bom-ref": "managed/Unity_Editor_(local_mobile_smoke_tests)@6000.3.27f2",
       "name": "Unity Editor (local mobile smoke tests)",
-      "version": "6000.3.21f1",
+      "version": "6000.3.27f2",
       "licenses": [
         {
           "license": {
@@ -1702,7 +1702,7 @@
         },
         {
           "name": "xlua-ng:status",
-          "value": "behind"
+          "value": "current"
         }
       ]
     },
@@ -3743,10 +3743,10 @@
     },
     {
       "type": "container",
-      "bom-ref": "ci/unityci/editor_(GameCI_image)@ubuntu-6000.3.26f1-base-3.2.2",
+      "bom-ref": "ci/unityci/editor_(GameCI_image)@ubuntu-6000.3.27f2-base-3.2.2",
       "name": "unityci/editor (GameCI image)",
-      "version": "ubuntu-6000.3.26f1-base-3.2.2",
-      "purl": "pkg:docker/unityci/editor@sha256%3Acb752900380168fe2eab0a1aef7178f4dd00a0bf2febac59fab0bdff202a38ad",
+      "version": "ubuntu-6000.3.27f2-base-3.2.2",
+      "purl": "pkg:docker/unityci/editor@sha256%3A97350894ffcbeaea94034c95bef9111bcbe2179a668d867b405fed4222eb01eb",
       "licenses": [
         {
           "license": {
@@ -3763,7 +3763,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "cb752900380168fe2eab0a1aef7178f4dd00a0bf2febac59fab0bdff202a38ad"
+          "content": "97350894ffcbeaea94034c95bef9111bcbe2179a668d867b405fed4222eb01eb"
         }
       ],
       "properties": [
@@ -3919,10 +3919,10 @@
     },
     {
       "type": "container",
-      "bom-ref": "ci/unityci/editor_(GameCI_image)@ubuntu-6000.3.26f1-android-3.2.2",
+      "bom-ref": "ci/unityci/editor_(GameCI_image)@ubuntu-6000.3.27f2-android-3.2.2",
       "name": "unityci/editor (GameCI image)",
-      "version": "ubuntu-6000.3.26f1-android-3.2.2",
-      "purl": "pkg:docker/unityci/editor@sha256%3Afd2641a484634dc6ef8aea4aa18e69cf1deeb233f6f7a56da4c24164b55d3fcd",
+      "version": "ubuntu-6000.3.27f2-android-3.2.2",
+      "purl": "pkg:docker/unityci/editor@sha256%3Ad22a40ed8c497736059fe65d9859886d25cd8e188f2005f2da28c03144538148",
       "licenses": [
         {
           "license": {
@@ -3939,7 +3939,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "fd2641a484634dc6ef8aea4aa18e69cf1deeb233f6f7a56da4c24164b55d3fcd"
+          "content": "d22a40ed8c497736059fe65d9859886d25cd8e188f2005f2da28c03144538148"
         }
       ],
       "properties": [

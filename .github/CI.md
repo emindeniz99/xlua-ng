@@ -33,7 +33,7 @@ After the workflow is pushed to your fork's default branch:
    their symbols (`xlua-lua-<version>-android-symbols`).
 
 The Unity workflow has ten editor legs: 2021.3.45f2, 2022.3.62f3,
-6000.0.85f1 (Unity 6.0 LTS), 6000.3.26f1 (Unity 6.3 LTS), and 6000.6.7f1
+6000.0.85f1 (Unity 6.0 LTS), 6000.3.27f2 (Unity 6.3 LTS), and 6000.6.7f1
 (Unity 6.6), two hotfix legs (`prepare.py --hotfix`, so the project
 compiles with `HOTFIX_ENABLE`) on 2021.3.45f2 and 6000.6.7f1, a 2021.3.45f2
 leg without xLua's asmdefs (`prepare.py --no-asmdef`, the layout of XLua >
@@ -98,7 +98,7 @@ Two more jobs, added 2026-10-28 (owner decisions), follow the same pattern
 (the script with `--prepare-only --platform linux`, unity-builder for the
 editor launches, the script with `--verify-only`) and are skipped without
 the secrets too. **hotfix Linux player** runs
-`Test/UnityMatrix/hotfix_player.py` on 6000.3.26f1 in two legs,
+`Test/UnityMatrix/hotfix_player.py` on 6000.3.27f2 in two legs,
 `--no-assembly-csharp` (xLua in its asmdefs, every runtime script in an
 asmdef `Main`, so the player has no `Assembly-CSharp.dll`) and `--package`
 (xLua as the UPM package): Hotfix Inject In Editor and the Linux x86_64 Mono
@@ -117,7 +117,7 @@ Two jobs added 2026-10-28 run the general Lua suite in an IL2CPP player
 x86_64, plain and the minimal variant), runs `il2cpp_suite.py prepare` and
 `configure --arch x86_64` for each configuration (`plain`, `gcm`, `strict`),
 then two unity-builder steps with GameCI's digest-pinned
-`ubuntu-6000.3.26f1-android-3.2.2` image (`XluaSuiteBuild.ApplyDefines`,
+`ubuntu-6000.3.27f2-android-3.2.2` image (`XluaSuiteBuild.ApplyDefines`,
 then `XluaSuiteBuild.BuildAndroid -xluaSuiteApk`), and uploads the APK
 (job timeout 60 minutes; skipped without the secrets). **IL2CPP suite run**
 downloads it and runs `il2cpp_suite.py run --serial emulator-5554` inside
