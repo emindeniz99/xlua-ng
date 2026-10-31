@@ -93,7 +93,7 @@ jobs:
       max-parallel: ${{ fromJSON(vars.UNITY_MAX_PARALLEL || '2') }}
       # Free (Personal licence) releases only: 2021.3 and 2022.3 patches after
       # these are paid Extended LTS. Digests are the ubuntu-<version>-base-3.2.2
-      # tags, resolved 2026-10-15.
+      # tags, resolved 2026-10-15 (6000.0.85f1 and 6000.6.7f1: 2026-10-31).
       # Every leg prepares the project with --fast-enter-play-mode (the play
       # mode tests) and --roslyn-sdk (XluaRefReadonlyLib.dll), and with
       # --source-gen (the generator built from General/SourceGenerator with the
@@ -125,9 +125,9 @@ jobs:
           - name: "Unity 6.0 LTS"
             variant: default
             mode: sourcegen
-            unity-version: 6000.0.84f1
+            unity-version: 6000.0.85f1
             test-framework: 1.4.6
-            editor-image: unityci/editor@sha256:fc9cf7a866dfba31f03d52f646f254181e12f6a12d0d55c44479a07753a49b83
+            editor-image: unityci/editor@sha256:693964db6866f68611f862054046de7409c9f52e146339613d85524a48ff1886
             prepare-args: ""
           - name: "Unity 6.3 LTS"
             variant: default
@@ -139,9 +139,9 @@ jobs:
           - name: "Unity 6.6 latest"
             variant: default
             mode: sourcegen
-            unity-version: 6000.6.6f1
+            unity-version: 6000.6.7f1
             test-framework: 1.4.6
-            editor-image: unityci/editor@sha256:cad44cfb7dd2e7b432214f5aa6bfb99c3f63b54d24d9c788998df13452b1bb83
+            editor-image: unityci/editor@sha256:6da56cace1a56d0961c987497a833fdc64c945cab263564a27fe700d26561e10
             prepare-args: "--csharp12"
           - name: "2021.3 LTS, hotfix"
             variant: hotfix
@@ -160,9 +160,9 @@ jobs:
           - name: "Unity 6.6 latest, hotfix"
             variant: hotfix
             mode: sourcegen
-            unity-version: 6000.6.6f1
+            unity-version: 6000.6.7f1
             test-framework: 1.4.6
-            editor-image: unityci/editor@sha256:cad44cfb7dd2e7b432214f5aa6bfb99c3f63b54d24d9c788998df13452b1bb83
+            editor-image: unityci/editor@sha256:6da56cace1a56d0961c987497a833fdc64c945cab263564a27fe700d26561e10
             prepare-args: "--hotfix --csharp12"
           - name: "2021.3 LTS, GEN_CODE_MINIMIZE"
             variant: gcm
@@ -355,13 +355,13 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: ${{ fromJSON(vars.UNITY_MAX_PARALLEL || '2') }}
-      # ubuntu-<version>-android-3.2.2 tags, resolved 2026-10-18.
+      # ubuntu-<version>-android-3.2.2 tags, resolved 2026-10-18 (2021.3.45f2) and 2026-10-31 (6000.6.7f1).
       matrix:
         include:
           - unity-version: 2021.3.45f2
             editor-image: unityci/editor@sha256:5e5c6bbd34cc65ce8cd25935bf4aa1b30aabb28e1b5aabd6faf53737b473e482
-          - unity-version: 6000.6.6f1
-            editor-image: unityci/editor@sha256:bbe45b1d162f8c615ad35b4b65c131b42f6e2588dd30f29d830af68d458bbc76
+          - unity-version: 6000.6.7f1
+            editor-image: unityci/editor@sha256:f69fc708d7d6c0aa03521b6facb22c56744d43da2537d213e3a2e9f5bfb61e50
     defaults:
       run:
         shell: bash
@@ -860,9 +860,9 @@ jobs:
           - unity-version: 2021.3.45f2
             args: "--no-ref-readonly"
             editor-image: unityci/editor@sha256:d2bf0b5f48594c0f8d5a743de4428793b1cde51375890087e6b48e45bca22cc1
-          - unity-version: 6000.6.6f1
+          - unity-version: 6000.6.7f1
             args: ""
-            editor-image: unityci/editor@sha256:cad44cfb7dd2e7b432214f5aa6bfb99c3f63b54d24d9c788998df13452b1bb83
+            editor-image: unityci/editor@sha256:6da56cace1a56d0961c987497a833fdc64c945cab263564a27fe700d26561e10
     defaults:
       run:
         shell: bash

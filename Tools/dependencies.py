@@ -245,9 +245,9 @@ NUGET_SHA512 = {
 UNITY_SERIES = {
     "2021.3": ("2021.3.45f2", "EOL", "Standard support ended 2025-02-18. This is the last patch free Personal licences can activate."),
     "2022.3": ("2022.3.62f3", "EOL", "Standard support ended 2025-05-07. This is the last patch free Personal licences can activate."),
-    "6000.0": ("6000.0.85f1", None, "Unity 6.0 LTS support ends 2026-10-16."),
-    "6000.3": ("6000.3.26f1", None, "Unity 6.3 LTS, supported to 2027-12-04."),
-    "6000.6": ("6000.6.6f1", None, "Newest Unity 6 release stream, not LTS."),
+    "6000.0": ("6000.0.85f1", None, "Unity 6.0 LTS support ended 2026-10-16; 6000.0.85f1 is its last public patch."),
+    "6000.3": ("6000.3.27f2", None, "Unity 6.3 LTS, supported to 2027-12-04."),
+    "6000.6": ("6000.6.7f1", None, "Newest Unity 6 release stream, not LTS."),
 }
 UNITY_LATEST_TEST_FRAMEWORK = "1.4.6"  # packages.unity.com dist-tags.latest
 GAMECI_DOCKER_LATEST = "3.2.2"  # github.com/game-ci/docker releases

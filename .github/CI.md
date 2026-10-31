@@ -33,9 +33,9 @@ After the workflow is pushed to your fork's default branch:
    their symbols (`xlua-lua-<version>-android-symbols`).
 
 The Unity workflow has ten editor legs: 2021.3.45f2, 2022.3.62f3,
-6000.0.84f1 (Unity 6.0 LTS), 6000.3.26f1 (Unity 6.3 LTS), and 6000.6.6f1
+6000.0.85f1 (Unity 6.0 LTS), 6000.3.26f1 (Unity 6.3 LTS), and 6000.6.7f1
 (Unity 6.6), two hotfix legs (`prepare.py --hotfix`, so the project
-compiles with `HOTFIX_ENABLE`) on 2021.3.45f2 and 6000.6.6f1, a 2021.3.45f2
+compiles with `HOTFIX_ENABLE`) on 2021.3.45f2 and 6000.6.7f1, a 2021.3.45f2
 leg without xLua's asmdefs (`prepare.py --no-asmdef`, the layout of XLua >
 Project Layout > Use Assembly-CSharp), and, since source generator milestone
 M11 (2026-10-18), a 2021.3.45f2 leg with `GEN_CODE_MINIMIZE` and one without
@@ -77,7 +77,7 @@ passes with a notice; a manual `workflow_dispatch` fails there instead. Pull
 request runs cancel older runs of the same ref.
 
 A second job, **hotfix Android IL2CPP build** (since 2026-10-18),
-runs `Test/UnityMatrix/hotfix_il2cpp.py` on 2021.3.45f2 and 6000.6.6f1 with
+runs `Test/UnityMatrix/hotfix_il2cpp.py` on 2021.3.45f2 and 6000.6.7f1 with
 GameCI's digest-pinned Android images (`ubuntu-<version>-android-3.2.2`):
 the script prepares a project with `HOTFIX_ENABLE` and the method shapes of
 `Test/Native/HotfixRegions.cs` and the source generator, which writes the
@@ -107,7 +107,7 @@ unity-builder steps, and the check runs the player in batch mode inside the
 editor image, where it must patch and restore the fixture's `[Hotfix]` types
 (job timeout 60 minutes). **LuaCATS** runs
 `Test/UnityMatrix/luacats_unity.py` on 2021.3.45f2 (`--no-ref-readonly`) and
-6000.6.6f1: one unity-builder step runs `LuaCATSStep.Run`, and the check
+6000.6.7f1: one unity-builder step runs `LuaCATSStep.Run`, and the check
 compares `LuaTypes/` and `.luarc.json` with `Test/LuaCATS` (job timeout 45
 minutes). Neither has run on hosted runners yet.
 
