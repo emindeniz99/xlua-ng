@@ -32,8 +32,10 @@ do the same for the parts of os, package and the base library (library_parts). W
 checks that only need uint64.parse to make a 64-bit value get a Lua stand-in.
 """
 import ctypes as C
+import math
 import os
 from pathlib import Path
+import struct
 import sys
 
 lib = C.CDLL(str(Path(sys.argv[1]).resolve()))
@@ -1173,6 +1175,111 @@ def check_ref_table_access(state):
     for ref in refs.values():
         lib.luaL_unref(state, REGISTRY, ref)
     run(state, "log, plain, base, child, nometa, bad = nil")
+
+
+def check_ref_table_values(state):
+    """xlua_getref_getvalue and _getfieldvalue (LuaTable.Get of a number or a boolean; 2026-10-31):
+    the read of xlua_getref_get and _getfield, the value converted as xlua_tointeger64 (conv 1),
+    lua_tonumber (2) or lua_toboolean (3) convert it, or only its type (0), and popped. Every value, key
+    and path (raw, __index, a failing __index) gives what those calls give one after another, the stack
+    back at its top, and an error on the top as before; 64-bit integers keep all their bits."""
+    I = C.POINTER(C.c_int)
+    I64 = C.POINTER(C.c_int64)
+    for name, args in [("xlua_getref_get", [P, C.c_int, I]), ("xlua_getref_getfield", [P, C.c_int, C.c_char_p, C.c_int, I]),
+                       ("xlua_getref_getvalue", [P, C.c_int, C.c_int, I, I64, I]),
+                       ("xlua_getref_getfieldvalue", [P, C.c_int, C.c_char_p, C.c_int, C.c_int, I, I64, I])]:
+        getattr(lib, name).argtypes = args
+        getattr(lib, name).restype = C.c_int
+    lib.xlua_tointeger64.argtypes = [P, C.c_int, C.POINTER(C.c_int)]
+    lib.xlua_tointeger64.restype = C.c_int64
+    lib.lua_tonumber.argtypes = [P, C.c_int]
+    lib.lua_tonumber.restype = C.c_double
+    lib.luaL_unref.argtypes = [P, C.c_int, C.c_int]
+    jit = is_luajit(state)
+    values = ["0", "7", "-1", "3.0", "-0.0", "2.75", "0/0", "1/0", "-1/0", "2^53", "-2^63", "2^63", "1e300",
+              "'12'", "' 7 '", "'0x10'", "'2.75'", "'12abc'", "''", "true", "false", "{}", "print",
+              # i64lib values: integers on Lua 5.3+, int64/uint64 userdata (their bits) on LuaJIT.
+              "uint64.parse('18446744073709551615')", "uint64.parse('9223372036854775807')"]
+    if not jit:
+        values += ["math.maxinteger", "math.mininteger", "(1 << 53) + 1", "-(1 << 62) - 3"]
+    run(state, "vals = {" + ", ".join("%s" % v for v in values) + "}\n"
+               "named = {}\nfor i, v in ipairs(vals) do named['k' .. i] = v end\n"
+               "for i = 1, #vals do assert(vals[i] ~= nil) end\n"
+               "proxy = setmetatable({}, {__index = function(t, k) if k == 'bad' then error('no ' .. k) end"
+               " return named[k] end})")
+    refs = {}
+    for name in ["vals", "named", "proxy"]:
+        push_results(state, "return " + name, 1)
+        refs[name] = lib.luaL_ref(state, REGISTRY)
+    top = C.c_int(-1)
+    value = C.c_int64(-1)
+    valid = C.c_int(-1)
+    lib.lua_pushboolean(state, 1)  # something below, which every call leaves alone
+
+    def reference(table, key, conv):
+        """(type, value, valid, error) of the read and conversion as separate calls; the stack as before."""
+        if isinstance(key, bytes):
+            t = lib.xlua_getref_getfield(state, refs[table], key, len(key), C.byref(top))
+        else:
+            lib.xlua_pushinteger(state, key)
+            t = lib.xlua_getref_get(state, refs[table], C.byref(top))
+        assert top.value == 1 and lib.lua_gettop(state) == 2, (table, key)
+        v, ok, err = 0, 1, None
+        if t < 0:
+            err = lib.lua_tolstring(state, -1, None)
+        elif conv == 1:
+            ok_c = C.c_int(-1)
+            v = lib.xlua_tointeger64(state, -1, C.byref(ok_c))
+            ok = ok_c.value
+        elif conv == 2:
+            v = lib.lua_tonumber(state, -1)
+        elif conv == 3:
+            v = lib.lua_toboolean(state, -1)
+        lib.lua_settop(state, 1)
+        return t, v, ok, err
+
+    def one_call(table, key, conv):
+        if isinstance(key, bytes):
+            t = lib.xlua_getref_getfieldvalue(state, refs[table], key, len(key), conv, C.byref(top), C.byref(value),
+                                              C.byref(valid))
+        else:
+            lib.xlua_pushinteger(state, key)
+            t = lib.xlua_getref_getvalue(state, refs[table], conv, C.byref(top), C.byref(value), C.byref(valid))
+        assert top.value == 1 and lib.lua_gettop(state) == (2 if t < 0 else 1), (table, key, conv, t, lib.lua_gettop(state))
+        v = value.value
+        if conv == 2:
+            v = struct.unpack("<d", struct.pack("<q", v))[0]
+        err = lib.lua_tolstring(state, -1, None) if t < 0 else None
+        lib.lua_settop(state, 1)
+        return t, v, valid.value, err
+
+    def same(a, b):
+        return a == b or (isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b))
+
+    checked = 0
+    keys = [("vals", i + 1) for i in range(len(values))] + [("named", ("k%d" % (i + 1)).encode()) for i in range(len(values))]
+    keys += [("proxy", ("k%d" % (i + 1)).encode()) for i in range(len(values))]  # __index under lua_pcall
+    keys += [("vals", len(values) + 1), ("named", b"missing"), ("proxy", b"missing"), ("proxy", b"bad")]
+    for table, key in keys:
+        for conv in range(4):
+            want, got = reference(table, key, conv), one_call(table, key, conv)
+            assert all(same(x, y) for x, y in zip(want, got)), (table, key, conv, want, got)
+            checked += 1
+    # The bits of 64-bit integers and of uint64 values above 2^63, on every runtime.
+    t, v, ok, _ = one_call("named", b"k%d" % (values.index("uint64.parse('18446744073709551615')") + 1), 1)
+    assert (t in (3, 7), v, ok) == (True, -1, 1), (t, v, ok)
+    if not jit:
+        t, v, ok, _ = one_call("named", b"k%d" % (values.index("(1 << 53) + 1") + 1), 1)
+        assert (v, ok) == (2**53 + 1, 1), (v, ok)
+        t, v, ok, _ = one_call("named", b"k%d" % (values.index("math.mininteger") + 1), 1)
+        assert (v, ok) == (-2**63, 1), (v, ok)
+    t, v, ok, err = one_call("proxy", b"bad", 2)
+    assert t == -1 and b"no bad" in err, (t, err)
+    lib.lua_settop(state, 0)
+    for ref in refs.values():
+        lib.luaL_unref(state, REGISTRY, ref)
+    run(state, "vals, named, proxy = nil")
+    assert checked == len(keys) * 4
 
 
 def check_protected_helpers(state):
@@ -3718,7 +3825,7 @@ try:
     if not uint64_built():
         run(state, UINT64_STAND_IN)
     for name in sys.argv[2:] or ["uint64_table", "std_libraries", "library_parts", "parse", "struct_offsets", "struct_alignment", "global_state_key", "exported_helpers", "value_helpers",
-                                    "struct_accessors", "struct_clone", "struct_bounds", "indexers", "indexer_base_walk", "path_access", "ref_table_access", "protected_helpers", "error_handler", "weak_table_metatable", "traceback_levels", "shift_overflow", "gc_errors", "call_chain", "csharp_functions", "csharp_wrapper_error", "open_selected_libs", "hook_tail_calls",
+                                    "struct_accessors", "struct_clone", "struct_bounds", "indexers", "indexer_base_walk", "path_access", "ref_table_access", "ref_table_values", "protected_helpers", "error_handler", "weak_table_metatable", "traceback_levels", "shift_overflow", "gc_errors", "call_chain", "csharp_functions", "csharp_wrapper_error", "open_selected_libs", "hook_tail_calls",
                                     "setfenv", "uint_conversion", "integer_conversion", "argerror", "native_modules", "luajit_int64", "luajit_int64_helpers", "luajit_int64_header",
                                     "checked_accessors", "checked_cache", "registry_checks", "core_state", "core_host_oom",
                                     "memory_snapshot_tables", "memory_snapshot_userdata", "memory_snapshot_functions",

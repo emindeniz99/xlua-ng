@@ -29,12 +29,16 @@ namespace XLua
         {
         }
 
-        // Whether a value type T refuses nil (typeof(T).IsValueType()), tested
-        // once per type: a typeof costs a Type lookup under a lock in an IL2CPP
-        // player (ObjectTranslator.TypeOps).
-        static class NilRefused<T>
+        // What Get and GetInPath need to know of a value type T, found once
+        // per type, since a typeof costs a Type lookup under a lock in an
+        // IL2CPP player (ObjectTranslator.TypeOps): whether it refuses nil
+        // (typeof(T).IsValueType()), and how Get reads it in its native call
+        // (ScalarRead; null for most types). One class, so that IL2CPP
+        // compiles one type initializer per T.
+        static class ValueOf<T>
         {
-            internal static readonly bool Value = typeof(T).IsValueType();
+            internal static readonly bool NilRefused = typeof(T).IsValueType();
+            internal static readonly ScalarRead<T> Scalar = (ScalarRead<T>)ScalarReaders.For(typeof(T));
         }
 
         // Whether TKey is string, tested once per type: a string key goes to
@@ -43,6 +47,86 @@ namespace XLua
         static class StringKey<T>
         {
             internal static readonly bool Value = typeof(T) == typeof(string);
+        }
+
+        // How Get reads a value of type T in its native call
+        // (xlua_getref_getvalue), without ObjectTranslator.Get<T> and the two
+        // P/Invokes of its get function and lua_settop: the number and boolean
+        // types whose get functions are the bridge's own and cannot be
+        // replaced (RegisterPushAndGetAndUpdate refuses a type that has one).
+        // conv says how the native side reads the value (1 xlua_tointeger64,
+        // 2 lua_tonumber, 3 lua_toboolean), Read converts it as the get
+        // function does, with its exceptions. None for every other type.
+        abstract class ScalarRead<T>
+        {
+            internal readonly int conv;
+
+            protected ScalarRead(int conv)
+            {
+                this.conv = conv;
+            }
+
+            internal abstract T Read(long value, int valid);
+        }
+
+        static class ScalarReaders
+        {
+            internal static object For(Type type)
+            {
+                if (type == typeof(int)) return new Int32Read();
+                if (type == typeof(long)) return new Int64Read();
+                if (type == typeof(uint)) return new UInt32Read();
+                if (type == typeof(ulong)) return new UInt64Read();
+                if (type == typeof(double)) return new DoubleRead();
+                if (type == typeof(float)) return new SingleRead();
+                if (type == typeof(bool)) return new BooleanRead();
+                return null;
+            }
+
+            // The get functions of ObjectTranslator.tryGetGetFuncByType:
+            // xlua_getint32 and the other integer types by Lua 5.3's integer
+            // rule, double and float through lua_tonumber, bool lua_toboolean.
+            sealed class Int32Read : ScalarRead<int>
+            {
+                internal Int32Read() : base(1) { }
+                internal override int Read(long value, int valid) { return LuaAPI.int32Value(value, valid); }
+            }
+
+            sealed class Int64Read : ScalarRead<long>
+            {
+                internal Int64Read() : base(1) { }
+                internal override long Read(long value, int valid) { return LuaAPI.int64Value(value, valid); }
+            }
+
+            sealed class UInt32Read : ScalarRead<uint>
+            {
+                internal UInt32Read() : base(1) { }
+                internal override uint Read(long value, int valid) { return LuaAPI.uint32Value(value, valid); }
+            }
+
+            sealed class UInt64Read : ScalarRead<ulong>
+            {
+                internal UInt64Read() : base(1) { }
+                internal override ulong Read(long value, int valid) { return LuaAPI.uint64Value(value, valid); }
+            }
+
+            sealed class DoubleRead : ScalarRead<double>
+            {
+                internal DoubleRead() : base(2) { }
+                internal override double Read(long value, int valid) { return BitConverter.Int64BitsToDouble(value); }
+            }
+
+            sealed class SingleRead : ScalarRead<float>
+            {
+                internal SingleRead() : base(2) { }
+                internal override float Read(long value, int valid) { return (float)BitConverter.Int64BitsToDouble(value); }
+            }
+
+            sealed class BooleanRead : ScalarRead<bool>
+            {
+                internal BooleanRead() : base(3) { }
+                internal override bool Read(long value, int valid) { return value != 0; }
+            }
         }
 
         // Pushes t[key] as lua_gettable gives it (__index included), with
@@ -64,6 +148,26 @@ namespace XLua
             return LuaAPI.xlua_getref_get(L, luaReference, out oldTop);
         }
 
+        // Fetch with the value read as conv says and popped (ScalarRead,
+        // xlua_getref_getvalue): the stack is at oldTop again, but for an
+        // error (-1), which is on the top.
+        int FetchValue<TKey>(RealStatePtr L, ObjectTranslator translator, TKey key, int conv, out int oldTop,
+            out long value, out int valid)
+        {
+#if !NATIVE_LUA_PUSHSTRING
+            if (StringKey<TKey>.Value)
+            {
+                string name = (string)(object)key;
+                if (name != null)
+                {
+                    return LuaAPI.xlua_getref_getfieldvalue(L, luaReference, name, conv, out oldTop, out value, out valid);
+                }
+            }
+#endif
+            translator.PushByType(L, key);
+            return LuaAPI.xlua_getref_getvalue(L, luaReference, conv, out oldTop, out value, out valid);
+        }
+
         // no boxing version get
         public void Get<TKey, TValue>(TKey key, out TValue value)
         {
@@ -74,7 +178,30 @@ namespace XLua
                 var L = State;
                 var translator = luaEnv.translator;
                 int oldTop;
-                int type = Fetch(L, translator, key, out oldTop);
+                int type;
+
+                ScalarRead<TValue> scalar = ValueOf<TValue>.Scalar;
+                if (scalar != null)
+                {
+                    // A number or a boolean in one native call, popped there.
+                    long raw;
+                    int valid;
+                    type = FetchValue(L, translator, key, scalar.conv, out oldTop, out raw, out valid);
+                    if (type < 0)
+                    {
+                        string err = LuaAPI.lua_tostring(L, -1);
+                        LuaAPI.lua_settop(L, oldTop);
+                        throw new Exception("get field [" + key + "] error:" + err);
+                    }
+                    if ((LuaTypes)type == LuaTypes.LUA_TNIL && ValueOf<TValue>.NilRefused)
+                    {
+                        throw new InvalidCastException("can not assign nil to " + typeof(TValue).GetFriendlyName());
+                    }
+                    value = scalar.Read(raw, valid);
+                    return;
+                }
+
+                type = Fetch(L, translator, key, out oldTop);
 
                 if (type < 0)
                 {
@@ -84,7 +211,7 @@ namespace XLua
                 }
 
                 LuaTypes lua_type = (LuaTypes)type;
-                if (lua_type == LuaTypes.LUA_TNIL && NilRefused<TValue>.Value)
+                if (lua_type == LuaTypes.LUA_TNIL && ValueOf<TValue>.NilRefused)
                 {
                     LuaAPI.lua_settop(L, oldTop);
                     throw new InvalidCastException("can not assign nil to " + typeof(TValue).GetFriendlyName());
@@ -117,6 +244,10 @@ namespace XLua
                 var L = State;
                 var translator = luaEnv.translator;
                 int oldTop;
+                // Fetch and lua_settop: xlua_getref_getvalue with only the type
+                // (conv 0) measured 2 to 3 ns slower on the xlua16k emulator
+                // (2026-10-31), its out values and call costing more than the
+                // second P/Invoke.
                 int type = Fetch(L, translator, key, out oldTop);
 
                 if (type < 0)
@@ -190,7 +321,7 @@ namespace XLua
                     luaEnv.ThrowExceptionFromError(oldTop);
                 }
                 LuaTypes lua_type = LuaAPI.lua_type(L, -1);
-                if (lua_type == LuaTypes.LUA_TNIL && NilRefused<T>.Value)
+                if (lua_type == LuaTypes.LUA_TNIL && ValueOf<T>.NilRefused)
                 {
                     LuaAPI.lua_settop(L, oldTop);
                     throw new InvalidCastException("can not assign nil to " + typeof(T).GetFriendlyName());

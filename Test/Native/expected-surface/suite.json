@@ -462,6 +462,13 @@
      ]
     },
     {
+     "name": "LuaTableNumberReads",
+     "static": true,
+     "overloads": [
+      "Coverage.CSharpApi::LuaTableNumberReads()"
+     ]
+    },
+    {
      "name": "LuaTableRawPaths",
      "static": true,
      "overloads": [

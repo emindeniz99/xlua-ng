@@ -10,6 +10,11 @@ supports PAC only on arm64e (luajit-2.1/src/lj_arch.h), so its object carries a
 BTI-only note and the linker drops PAC from the library's note, although the C code
 still signs its return addresses.
 
+A library must not call its own exported functions through the PLT: a JUMP_SLOT relocation
+that names a function the library defines (xlua.c calling lua_gettop, say) means it was
+linked without -Wl,-Bsymbolic-functions, and each such call is an indirect branch through
+the GOT (build/CMakeLists.txt; docs/research/benchmark-vs-moonsharp-ng.md, 2026-10-31).
+
 --managed-exports fails a library that exports anything besides the managed imports
 (build/xlua_exports.txt), as a build with -DXLUA_EXPORTS=managed must; --extra names
 the XLUA_EXPORTS_EXTRA functions it may export as well.
@@ -70,6 +75,21 @@ def readelf(tool, *args):
     return subprocess.run([tool, "--wide", *args], check=True, capture_output=True, text=True).stdout
 
 
+def plt_calls_to_itself(tool, lib, defined):
+    """The functions the library defines and calls through its PLT (JUMP_SLOT relocations), and the
+    number of JUMP_SLOT relocations. The relocation's symbol name is the fifth column for REL and RELA."""
+    names = []
+    slots = 0
+    for line in readelf(tool, "-r", str(lib)).splitlines():
+        cols = line.split()
+        if len(cols) >= 5 and cols[2].endswith("_JUMP_SLOT"):
+            slots += 1
+            name = cols[4].split("@")[0]
+            if name in defined:
+                names.append(name)
+    return sorted(names), slots
+
+
 def check(tool, lib, required, expect_branch_protection=False, managed_exports=None, core=False):
     abi = lib.parent.name
     problems = []
@@ -128,6 +148,10 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
         extra = sorted(exported - managed_exports)
         if extra:
             problems.append(f"{len(extra)} exports besides the managed imports: {', '.join(extra[:10])}")
+    plt_self, plt_slots = plt_calls_to_itself(tool, lib, defined)
+    if plt_self:
+        problems.append(f"{len(plt_self)} of {plt_slots} PLT slots call the library's own functions "
+                        f"(link with -Wl,-Bsymbolic-functions): {', '.join(plt_self[:10])}")
 
     # A GNU property note marks the whole library BTI- and PAC-enabled only when every
     # object file linked into it was built with -mbranch-protection.
@@ -144,7 +168,7 @@ def check(tool, lib, required, expect_branch_protection=False, managed_exports=N
         summary += f", aarch64 feature {', '.join(sorted(features))}"
     if luajit:
         summary += ", LuaJIT"
-    summary += f", {len(exported)} exports, optional parts: {optional_summary}"
+    summary += f", {len(exported)} exports, {plt_slots} PLT slots, optional parts: {optional_summary}"
     return problems, summary
 
 

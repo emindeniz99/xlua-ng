@@ -2077,3 +2077,39 @@ in every xLua variant.
 Run-time results of the `+hfbench` players are in
 [hotfix.md](../docs/research/hotfix.md#measured-cost-2026-10-28). Not
 measured: iOS, WebGL, Medium and High stripping, and a game's own types.
+
+## The table access follow-ups (2026-10-31)
+
+Three changes of 2026-10-31
+([benchmark-vs-moonsharp-ng.md](../docs/research/benchmark-vs-moonsharp-ng.md#three-follow-ups-struct-arguments-the-plt-and-one-call-reads-2026-10-31)):
+the per-type cache of `GetStructArg<T>` (F1), `-Wl,-Bsymbolic-functions`
+for the Android and Linux libraries (F2, [FLAGS.md](FLAGS.md#calls-to-the-librarys-own-exports-2026-10-31)),
+and `LuaTable.Get` of a number or a boolean in one native call (F3). Lua
+5.5.1, arm64-v8a, NDK r30; the players are the player bench and the
+vs-bench of `size_report.py` (Unity 6000.3.21f1, release IL2CPP, Minimal
+stripping), main `102b059b` against the committed tree:
+
+| | main | after | Δ |
+| --- | ---: | ---: | ---: |
+| `libxlua.so` legacy, stripped | 389,592 | 382,904 | -6,688 |
+| deflated | 166,116 | 165,532 | -584 |
+| `libxlua.so` minimal, stripped | 313,648 | 312,416 | -1,232 |
+| deflated | 137,688 | 137,542 | -146 |
+| player bench `libil2cpp.so` | 11,513,192 | 11,541,472 | +28,280 |
+| player bench APK | 13,482,622 | 13,489,398 | +6,776 |
+| player bench GCM APK | 13,438,262 | 13,445,918 | +7,656 |
+| vs-bench `libil2cpp.so` | 11,137,728 | 11,157,664 | +19,936 |
+| vs-bench APK | 13,345,102 | 13,352,026 | +6,924 |
+
+- **F2** alone: `libxlua.so` -7,504 bytes stripped (-899 deflated), the
+  minimal variant -2,096 (-402): 144 (36) PLT entries, their GOT slots and
+  `JUMP_SLOT` relocations.
+- **F3**'s two native functions: +816 bytes stripped.
+- **`libil2cpp.so`**: F1 adds `GetStructArg<T>`'s new body per struct type
+  that reaches it (about 400 bytes each) and a type initializer per params
+  element type; F3 its seven readers, a type initializer per `LuaTable`
+  value type and the scalar branch of every `Get<TKey, TValue>`
+  instantiation (about 240 bytes each). The player bench instantiates many
+  of them (15 `LuaTable` cases); a project pays for the instantiations it
+  uses.
+

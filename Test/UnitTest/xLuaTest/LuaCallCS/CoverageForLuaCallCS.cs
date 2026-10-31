@@ -1042,6 +1042,93 @@ namespace Coverage
             });
         }
 
+        // LuaTable.Get of a number or a boolean converts and pops the value in
+        // its native call (xlua_getref_getvalue, 2026-10-31). For every such
+        // type and value, Get gives the value or
+        // the exception that GetInPath gives, which still reads through
+        // ObjectTranslator.Get<T>: raw, through __index, by string and by
+        // integer key. 64-bit integers keep all their bits, and the stack
+        // stays as it was.
+        public static void LuaTableNumberReads()
+        {
+            fresh(env =>
+            {
+                env.DoString(@"
+                    vals = { i = 7, neg = -1, big = 2^53, frac = 2.75, nan = 0/0, inf = 1/0, huge = 1e300, two63 = 2^63,
+                        s = '12', hex = '0x10', sfrac = '2.75', word = 'abc', yes = true, no = false, tab = {}, fn = print }
+                    proxy = setmetatable({}, { __index = vals })");
+                LuaTable vals = env.Global.Get<LuaTable>("vals"), proxy = env.Global.Get<LuaTable>("proxy");
+                vals.Set("max", long.MaxValue);
+                vals.Set("min", long.MinValue);
+                vals.Set("umax", ulong.MaxValue);
+                vals.Set("big1", (1L << 53) + 1);
+                vals.Set("f", 0.1f);
+                int before = top(env);
+                string[] keys = { "i", "neg", "big", "frac", "nan", "inf", "huge", "two63", "s", "hex", "sfrac", "word",
+                    "yes", "no", "tab", "fn", "max", "min", "umax", "big1", "f", "missing" };
+                int compared = 0;
+                Action<string, Func<object>, Func<object>> same = (what, get, reference) =>
+                {
+                    string got, want;
+                    try { got = "value " + Convert.ToString(get(), System.Globalization.CultureInfo.InvariantCulture); }
+                    catch (Exception e) { got = e.GetType().Name + ": " + e.Message; }
+                    try { want = "value " + Convert.ToString(reference(), System.Globalization.CultureInfo.InvariantCulture); }
+                    catch (Exception e) { want = e.GetType().Name + ": " + e.Message; }
+                    expectEqual(want, got, what);
+                    compared++;
+                };
+                foreach (LuaTable t in new[] { vals, proxy })
+                {
+                    foreach (string k in keys)
+                    {
+                        LuaTable tb = t;
+                        string key = k;
+                        same("int " + key, () => tb.Get<string, int>(key), () => tb.GetInPath<int>(key));
+                        same("long " + key, () => tb.Get<string, long>(key), () => tb.GetInPath<long>(key));
+                        same("uint " + key, () => tb.Get<string, uint>(key), () => tb.GetInPath<uint>(key));
+                        same("ulong " + key, () => tb.Get<string, ulong>(key), () => tb.GetInPath<ulong>(key));
+                        same("double " + key, () => tb.Get<string, double>(key), () => tb.GetInPath<double>(key));
+                        same("float " + key, () => tb.Get<string, float>(key), () => tb.GetInPath<float>(key));
+                        same("bool " + key, () => tb.Get<string, bool>(key), () => tb.GetInPath<bool>(key));
+                        same("ContainsKey " + key, () => tb.ContainsKey(key), () => tb.GetInPath<object>(key) != null);
+                    }
+                }
+                expectEqual(2 * keys.Length * 8, compared, "comparisons");
+                expectEqual(long.MaxValue, vals.Get<string, long>("max"), "long.MaxValue");
+                expectEqual(long.MinValue, vals.Get<string, long>("min"), "long.MinValue");
+                expectEqual(ulong.MaxValue, vals.Get<string, ulong>("umax"), "ulong.MaxValue");
+                expectEqual((1L << 53) + 1, proxy.Get<string, long>("big1"), "2^53 + 1 through __index");
+                expectEqual(0.1f, vals.Get<string, float>("f"), "a float");
+                expectEqual(true, double.IsNaN(vals.Get<string, double>("nan")), "NaN");
+                expectEqual("InvalidCastException: number has no integer representation",
+                    throws(() => vals.Get<string, int>("frac")), "a fraction for an int");
+                expectEqual("InvalidCastException: can not assign nil to int",
+                    throws(() => vals.Get<string, int>("missing")), "nil for an int");
+
+                // Integer keys: the same values in a sequence, against their string-keyed copies.
+                env.DoString(@"
+                    arr = { 7, 2.75, '12', 'abc', true, false, {}, 2^53, -1 }
+                    named = {}
+                    for i = 1, #arr do named[tostring(i)] = arr[i] end");
+                LuaTable arr = env.Global.Get<LuaTable>("arr"), named = env.Global.Get<LuaTable>("named");
+                arr.Set(10, long.MinValue);
+                named.Set("10", long.MinValue);
+                for (int i = 1; i <= 11; i++)
+                {
+                    int n = i;
+                    string key = i.ToString();
+                    same("int [" + n + "]", () => arr.Get<int, int>(n), () => named.GetInPath<int>(key));
+                    same("long [" + n + "]", () => arr.Get<int, long>(n), () => named.GetInPath<long>(key));
+                    same("ulong [" + n + "]", () => arr.Get<int, ulong>(n), () => named.GetInPath<ulong>(key));
+                    same("double [" + n + "]", () => arr.Get<int, double>(n), () => named.GetInPath<double>(key));
+                    same("bool [" + n + "]", () => arr.Get<int, bool>(n), () => named.GetInPath<bool>(key));
+                    same("ContainsKey [" + n + "]", () => arr.ContainsKey(n), () => named.GetInPath<object>(key) != null);
+                }
+                expectEqual(long.MinValue, arr.Get<int, long>(10), "long.MinValue by an int key");
+                expectEqual(before, top(env), "stack after the reads");
+            });
+        }
+
         // Get<T>, PushByType<T> and Assignable<T> keep what they found for a
         // type per translator (ObjectTranslator.TypeOps); a caster, checker
         // or get and push function registered later replaces it.

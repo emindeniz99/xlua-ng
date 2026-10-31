@@ -1350,24 +1350,53 @@ namespace XLua
         // value to its caster, so the argument rules are checked first: nil and
         // nothing raise, and an enum takes only a number, a value name or a
         // userdata, as the generated readers check an argument (Q34).
+        //
+        // The get function comes from the type's cached operations (TypeOps),
+        // and a C# object that holds a T is recognised by the object's own
+        // type test: T is a struct or an enum, which has no subclasses, so
+        // `obj is T` is what GetStructArg's IsInstanceOfType decides, without
+        // the Type objects that IL2CPP looks up under a lock (two typeof, a
+        // Dictionary<Type, ...> lookup and Nullable.GetUnderlyingType per
+        // argument before 2026-10-31). Anything else takes GetStructArg's
+        // path, with its errors.
         internal void GetStructArg<T>(RealStatePtr L, int index, out T v)
         {
-            Func<RealStatePtr, int, T> get_func;
-            if (tryGetGetFuncByType(typeof(T), out get_func))
+            TypeOps<T> ops = Ops<T>();
+            if (ops.hasGet)
             {
                 LuaTypes lua_type = LuaAPI.lua_type(L, index);
                 if (lua_type == LuaTypes.LUA_TNIL || lua_type == LuaTypes.LUA_TNONE
                     || (EnumType<T>.Value && lua_type != LuaTypes.LUA_TNUMBER && lua_type != LuaTypes.LUA_TSTRING
                         && lua_type != LuaTypes.LUA_TUSERDATA))
                 {
-                    throw ObjectCasters.StructExpected(L, index, typeof(T));
+                    throw ObjectCasters.StructExpected(L, index, TypeOf<T>.Value);
                 }
-                v = get_func(L, index);
+                v = ops.get(L, index);
+                return;
+            }
+            object obj;
+            int udata = LuaAPI.xlua_tocsobj_safe(L, index);
+            if (udata != -1)
+            {
+                obj = objects.Get(udata);
+                RawObject rawObject = obj as RawObject;
+                obj = rawObject == null ? obj : rawObject.Target;
+                if (obj is T)
+                {
+                    v = (T)obj;
+                    return;
+                }
+                obj = GetStructArg(L, index, TypeOf<T>.Value); // null or another class: StructExpected
             }
             else
             {
-                v = (T)GetStructArg(L, index, typeof(T));
+                obj = NonCSObject(L, index, TypeOf<T>.Value, true);
+                if (obj == null)
+                {
+                    throw ObjectCasters.StructExpected(L, index, TypeOf<T>.Value);
+                }
             }
+            v = (T)obj;
         }
 
         // A strict struct S or a Nullable<S> (ObjectCasters.IsStrictResult)
@@ -1554,15 +1583,7 @@ namespace XLua
         public T[] GetParams<T>(RealStatePtr L, int index)
         {
             T[] ret = new T[Math.Max(LuaAPI.lua_gettop(L) - index + 1, 0)];
-            Func<RealStatePtr, int, T> arg_func = null;
-            if (ret.Length > 0)
-            {
-                Delegate d;
-                if (integerArgFuncs.TryGetValue(typeof(T), out d))
-                {
-                    arg_func = (Func<RealStatePtr, int, T>)d;
-                }
-            }
+            Func<RealStatePtr, int, T> arg_func = IntegerArgFunc<T>.Value;
             for(int i = 0; i < ret.Length; i++)
             {
                 if (arg_func != null)
@@ -1575,7 +1596,7 @@ namespace XLua
                 }
                 else if (ParamsElement<T>.NullableStruct)
                 {
-                    object obj = GetNullableStructArg(L, index + i, typeof(T));
+                    object obj = GetNullableStructArg(L, index + i, TypeOf<T>.Value);
                     ret[i] = obj == null ? default(T) : (T)obj;
                 }
                 else
@@ -1584,6 +1605,22 @@ namespace XLua
                 }
             }
             return ret;
+        }
+
+        // integerArgFuncs' reader of T (null for a type that is not an
+        // integer), found once per type: the table never changes, and a
+        // typeof and a Dictionary<Type, ...> lookup per call cost what they
+        // cost Get<T> before its cache (TypeOps).
+        static class IntegerArgFunc<T>
+        {
+            internal static readonly Func<RealStatePtr, int, T> Value = (Func<RealStatePtr, int, T>)IntegerArgFuncOf(typeof(T));
+        }
+
+        // Not generic, so that IL2CPP compiles it once, not per params type.
+        static Delegate IntegerArgFuncOf(Type type)
+        {
+            Delegate d;
+            return integerArgFuncs.TryGetValue(type, out d) ? d : null;
         }
 
         static readonly Dictionary<Type, Delegate> integerArgFuncs = new Dictionary<Type, Delegate>()
@@ -1626,7 +1663,7 @@ namespace XLua
             
             if (LuaAPI.lua_isfunction(L, index))
             {
-                return CreateDelegateBridge(L, typeof(T), index) as T;
+                return CreateDelegateBridge(L, TypeOf<T>.Value, index) as T;
             }
             else if (LuaAPI.lua_type(L, index) == LuaTypes.LUA_TUSERDATA)
             {

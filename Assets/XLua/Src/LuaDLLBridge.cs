@@ -427,6 +427,39 @@ namespace XLua.LuaDLL
             return (ulong)value;
         }
 
+        // xlua_getint32, xlua_getuint32, xlua_getinteger and xlua_getuint64 for
+        // a value that xlua_getref_getvalue read with xlua_tointeger64 (value
+        // and valid): the same results and exceptions.
+        internal static int int32Value(long value, int valid)
+        {
+            if (valid == 0) throw integerError(IntPtr.Zero, 0, "number has no integer representation", false);
+#if XLUA_STRICT_INT_RANGE
+            if (value < int.MinValue || value > int.MaxValue) throw integerError(IntPtr.Zero, 0, "value out of range", false);
+#endif
+            return (int)value;
+        }
+
+        internal static uint uint32Value(long value, int valid)
+        {
+            if (valid == 0) throw integerError(IntPtr.Zero, 0, "number has no integer representation", false);
+#if XLUA_STRICT_INT_RANGE
+            if (value < uint.MinValue || value > uint.MaxValue) throw integerError(IntPtr.Zero, 0, "value out of range", false);
+#endif
+            return (uint)value;
+        }
+
+        internal static long int64Value(long value, int valid)
+        {
+            if (valid == 0) throw integerError(IntPtr.Zero, 0, "number has no integer representation", false);
+            return value;
+        }
+
+        internal static ulong uint64Value(long value, int valid)
+        {
+            if (valid == 0) throw integerError(IntPtr.Zero, 0, "number has no integer representation", false);
+            return (ulong)value;
+        }
+
         [DllImport(LUADLL,CallingConvention=CallingConvention.Cdecl)]
 		public static extern bool lua_toboolean(IntPtr L, int index);
 
@@ -607,6 +640,21 @@ namespace XLua.LuaDLL
             return xlua_getref_getfield_utf8(L, reference, bytes, len, out top);
         }
 
+        [DllImport(LUADLL, EntryPoint = "xlua_getref_getfieldvalue", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int xlua_getref_getfieldvalue_utf8(IntPtr L, int reference, byte[] key, int len, int conv,
+            out int top, out long value, out int valid);
+
+        // xlua_getref_getvalue with a string key that is not null, which it
+        // pushes as lua_pushstring would (LuaTable.Get of a number or a
+        // boolean).
+        public static int xlua_getref_getfieldvalue(IntPtr L, int reference, string key, int conv, out int top, out long value,
+            out int valid)
+        {
+            int len;
+            byte[] bytes = utf8Bytes(key, out len);
+            return xlua_getref_getfieldvalue_utf8(L, reference, bytes, len, conv, out top, out value, out valid);
+        }
+
         [DllImport(LUADLL, EntryPoint = "xlua_getref_setfield", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int xlua_getref_setfield_utf8(IntPtr L, int reference, byte[] key, int len, out int top);
 
@@ -696,6 +744,16 @@ namespace XLua.LuaDLL
         // place of the key; top is the stack top below the key.
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int xlua_getref_get(IntPtr L, int reference, out int top);
+
+        // LuaTable.Get of a number or a boolean: xlua_getref_get with the value
+        // converted as conv says and popped, in one call where
+        // they took three (build/xlua.c getref_value): 0 the type only, 1
+        // xlua_tointeger64's value and valid, 2 lua_tonumber's double as its
+        // bits (BitConverter.Int64BitsToDouble), 3 lua_toboolean. Returns the
+        // value's type with the stack at top, or -1 with the error in place of
+        // the key.
+        [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int xlua_getref_getvalue(IntPtr L, int reference, int conv, out int top, out long value, out int valid);
 
         // LuaTable.Set: t[k] = v for the key and the value on the top, as
         // lua_settable does (__newindex included), without lua_pcall when no

@@ -1118,6 +1118,24 @@ if ( ANDROID )
     target_link_options(xlua PRIVATE -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384) # android 16K Pagesize
 endif ( )
 
+# In an ELF shared library every exported function can be interposed, so the
+# library's calls to its own exports (xlua.c to lua_*, lauxlib.c to lapi.c,
+# LuaSocket to luaL_*) went through the PLT: an indirect branch through the GOT
+# each, about a tenth of a C# LuaTable read on the emulator, and one PLT entry,
+# GOT slot and JUMP_SLOT relocation per such function (144 in the Lua 5.5.1
+# arm64-v8a library with every export, 36 with XLUA_EXPORTS=managed).
+# -Bsymbolic-functions binds them to the library's own definitions at link
+# time (docs/research/benchmark-vs-moonsharp-ng.md, 2026-10-31). The exports do
+# not change; a library loaded before this one that defines the same functions
+# no longer replaces them for the calls inside it (docs/MIGRATING.md). Android
+# and Linux, where it was tested; Apple and Windows bind such calls directly
+# anyway, and iOS, WebGL and the consoles link a static library.
+# check_android_elf.py fails an Android library with a PLT call to itself.
+get_target_property (xlua_link_type xlua TYPE)
+if ((ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Linux") AND xlua_link_type STREQUAL "SHARED_LIBRARY")
+    target_link_options (xlua PRIVATE -Wl,-Bsymbolic-functions)
+endif ()
+
 # XLUA_BYTECODE_ONLY: LuaEnv's own Lua source (init_xlua, the pairs helper,
 # xlua.util ...) precompiled into the library, which has no compiler
 # (build/README.md, "Bytecode-only builds"). The C# strings between
